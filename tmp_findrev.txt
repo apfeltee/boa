@@ -1,0 +1,111 @@
+  # _Bool lit_is_callable_function(LitValue value);
+  "lit_is_callable_function": "lit_value_iscallablefunction"
+
+  # LitString * lit_allocate_empty_string(LitState *state, LitUInt length);
+  "lit_allocate_empty_string": "lit_object_makeemptystring"
+
+  # void lit_register_string(LitState *state, LitString *string);
+  "lit_register_string": "lit_string_register"
+
+  # static LitString * allocate_string(LitState *state, char *chars, LitUInt length, uint32_t hash);
+  "allocate_string": "lit_object_allocstring"
+
+  # uint32_t lit_hash_string(const char *key, LitUInt length);
+  "lit_hash_string": "lit_string_hash"
+
+  # LitString * lit_take_string(LitState *state, const char *chars, LitUInt length);
+  "lit_take_string": "lit_string_take"
+
+  # LitString * lit_copy_string(LitState *state, const char *chars, LitUInt length);
+  "lit_copy_string": "lit_string_copy"
+
+  # LitValue lit_number_to_string(LitState *state, double value);
+  "lit_number_to_string": "lit_string_numbertostring"
+
+  # LitValue lit_string_format(LitState *state, const char *format, ...);
+  "lit_string_format": "lit_string_format"
+
+  # LitObject * lit_allocate_object(LitState *state, size_t size, LitObjectType type);
+  "lit_allocate_object": "lit_object_allocobject"
+
+  # LitFunction * lit_create_function(LitState *state, LitModule *module);
+  "lit_create_function": "lit_object_makefunction"
+
+  # LitValue lit_get_function_name(LitVm *vm, LitValue instance);
+  "lit_get_function_name": "lit_function_getname"
+
+  # LitUpvalue * lit_create_upvalue(LitState *state, LitValue *slot);
+  "lit_create_upvalue": "lit_object_makeupvalue"
+
+  # LitClosure * lit_create_closure(LitState *state, LitFunction *function);
+  "lit_create_closure": "lit_object_makeclosure"
+
+  # LitClosurePrototype * lit_create_closure_prototype(LitState *state, LitFunction *function);
+  "lit_create_closure_prototype": "lit_object_makeclosureproto"
+
+  # LitNativeFunction * lit_create_native_function(LitState *state, LitNativeFunctionFn function, LitString *name);
+  "lit_create_native_function": "lit_object_makenativefunc"
+
+  # LitNativePrimitive * lit_create_native_primitive(LitState *state, LitNativePrimitiveFn function, LitString *name);
+  "lit_create_native_primitive": "lit_object_makenativeprimitive"
+
+  # LitNativeMethod * lit_create_native_method(LitState *state, LitNativeMethodFn method, LitString *name);
+  "lit_create_native_method": "lit_object_makenativemethod"
+
+  # LitPrimitiveMethod * lit_create_primitive_method(LitState *state, LitPrimitiveMethodFn method, LitString *name);
+  "lit_create_primitive_method": "lit_object_makeprimitivemethod"
+
+  # LitFiber * lit_create_fiber(LitState *state, LitModule *module, LitFunction *function);
+  "lit_create_fiber": "lit_object_makefiber"
+
+  # LitFiber * lit_create_fiber_with_closure(LitState *state, LitModule *module, LitClosure *closure);
+  "lit_create_fiber_with_closure": "lit_object_makefiberclosure"
+
+  # void lit_ensure_fiber_registers(LitState *state, LitFiber *fiber, LitUInt needed);
+  "lit_ensure_fiber_registers": "lit_fiber_ensureregisters"
+
+  # LitModule * lit_create_module(LitState *state, LitString *name);
+  "lit_create_module": "lit_object_makemodule"
+
+  # LitClass * lit_create_class(LitState *state, LitString *name);
+  "lit_create_class": "lit_object_makeclass"
+
+  # LitInstance * lit_create_instance(LitState *state, LitClass *klass);
+  "lit_create_instance": "lit_object_makeinstance"
+
+  # LitBoundMethod * lit_create_bound_method(LitState *state, LitValue receiver, LitValue method);
+  "lit_create_bound_method": "lit_object_makeboundmethod"
+
+  # LitArray * lit_create_array(LitState *state);
+  "lit_create_array": "lit_object_makearray"
+
+  # LitVarargArray * lit_create_vararg_array(LitState *state);
+  "lit_create_vararg_array": "lit_object_makevararray"
+
+  # LitMap * lit_create_map(LitState *state);
+  "lit_create_map": "lit_object_makemap"
+
+  # _Bool lit_map_set(LitState *state, LitMap *map, LitString *key, LitValue value);
+  "lit_map_set": "lit_map_set"
+
+  # _Bool lit_map_get(LitMap *map, LitString *key, LitValue *value);
+  "lit_map_get": "lit_map_get"
+
+  # _Bool lit_map_delete(LitMap *map, LitString *key);
+  "lit_map_delete": "lit_map_delete"
+
+  # void lit_map_add_all(LitState *state, LitMap *from, LitMap *to);
+  "lit_map_add_all": "lit_map_add_all"
+
+  # LitUserdata * lit_create_userdata(LitState *state, size_t size);
+  "lit_create_userdata": "lit_object_makeuserdata"
+
+  # LitRange * lit_create_range(LitState *state, double from, double to);
+  "lit_create_range": "lit_object_makerange"
+
+  # LitField * lit_create_field(LitState *state, LitObject *getter, LitObject *setter);
+  "lit_create_field": "lit_object_makefield"
+
+  # LitReference * lit_create_reference(LitState *state, LitValue *slot);
+  "lit_create_reference": "lit_object_makereference"
+

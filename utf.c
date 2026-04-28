@@ -1,0 +1,230 @@
+
+#include <wchar.h>
+#include "lit.h"
+
+int lit_decode_num_bytes(uint8_t byte)
+{
+    if((byte & 0xc0) == 0x80)
+    {
+        return 0;
+    }
+    if((byte & 0xf8) == 0xf0)
+    {
+        return 4;
+    }
+    if((byte & 0xf0) == 0xe0)
+    {
+        return 3;
+    }
+
+    if((byte & 0xe0) == 0xc0)
+    {
+        return 2;
+    }
+
+    return 1;
+}
+
+int lit_ustring_length(LitString* string)
+{
+    int length = 0;
+
+    for(uint32_t i = 0; i < string->length;)
+    {
+        i += lit_decode_num_bytes(string->chars[i]);
+        length++;
+    }
+
+    return length;
+}
+
+LitString* lit_ustring_code_point_at(LitState* state, LitString* string, uint32_t index)
+{
+    if(index >= string->length)
+    {
+        return NULL;
+    }
+
+    int codepoint = lit_ustring_decode((uint8_t*)string->chars + index, string->length - index);
+
+    if(codepoint == -1)
+    {
+        char bytes[2];
+
+        bytes[0] = string->chars[index];
+        bytes[1] = '\0';
+
+        return lit_string_copy(state, bytes, 1);
+    }
+
+    return lit_ustring_from_code_point(state, codepoint);
+}
+
+LitString* lit_ustring_from_code_point(LitState* state, int value)
+{
+    int length = lit_encode_num_bytes(value);
+    char bytes[length + 1];
+
+    lit_ustring_encode(value, (uint8_t*)bytes);
+    return lit_string_copy(state, bytes, length);
+}
+
+LitString* lit_ustring_from_range(LitState* state, LitString* source, int start, uint32_t count)
+{
+    uint8_t* from = (uint8_t*)source->chars;
+    int length = 0;
+
+    for(uint32_t i = 0; i < count; i++)
+    {
+        length += lit_decode_num_bytes(from[start + i]);
+    }
+
+    char bytes[length];
+
+    uint8_t* to = (uint8_t*)bytes;
+
+    for(uint32_t i = 0; i < count; i++)
+    {
+        int index = start + i;
+        int codepoint = lit_ustring_decode(from + index, source->length - index);
+
+        if(codepoint != -1)
+        {
+            to += lit_ustring_encode(codepoint, to);
+        }
+    }
+
+    return lit_string_copy(state, bytes, length);
+}
+
+int lit_encode_num_bytes(int value)
+{
+    if(value <= 0x7f)
+    {
+        return 1;
+    }
+
+    if(value <= 0x7ff)
+    {
+        return 2;
+    }
+
+    if(value <= 0xffff)
+    {
+        return 3;
+    }
+
+    if(value <= 0x10ffff)
+    {
+        return 4;
+    }
+
+    return 0;
+}
+
+int lit_ustring_encode(int value, uint8_t* bytes)
+{
+    if(value <= 0x7f)
+    {
+        *bytes = value & 0x7f;
+        return 1;
+    }
+    else if(value <= 0x7ff)
+    {
+        *bytes = 0xc0 | ((value & 0x7c0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+        return 2;
+    }
+    else if(value <= 0xffff)
+    {
+        *bytes = 0xe0 | ((value & 0xf000) >> 12);
+        bytes++;
+        *bytes = 0x80 | ((value & 0xfc0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+
+        return 3;
+    }
+    else if(value <= 0x10ffff)
+    {
+        *bytes = 0xf0 | ((value & 0x1c0000) >> 18);
+        bytes++;
+        *bytes = 0x80 | ((value & 0x3f000) >> 12);
+        bytes++;
+        *bytes = 0x80 | ((value & 0xfc0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+
+        return 4;
+    }
+
+    UNREACHABLE
+    return 0;
+}
+
+int lit_ustring_decode(const uint8_t* bytes, uint32_t length)
+{
+    if(*bytes <= 0x7f)
+    {
+        return *bytes;
+    }
+
+    int value;
+    uint32_t remainingbytes;
+
+    if((*bytes & 0xe0) == 0xc0)
+    {
+        value = *bytes & 0x1f;
+        remainingbytes = 1;
+    }
+    else if((*bytes & 0xf0) == 0xe0)
+    {
+        value = *bytes & 0x0f;
+        remainingbytes = 2;
+    }
+    else if((*bytes & 0xf8) == 0xf0)
+    {
+        value = *bytes & 0x07;
+        remainingbytes = 3;
+    }
+    else
+    {
+        return -1;
+    }
+
+    if(remainingbytes > length - 1)
+    {
+        return -1;
+    }
+
+    while(remainingbytes > 0)
+    {
+        bytes++;
+        remainingbytes--;
+
+        if((*bytes & 0xc0) != 0x80)
+        {
+            return -1;
+        }
+
+        value = value << 6 | (*bytes & 0x3f);
+    }
+
+    return value;
+}
+
+int lit_uchar_offset(char* str, int index)
+{
+#define is_utf(c) (((c)&0xC0) != 0x80)
+    int offset = 0;
+
+    while(index > 0 && str[offset])
+    {
+        (void)(is_utf(str[++offset]) || is_utf(str[++offset]) || is_utf(str[++offset]) || ++offset);
+        index--;
+    }
+
+    return offset;
+#undef is_utf
+}

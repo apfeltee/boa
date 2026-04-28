@@ -1,0 +1,80 @@
+
+function check(msg, b) {
+    if(!b) {
+        Fiber.abort("test '" + msg + "' failed")
+    }
+}
+
+function testfiber()
+{
+    print("expect: attempt to call null value: ", new Fiber(function(...) {
+      null()
+    }).try()) // Expected: Attempt to call a null value
+
+    println("expect null: ", new Fiber(() => {
+      Fiber.yield()
+    }).run()) // Expected: null
+
+    println("expect Hello World: ", new Fiber(function(...) {
+      Fiber.yield("Hello, World!")
+    }).run()) // Expected: Hello, World!
+
+    var fiber = new Fiber((...) => {
+      Fiber.yield(0);
+      return null
+    })
+
+    println("expect 0:", fiber.run()) // Expected: 0
+    println("expect false:", fiber.done) // Expected: false
+    println("expect null:", fiber.run()) // Expected: null
+    println("expect true: ", fiber.done) // Expected: true
+
+    println("expect false:", Fiber.current.done) // Expected: false
+
+    fiber = new Fiber(function(...) { Fiber.abort("ono") })
+
+    println("expect ono: ", fiber.try()) // Expected: ono
+    println("expect ono: ", fiber.error) // Expected: ono
+
+    var failFiber = new Fiber(function(...) {
+      null()
+    })
+
+    fiber = new Fiber(() => {
+      Number.doesnotexist()
+      println("help")
+    })
+
+    print("expect attempt to call null value :", fiber.try()) // Expected: Attempt to call a null value
+
+    function shout(a, ...) {
+        var f = new Fiber((...) => {
+            var a = ...
+            println(a) // Expected: [ coffee, sugar ]
+        })
+
+        f.run(...)
+    }
+
+    shout("tea", "coffee", "sugar")
+    println("fiber is working fine");
+}
+
+{
+    println("testing basic vars")
+    {
+        a = 5
+        check("basic integer assignment", a == 5)
+        s = "foo"
+        check("basic string assignment", s == "foo")
+        m = {bar: "foo"}
+        check("basic inline object assignment", m["bar"] == "foo")
+        a = [1, 2, 3]
+        check("basic array assignment - length", (a.length == 3))
+        //check("basic array assignment - comparison", (a == [1, 2, 3]))
+
+    }
+    testfiber();
+}
+
+println("all is well!")
