@@ -1,0 +1,21 @@
+class A {
+	constructor(a) {
+		println(a)
+	}
+}
+
+class B : A {
+	constructor(a) {
+		super(a)
+		println(super.constructor)
+	}
+}
+
+class C : B {
+	constructor() {
+		super("sup")
+	}
+}
+
+new C() // Expected: sup
+// Expected: function A:constructor

@@ -1,0 +1,10 @@
+var lambda = (a, b) => println(a + b)
+var longLambda = () => {
+	test = 48
+	println("good")
+}
+
+println(test) // Expected: null
+lambda(1, 3) // Expected: 4
+longLambda() // Expected: good
+println(test) // Expected: 48

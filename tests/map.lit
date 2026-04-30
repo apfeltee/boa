@@ -1,0 +1,41 @@
+var map = new Map {
+	a: 32,
+	b: true
+}
+
+println(map) // Expected: { a: 32, b: true }
+println(map["b"]) // Expected: true
+println(map.length) // Expected: 2
+
+map["b"] = 48
+
+println(map["b"]) // Expected: 48
+println(map.length) // Expected: 2
+
+map["test"] = "whatever"
+
+println(map["test"]) // Expected: whatever
+println(map.length) // Expected: 3
+
+map.addAll(new Map {
+ z: 128,
+ alpha: 243
+})
+
+println(map.length) // Expected: 5
+println(map["z"]) // Expected: 128
+
+map.clear()
+println(map) // Expected: {}
+println(map.length) // Expected: 0
+
+println(new Map { a: "test" }.clone()) // Expected: { a: "test" }
+
+new Map() {
+	a: 1,
+	b: 2,
+	c: 3
+}.forEach((k, v) => println($"{k}: {v}"))
+// Expected: c: 3
+// Expected: a: 1
+// Expected: b: 2

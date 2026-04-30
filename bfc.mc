@@ -327,20 +327,6 @@ function main(argv)
     println("argv = ", argv)
     var src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
     var bfr = BFRunner()
-    if(argv.length > 1)
-    {
-        src = ""
-        var fh = File(argv[1], "r")
-        while(true)
-        {
-            var line = fh.readline()
-            if(line == null)
-            {
-                break;
-            }
-            src += line
-        }
-    }
     println("src=", src)
     if(!bfr.compile(src, src.length))
     {

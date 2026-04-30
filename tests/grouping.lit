@@ -1,0 +1,5 @@
+println(("test")) // Expected: test
+println((((32.4)))) // Expected: 32.4
+println((true)) // Expected: true
+println((false)) // Expected: false
+println((null)) // Expected: null

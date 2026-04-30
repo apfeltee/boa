@@ -1,0 +1,22 @@
+class Awesome {
+
+}
+
+var instance = new Awesome()
+println(instance.test) // Expected: null
+
+instance.test = 32
+println(instance.test) // Expected: 32
+
+println(instance.test = 48) // Expected: 48
+println(instance.test) // Expected: 48
+
+var a = null
+println(a?.prop) // Expected: null
+a = instance
+
+println(a?.prop) // Expected: null
+println(a?.prop?.test) // Expected: null
+
+a.prop = 32
+println(a?.prop) // Expected: 32

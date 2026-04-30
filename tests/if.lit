@@ -1,0 +1,100 @@
+if (false) {
+    println("bad")
+}
+
+if (true) {
+    println("good") // Expected: good
+}
+
+if (true) {
+    println("good") // Expected: good
+} else {
+    println("bad")
+}
+
+if (false) {
+    println("bad")
+} else {
+    println("good") // Expected: good
+}
+
+if (false) {
+    println("bad")
+} else if (false) {
+    println("bad")
+} else {
+    println("good") // Expected: good
+}
+
+if (false) {
+    println("bad")
+} else if (true) {
+    println("good") // Expected: good
+} else {
+    println("bad")
+}
+
+if (true) {
+    println("good") // Expected: good
+} else if (true) {
+    println("bad")
+} else {
+    println("bad")
+}
+
+if (false) {
+    println("bad")
+} else if (false) {
+    println("bad")
+} else if (false) {
+    println("bad")
+} else {
+    println("good") // Expected: good
+}
+
+if (false) {
+    println("bad")
+} else if (false) {
+    println("bad")
+} else if (true) {
+    println("good") // Expected: good
+} else {
+    println("bad")
+}
+
+if (true) {
+    println("good") // Expected: good
+} else if (true) {
+    println("bad")
+} else if (false) {
+    println("bad")
+} else {
+    println("bad")
+}
+
+if (false) {
+    println("bad")
+} else if (true) {
+    println("good") // Expected: good
+} else if (false) {
+    println("bad")
+} else {
+    println("bad")
+}
+
+if !(false) {
+    println("good") // Expected: good
+}
+
+if (false) {
+    println("bad")
+} else if !(false) {
+    println("good") // Expected: good
+}
+
+if !(true && true) {
+    println("oops")
+}
+
+println(true ? 32 : 10) // Expected: 32
+println(10 > 40 ? 59 : 9) // Expected: 9

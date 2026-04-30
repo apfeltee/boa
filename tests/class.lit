@@ -1,0 +1,16 @@
+class Base {
+
+}
+
+println(Base.super) // Expected: class Object
+println(new Base()) // Expected: Base instance
+println(Base.name) // Expected: Base
+
+class Child : Base {
+
+}
+
+println(Child.super) // Expected: class Base
+println(Child()) // Expected: Child instance
+println(Child.name) // Expected: Child
+println(Child.super.name) // Expected: Base

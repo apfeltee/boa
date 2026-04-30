@@ -1,0 +1,7 @@
+function b() {
+	return "hey"
+}
+
+var a = b()
+println(a) // Expected: hey
+println(b()) // Expected: hey

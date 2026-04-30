@@ -1,13 +1,18 @@
 
-var BFI_MAXMEMORY = 30000
-var TOK_BRACOPEN = "[".byteAt(0)
-var TOK_BRACCLOSE = "]".byteAt(0)
-var TOK_DOT = ".".byteAt(0)
-var TOK_COMMA = ",".byteAt(0)
-var TOK_LESS = "<".byteAt(0)
-var TOK_GREATER = ">".byteAt(0)
-var TOK_PLUS = "+".byteAt(0)
-var TOK_MINUS = "-".byteAt(0)
+var BFI_MAXMEMORY = 300
+var TOK_BRACOPEN = "["
+var TOK_BRACCLOSE = "]"
+var TOK_DOT = "."
+var TOK_COMMA = ","
+var TOK_LESS = "<"
+var TOK_GREATER = ">"
+var TOK_PLUS = "+"
+var TOK_MINUS = "-"
+
+function Error(msg)
+{
+    println("**ERROR** " + msg)
+}
 
 function bf(bfsrc, input)
 {
@@ -29,7 +34,7 @@ function bf(bfsrc, input)
         {
             Error("Invalid instruction pointer (instr=" + instr + ")")
         }
-        var c = bfsrc.byteAt(instr)
+        var c = bfsrc[instr]
         if(c == TOK_PLUS)
         {
             memory[memptr] = memory[memptr] + 1
@@ -75,7 +80,9 @@ function bf(bfsrc, input)
         else if(c == TOK_BRACOPEN)
         {
             if (memory[memptr] != 0)
-                stack.append(instr)
+            {
+                stack.push(instr)
+            }
             else
             {
                 var bcount = 0
@@ -87,7 +94,7 @@ function bf(bfsrc, input)
                     {
                         Error("Missing matching ']'")
                     }
-                    if(bfsrc.byteAt(instr) == TOK_BRACCLOSE)
+                    if(bfsrc[instr] == TOK_BRACCLOSE)
                     {
                         if(bcount != 0)
                         {
@@ -98,7 +105,7 @@ function bf(bfsrc, input)
                             cont = false;
                         }
                     }
-                    else if(bfsrc.byteAt(instr) == TOK_BRACOPEN)
+                    else if(bfsrc[instr] == TOK_BRACOPEN)
                     {
                         bcount = bcount + 1;
                     }
@@ -116,20 +123,6 @@ function bf(bfsrc, input)
 function main(argv)
 {
     var src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
-    if(argv.length > 1)
-    {
-        src = ""
-        var fh = File(argv[1], "r")
-        while(true)
-        {
-            var line = fh.readline()
-            if(line == null)
-            {
-                break;
-            }
-            src += line
-        }
-    }
     println("bfsource: ", src)
     bf(src, "")
 }

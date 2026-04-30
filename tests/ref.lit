@@ -1,0 +1,30 @@
+var a = "Test"
+println(ref a) // Expected: Test
+
+g = 10
+println(ref g) // Expected: 10
+
+function test() {
+	var a = 32
+	println(ref a) // Expected: 32
+	a = 90
+
+	return () => {
+		println(ref a) // Expected: 90
+	}
+}
+
+test()()
+
+var z = {
+	me: "Egor"
+}
+
+println(ref z.me) // Expected: Egor
+
+function change(a) {
+	ref a = "Test"
+}
+
+change(ref z.me)
+println(z.me) // Expected: Test

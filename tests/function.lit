@@ -1,0 +1,72 @@
+function test() {
+	println("Yahoo")
+}
+
+test() // Expected: Yahoo
+var d = test
+d() // Expected: Yahoo
+
+function out() {
+	function inner() {
+		println("good")
+	}
+
+	return inner
+}
+
+var a = out()
+a() // Expected: good
+
+function outer(arg) {
+	function inner() {
+		println(arg)
+	}
+
+	return inner
+}
+
+var b = outer("begget")
+var c = outer("not begget")
+
+b() // Expected: begget
+c() // Expected: not begget
+
+function z() {
+	return b
+}
+
+println(z() == b) // Expected: true
+
+function call(who = "dog") {
+	println($"Calling {who}")
+}
+
+call() // Expected: Calling dog
+call("pizza delivery") // Expected: Calling pizza delivery
+
+function printAll(...) {
+	for var a in ... {
+		println(a)
+	}
+}
+
+function shout(a, ...) {
+	var b = ...
+	println(a) // Expected: maybe
+	printAll(...) // Expected: yea
+	// Expected: test
+
+	println(b) // Expected: [ "yea", "test" ]
+}
+
+shout("maybe", "yea", "test")
+
+function hey() {
+	yes()
+}
+
+function yes() {
+	println("Oh yes") // Expected: Oh yes
+}
+
+hey()

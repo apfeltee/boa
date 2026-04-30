@@ -1,0 +1,51 @@
+println(new Fiber(() => {
+  null()
+}).try()) // Expected: Attempt to call a null value
+
+println(new Fiber(() => {
+  Fiber.yield()
+}).run()) // Expected: null
+
+println(new Fiber(() => {
+  Fiber.yield("Hello, World!")
+}).run()) // Expected: Hello, World!
+
+var fiber = new Fiber(() => {
+  Fiber.yield(0)
+})
+
+println(fiber.run()) // Expected: 0
+println(fiber.done) // Expected: false
+println(fiber.run()) // Expected: null
+println(fiber.done) // Expected: true
+
+println(Fiber.current.done) // Expected: false
+
+fiber = new Fiber(() => {
+  Fiber.abort("ono")
+})
+
+println(fiber.try()) // Expected: ono
+println(fiber.error) // Expected: ono
+
+var failFiber = new Fiber(() => {
+  null()
+})
+
+fiber = new Fiber(() => {
+  failFiber.run()
+  println("help")
+})
+
+println(fiber.try()) // Expected: Attempt to call a null value
+
+function shout(a, ...) {
+	var f = new Fiber((...) => {
+		var a = ...
+		println(a) // Expected: [ "coffee", "sugar" ]
+	})
+
+	f.run(...)
+}
+
+shout("tea", "coffee", "sugar")

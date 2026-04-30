@@ -1,0 +1,11 @@
+var a = 10
+var b = 32
+
+println(b) // Expected: 32
+a = b
+println(a) // Expected: 32
+a = b = 48
+
+println(a) // Expected: 48
+println(b) // Expected: 48
+println((a = 32) + 2) // Expected: 34
