@@ -39,7 +39,7 @@ function mandelbrot(x1,y1, x2,y2, size_x,size_y, max_iter)
             x = x + step_x;
         }
         y = y + step_y;
-        println (ec, "[0m");
+        print(ec, "[0m", "\n");
     }
 }
 

@@ -31,7 +31,7 @@ WFLAGS = -Wall -Wextra -Wshadow -Wpointer-arith -Wuninitialized -Winit-self  $(a
 #WFLAGS = -w
 
 
-OPTFLAGS = -Og
+OPTFLAGS = -O0
 #OPTFLAGS = -O5 -funroll-loops -flto -ffast-math 
 
 ## empty by default
