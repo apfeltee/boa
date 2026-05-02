@@ -618,7 +618,7 @@ typedef struct LitResult LitResult;
 typedef struct LitToken LitToken;
 typedef struct LitDynListExpr LitDynListExpr;
 typedef struct NNIOStream NNIOStream;
-typedef struct NNStringBuffer NNStringBuffer;
+typedef struct LitStrBuffer LitStrBuffer;
 typedef struct LitValue LitValue;
 
 typedef struct LitDynListUInt LitDynListUInt;
@@ -669,13 +669,13 @@ typedef bool (*LitNativePrimitiveFn)(LitVm*, LitUInt, LitValue*);
 typedef LitValue (*LitNativeFunctionFn)(LitVm*, LitUInt, LitValue*);
 
 
-struct NNStringBuffer
+struct LitStrBuffer
 {
     uint8_t isintern;
     /* capacity should be >= length+1 to allow for \0 */
     size_t capacity;
-    size_t storedlength;
-    char* longstrdata;
+    size_t length;
+    char* data;
 };
 
 struct NNIOStream
@@ -693,8 +693,7 @@ struct NNIOStream
     size_t maxvallength;
     /* the mode that determines what writer actually does */
     NNPrMode wrmode;
-    LitState* pstate;
-    NNStringBuffer strbuf;
+    LitStrBuffer strbuf;
     FILE* handle;
 };
 
@@ -765,9 +764,8 @@ struct LitObject
 struct LitString
 {
     LitObject innerobject;
-    LitUInt length;
     uint32_t hash;
-    char* chars;
+    LitStrBuffer strbuf;
 };
 
 struct LitFunction
@@ -775,7 +773,7 @@ struct LitFunction
     LitObject innerobject;
     LitChunk chunk;
     LitString* name;
-    uint8_t argcount;
+    LitUInt argcount;
     LitUInt upvaluecount;
     uint8_t max_registers;
     bool vararg;
@@ -1408,6 +1406,1663 @@ struct LitFileData
 
 jmp_buf g_vmglobaljumpbuf;
 
+/* Bounds check when inserting (pos <= len are valid) */
+#define nn_strbuf_boundscheckinsert(sb, pos) nn_strutil_callboundscheckinsert(sb, pos, __FILE__, __LINE__)
+#define nn_strbuf_boundscheckreadrange(sb, start, len) nn_strutil_callboundscheckreadrange(sb, start, len, __FILE__, __LINE__)
+
+size_t nn_strutil_rndup2pow64(uint64_t x)
+{
+    /* long long >=64 bits guaranteed in C99 */
+    --x;
+    x |= x >> 1;
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+    x |= x >> 32;
+    ++x;
+    return x;
+}
+
+
+/*
+// Replaces `sep` with \0 in str
+// Returns number of occurances of `sep` character in `str`
+// Stores `nptrs` pointers in `ptrs`
+*/
+size_t nn_strutil_splitstr(char* str, char sep, char** ptrs, size_t nptrs)
+{
+    size_t n;
+    n = 1;
+    if(*str == '\0')
+    {
+        return 0;
+    }
+    if(nptrs > 0)
+    {
+        ptrs[0] = str;
+    }
+    while((str = strchr(str, sep)) != NULL)
+    {
+        *str = '\0';
+        str++;
+        if(n < nptrs)
+        {
+            ptrs[n] = str;
+        }
+        n++;
+    }
+    return n;
+}
+
+/*
+// Replace one char with another in a string. Return number of replacements made
+*/
+size_t nn_strutil_charreplace(char* str, char from, char to)
+{
+    size_t n;
+    n = 0;
+    for(; *str; str++)
+    {
+        if(*str == from)
+        {
+            n++;
+            *str = to;
+        }
+    }
+    return n;
+}
+
+/*
+// Reverse a string region
+*/
+void nn_strutil_reverseregion(char* str, size_t length)
+{
+    char *a;
+    char* b;
+    char tmp;
+    a = str;
+    b = str + length - 1;
+    while(a < b)
+    {
+        tmp = *a;
+        *a = *b;
+        *b = tmp;
+        a++;
+        b--;
+    }
+}
+
+bool nn_strutil_isallspace(const char* s)
+{
+    int i;
+    for(i = 0; s[i] != '\0' && isspace((int)s[i]); i++)
+    {
+    }
+    return (s[i] == '\0');
+}
+
+char* nn_strutil_nextspace(char* s)
+{
+    while(*s != '\0' && isspace((int)*s))
+    {
+        s++;
+    }
+    return (*s == '\0' ? NULL : s);
+}
+
+/*
+// Strip whitespace the the start and end of a string.
+// Strips whitepace from the end of the string with \0, and returns pointer to
+// first non-whitespace character
+*/
+char* nn_strutil_trim(char* str)
+{
+    /* Work backwards */
+    char* end;
+    end = str + strlen(str);
+    while(end > str && isspace((int)*(end - 1)))
+    {
+        end--;
+    }
+    *end = '\0';
+    /* Work forwards: don't need start < len because will hit \0 */
+    while(isspace((int)*str))
+    {
+        str++;
+    }
+    return str;
+}
+
+/*
+// Removes \r and \n from the ends of a string and returns the new length
+*/
+size_t nn_strutil_chomp(char* str, size_t len)
+{
+    while(len > 0 && (str[len - 1] == '\r' || str[len - 1] == '\n'))
+    {
+        len--;
+    }
+    str[len] = '\0';
+    return len;
+}
+
+/*
+// Returns count
+*/
+size_t nn_strutil_countchar(const char* str, char c)
+{
+    size_t count;
+    count = 0;
+    while((str = strchr(str, c)) != NULL)
+    {
+        str++;
+        count++;
+    }
+    return count;
+}
+
+/*
+// Returns the number of strings resulting from the split
+*/
+size_t nn_strutil_split(const char* splitat, const char* sourcetxt, char*** result)
+{
+    size_t i;
+    size_t slen;
+    size_t count;
+    size_t splitlen;
+    size_t txtlen;
+    char** arr;
+    const char* find;
+    const char* plastpos;
+    splitlen = strlen(splitat);
+    txtlen = strlen(sourcetxt);
+    /* result is temporarily held here */
+    if(splitlen == 0)
+    {
+        /* Special case */
+        if(txtlen == 0)
+        {
+            *result = NULL;
+            return 0;
+        }
+        else
+        {
+            arr = (char**)lit_sysmem_malloc(txtlen * sizeof(char*));
+            for(i = 0; i < txtlen; i++)
+            {
+                arr[i] = (char*)lit_sysmem_malloc(2 * sizeof(char));
+                arr[i][0] = sourcetxt[i];
+                arr[i][1] = '\0';
+            }
+            *result = arr;
+            return txtlen;
+        }
+    }
+    find = sourcetxt;
+    /* must have at least one item */
+    count = 1;
+    for(; (find = strstr(find, splitat)) != NULL; count++, find += splitlen)
+    {
+    }
+    /* Create return array */
+    arr = (char**)lit_sysmem_malloc(count * sizeof(char*));
+    count = 0;
+    plastpos = sourcetxt;
+    while((find = strstr(plastpos, splitat)) != NULL)
+    {
+        slen = (size_t)(find - plastpos);
+        arr[count] = (char*)lit_sysmem_malloc((slen + 1) * sizeof(char));
+        strncpy(arr[count], plastpos, slen);
+        arr[count][slen] = '\0';
+        count++;
+        plastpos = find + splitlen;
+    }
+    /* Copy last item */
+    slen = (size_t)(sourcetxt + txtlen - plastpos);
+    arr[count] = (char*)lit_sysmem_malloc((slen + 1) * sizeof(char));
+    if(count == 0)
+    {
+        strcpy(arr[count], sourcetxt);
+    }
+    else
+    {
+        strncpy(arr[count], plastpos, slen);
+    }
+    arr[count][slen] = '\0';
+    count++;
+    *result = arr;
+    return count;
+}
+
+void nn_strutil_callboundscheckinsert(LitStrBuffer* sb, size_t pos, const char* file, int line)
+{
+    if(pos > sb->length)
+    {
+        fprintf(stderr, "%s:%i: - out of bounds error [index: %ld, num_of_bits: %ld]\n", file, line, (long)pos, (long)sb->length);
+        errno = EDOM;
+        abort();
+    }
+}
+
+/* Bounds check when reading a range (start+len < strlen is valid) */
+void nn_strutil_callboundscheckreadrange(LitStrBuffer* sb, size_t start, size_t len, const char* file, int line)
+{
+    if(start + len > sb->length)
+    {
+        fprintf(stderr,"%s:%i: - out of bounds error [start: %ld; length: %ld; strlen: %ld; buf:%.*s%s]\n",
+                file, line, (long)start, (long)len, (long)sb->length, (int)STRBUF_MIN(5, sb->length), nn_strbuf_data(sb), sb->length > 5 ? "..." : "");
+        errno = EDOM;
+        abort();
+    }
+}
+
+/* via: https://codereview.stackexchange.com/q/274832 */
+void nn_strutil_faststrncat(char *dest, const char *src, size_t *size)
+{
+    if(dest && src && size)
+    {
+        while((dest[*size] = *src++))
+        {
+            *size += 1;
+        }
+    }
+}
+
+size_t nn_strutil_strreplace1(char **str, size_t selflen, const char* findstr, size_t findlen, const char *substr, size_t sublen)
+{
+    size_t i;
+    size_t x;
+    size_t oldcount;
+    char* buff;
+    const char *temp;
+    (void)selflen;
+    oldcount = 0;
+    temp = (const char *)(*str);
+    for (i = 0; temp[i] != '\0'; ++i)
+    {
+        if (strstr((const char *)&temp[i], findstr) == &temp[i])
+        {
+            oldcount++;
+            i += findlen - 1;
+        }
+    }
+    buff = (char*)lit_sysmem_malloc((i + oldcount * (sublen - findlen) + 1) * sizeof(char));
+    if (!buff)
+    {
+        perror("bad allocation\n");
+        exit(EXIT_FAILURE);
+    }
+    i = 0;
+    while (*temp)
+    {
+        if (strstr(temp, findstr) == temp)
+        {
+            x = 0;
+            nn_strutil_faststrncat(&buff[i], substr, &x);
+            i += sublen;
+            temp += findlen;
+        }
+        else
+        {
+            buff[i++] = *temp++;
+        }
+    }
+    lit_sysmem_free(*str);
+    *str = (char*)lit_sysmem_malloc((i + 1) * sizeof(char));
+    if (!(*str))
+    {
+        perror("bad allocation\n");
+        exit(EXIT_FAILURE);
+    }
+    i = 0;
+    nn_strutil_faststrncat(*str, (const char *)buff, &i);
+    lit_sysmem_free(buff);
+    return i;
+}
+
+size_t nn_strutil_strrepcount(const char* str, size_t slen, const char* findstr, size_t findlen, size_t sublen)
+{
+    size_t i;
+    size_t count;
+    size_t total;
+    (void)total;
+    total = slen;
+    count = 0;
+    for(i=0; i<slen; i++)
+    {
+        if(str[i] == findstr[0])
+        {
+            if((i + findlen) < slen)
+            {
+                if(memcmp(&str[i], findstr, findlen) == 0)
+                {
+                    count++;
+                    total += sublen;
+                }
+            }
+        }
+    }
+    if(count == 0)
+    {
+        return 0;
+    }
+    return total + 0;
+}
+
+/* via: https://stackoverflow.com/a/32413923 */
+void nn_strutil_strreplace2(char* target, size_t tgtlen, const char *findstr, size_t findlen, const char *substr, size_t sublen)
+{
+    const char *p;
+    const char *tmp;
+    char *inspoint;
+    char buffer[1024] = {0};
+    (void)tgtlen;
+    inspoint = &buffer[0];
+    tmp = target;
+    while(true)
+    {
+        p = strstr(tmp, findstr);
+        /* walked past last occurrence of findstr; copy remaining part */
+        if (p == NULL)
+        {
+            strcpy(inspoint, tmp);
+            break;
+        }
+        /* copy part before findstr */
+        memcpy(inspoint, tmp, p - tmp);
+        inspoint += p - tmp;
+        /* copy substr string */
+        memcpy(inspoint, substr, sublen);
+        inspoint += sublen;
+        /* adjust pointers, move on */
+        tmp = p + findlen;
+    }
+    /* write altered string back to target */
+    strcpy(target, buffer);
+}
+
+bool nn_strutil_inpreplhelper(char *dest, const char *src, size_t srclen, int findme, const char* substr, size_t sublen, size_t maxlen, size_t* dlen)
+{
+    /* ch(ar) at pos(ition) */
+    int chatpos;
+    /* printf("'%p' '%s' %c\n", dest, src, findme); */
+    if(*src == findme)
+    {
+        if(sublen > maxlen)
+        {
+            return false;
+        }
+        if(!nn_strutil_inpreplhelper(dest + sublen, src + 1, srclen, findme, substr, sublen, maxlen - sublen, dlen))
+        {
+            return false;
+        }
+        memcpy(dest, substr, sublen);
+        *dlen += sublen;
+        return true;
+    }
+    if(maxlen == 0)
+    {
+        return false;
+    }
+    chatpos = *src;
+    if(*src)
+    {
+        *dlen += 1;
+        if(!nn_strutil_inpreplhelper(dest + 1, src + 1, srclen, findme, substr, sublen, maxlen - 1, dlen))
+        {
+            return false;
+        }
+    }
+    *dest = chatpos;
+    return true;
+}
+
+size_t nn_strutil_inpreplace(char* target, size_t tgtlen, int findme, const char* substr, size_t sublen, size_t maxlen)
+{
+    size_t nlen;
+    if(findme == 0)
+    {
+        return 0;
+    }
+    if(maxlen == 0)
+    {
+        return 0;
+    }
+    if(*substr == 0)
+    {
+        /* Insure target does not shrink. */
+        return 0;
+    }
+    nlen = 0;
+    nn_strutil_inpreplhelper(target, target, tgtlen, findme, substr, sublen, maxlen - 1, &nlen);
+    return nlen;
+}
+
+
+LitStrBuffer* nn_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
+{
+    //fprintf(stderr, "in makelong...\n");
+    sb->isintern = false;
+    sb->length = 0;
+    #if 0
+        sb->capacity = nn_strutil_rndup2pow64(len + 1);
+    #else
+        sb->capacity = (len + 1);
+    #endif
+    sb->data = (char*)lit_sysmem_malloc(sb->capacity);
+    if(!sb->data)
+    {
+        return NULL;
+    }
+    sb->data[0] = '\0';
+    return sb;
+}
+
+bool nn_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool onstack, bool preallocated)
+{
+    memset(sb, 0, sizeof(LitStrBuffer));
+    sb->isintern = false;
+    sb->capacity = len;
+    sb->length = 0;
+    sb->data = NULL;
+    if(preallocated)
+    {
+        return true;
+    }
+    if(len > 0)
+    {
+        nn_strbuf_resize(sb, len);
+    }
+    return true;
+}
+
+bool nn_strbuf_makebasicemptystack(LitStrBuffer* sb, const char* str, size_t len)
+{
+    nn_strbuf_initbasicempty(sb, len, true, false);
+    nn_strbuf_appendstrn(sb, str, len);
+    return true;
+}
+
+LitStrBuffer* nn_strbuf_makebasicempty(const char* str, size_t len)
+{
+    LitStrBuffer* sb;
+    sb = (LitStrBuffer*)lit_sysmem_malloc(sizeof(LitStrBuffer));
+    if(!sb)
+    {
+        return NULL;
+    }
+    if(!nn_strbuf_initbasicempty(sb, len, false, false))
+    {
+        return NULL;
+    }
+    nn_strbuf_appendstrn(sb, str, len);
+    return sb;
+}
+
+bool nn_strbuf_destroyfromstack(LitStrBuffer* sb)
+{
+    if(!sb->isintern)
+    {
+        lit_sysmem_free(sb->data);
+    }
+    return true;
+}
+
+bool nn_strbuf_destroy(LitStrBuffer* sb)
+{
+    nn_strbuf_destroyfromstack(sb);
+    lit_sysmem_free(sb);
+    return true;
+}
+
+
+/* Clear the content of an existing LitStrBuffer (sets size to 0) */
+void nn_strbuf_reset(LitStrBuffer* sb)
+{
+    if(sb->data)
+    {
+        memset(sb->data, 0, sb->length);
+    }
+    sb->length = 0;
+}
+
+
+/* Ensure capacity for len characters plus '\0' character - exits on FAILURE */
+bool nn_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
+{
+    bool mustcopy;
+    char* ptr;
+    char* tmpbuf;
+    mustcopy = false;
+    tmpbuf = NULL;
+
+    /* for nul byte */
+    len++;
+    if((sb->capacity == 0) || (sb->capacity < len))
+    {
+        sb->capacity = nn_strutil_rndup2pow64(len);
+        /* fprintf(stderr, "sizeptr=%ld\n", sb->capacity); */
+        if(mustcopy /*|| sb->data == NULL*/)
+        {
+            ptr = (char*)lit_sysmem_malloc(sb->capacity);
+        }
+        else
+        {
+            ptr = (char*)lit_sysmem_realloc(sb->data, sb->capacity);
+        }
+        if(ptr == NULL)
+        {
+            fprintf(stderr, "[%s:%i] Out of memory\n", __FILE__, __LINE__);
+            return false;
+        }
+        if(mustcopy)
+        {
+            //fprintf(stderr, "ensurecapacity: copying from short ((%d) <<%.*s>>)\n", (int)sb->length, (int)sb->length, tmpbuf);
+            memcpy(ptr, tmpbuf, sb->length);
+        }
+        sb->data = ptr;
+    }
+    return true;
+}
+
+/*
+// Resize the buffer to have capacity to hold a string of length newlen
+// (+ a null terminating character).  Can also be used to downsize the buffer's
+// memory usage.  Returns 1 on success, 0 on failure.
+*/
+bool nn_strbuf_resize(LitStrBuffer* sb, size_t newlen)
+{
+    return nn_strbuf_ensurecapacity(sb, newlen);
+}
+
+bool nn_strbuf_setlength(LitStrBuffer* sb, size_t len)
+{
+    sb->length  = len;
+    return true;
+}
+
+bool nn_strbuf_setdata(LitStrBuffer* sb, char* str)
+{
+    sb->data = str;
+    return true;
+}
+
+size_t nn_strbuf_length(LitStrBuffer* sb)
+{
+    return sb->length;
+}
+
+const char* nn_strbuf_data(LitStrBuffer* sb)
+{
+    return sb->data;
+}
+
+#define nn_strbuf_mutdata(sb) \
+    ( \
+        (sb)->data \
+    )
+
+int nn_strbuf_get(LitStrBuffer* sb, size_t idx)
+{
+    return sb->data[idx];
+}
+
+bool nn_strbuf_containschar(LitStrBuffer* sb, char ch)
+{
+    size_t i;
+    const char* data;
+    data = nn_strbuf_data(sb);
+    for(i=0; i<sb->length; i++)
+    {
+        if(data[i] == ch)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool nn_strbuf_fullreplace(LitStrBuffer* sb, const char* findstr, size_t findlen, const char* substr, size_t sublen)
+{
+    size_t nl;
+    size_t needed;
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    needed = nn_strutil_strrepcount(data, sb->length, findstr, findlen, sublen);
+    if(needed == 0)
+    {
+        return false;
+    }
+    nn_strbuf_ensurecapacity(sb, sb->capacity + needed);
+    data = nn_strbuf_mutdata(sb);
+    nl = nn_strutil_strreplace1(&data, sb->length, findstr, findlen, substr, sublen);
+    sb->length = nl;
+    return true;
+}
+
+bool nn_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, size_t sublen)
+{
+    size_t i;
+    size_t nlen;
+    size_t needed;
+    char* data;
+    needed = sb->capacity;
+    data = nn_strbuf_mutdata(sb);
+    for(i=0; i<sb->length; i++)
+    {
+        if(data[i] == findme)
+        {
+            needed += sublen;
+        }
+    }
+    if(!nn_strbuf_ensurecapacity(sb, needed+1))
+    {
+        return false;
+    }
+    data = nn_strbuf_mutdata(sb);
+    nlen = nn_strutil_inpreplace(data, sb->length, findme, substr, sublen, sb->capacity);
+    sb->length = nlen;
+    return true;
+}
+
+
+/* Set string buffer to contain a given string */
+bool nn_strbuf_set(LitStrBuffer* sb, size_t idx, int b)
+{
+    char* data;
+    nn_strbuf_ensurecapacity(sb, idx);
+    data = nn_strbuf_mutdata(sb);
+    data[idx] = b;
+    return true;
+}
+
+/* Add a character to the end of this LitStrBuffer */
+bool nn_strbuf_appendchar(LitStrBuffer* sb, int c)
+{
+    char* data;
+    nn_strbuf_ensurecapacity(sb, sb->length + 1);
+    data = nn_strbuf_mutdata(sb);
+    data[sb->length] = c;
+    data[sb->length + 1] = '\0';
+    sb->length++;
+    return true;
+}
+
+/*
+// Copy N characters from a character array to the end of this LitStrBuffer
+// strlen(str) must be >= len
+*/
+bool nn_strbuf_appendstrn(LitStrBuffer* sb, const char* str, size_t len)
+{
+    int epos;
+    char* data;
+    epos = 0;
+    if(len > 0)
+    {
+        nn_strbuf_ensurecapacity(sb, sb->length + len);
+        data = nn_strbuf_mutdata(sb);
+        if(sb->length > 0)
+        {
+            epos = sb->length;
+        }
+        memcpy(data + epos, str, len);
+        sb->length = sb->length + len;
+        data[sb->length] = '\0';
+    }
+    return true;
+}
+
+/* Copy a character array to the end of this NNStringBuf^^fer */
+bool nn_strbuf_appendstr(LitStrBuffer* sb, const char* str)
+{
+    return nn_strbuf_appendstrn(sb, str, strlen(str));
+}
+
+bool nn_strbuf_appendbuff(LitStrBuffer* sb1, LitStrBuffer* sb2)
+{
+    return nn_strbuf_appendstrn(sb1, nn_strbuf_data(sb2), sb2->length);
+}
+
+/*
+ * Integer to string functions adapted from:
+ *   https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920
+ */
+
+#define DYN_STRCONST_P01 10
+#define DYN_STRCONST_P02 100
+#define DYN_STRCONST_P03 1000
+#define DYN_STRCONST_P04 10000
+#define DYN_STRCONST_P05 100000
+#define DYN_STRCONST_P06 1000000
+#define DYN_STRCONST_P07 10000000
+#define DYN_STRCONST_P08 100000000
+#define DYN_STRCONST_P09 1000000000
+#define DYN_STRCONST_P10 10000000000
+#define DYN_STRCONST_P11 100000000000
+#define DYN_STRCONST_P12 1000000000000
+
+/**
+ * Return number of digits required to represent `num` in base 10.
+ * Uses binary search to find number.
+ * Examples:
+ *   nn_strutil_numofdigits(0)   = 1
+ *   nn_strutil_numofdigits(1)   = 1
+ *   nn_strutil_numofdigits(10)  = 2
+ *   nn_strutil_numofdigits(123) = 3
+ */
+size_t nn_strutil_numofdigits(unsigned long v)
+{
+    if(v < DYN_STRCONST_P01)
+    {
+        return 1;
+    }
+    if(v < DYN_STRCONST_P02)
+    {
+        return 2;
+    }
+    if(v < DYN_STRCONST_P03)
+    {
+        return 3;
+    }
+    if(v < DYN_STRCONST_P12)
+    {
+        if(v < DYN_STRCONST_P08)
+        {
+            if(v < DYN_STRCONST_P06)
+            {
+                if(v < DYN_STRCONST_P04)
+                {
+                    return 4;
+                }
+                return 5 + (v >= DYN_STRCONST_P05);
+            }
+            return 7 + (v >= DYN_STRCONST_P07);
+        }
+        if(v < DYN_STRCONST_P10)
+        {
+            return 9 + (v >= DYN_STRCONST_P09);
+        }
+        return 11 + (v >= DYN_STRCONST_P11);
+    }
+    return 12 + nn_strutil_numofdigits(v / DYN_STRCONST_P12);
+}
+
+
+/* Convert integers to string to append */
+bool nn_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
+{
+    size_t v;
+    size_t pos;
+    size_t numdigits;
+    char* dst;
+    char* data;
+    /* Append two digits at a time */
+    static const char* digits = (
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899"
+    );
+    numdigits = nn_strutil_numofdigits(value);
+    pos = numdigits - 1;
+    nn_strbuf_ensurecapacity(sb, sb->length + numdigits);
+    data = nn_strbuf_mutdata(sb);
+    dst = data + sb->length;
+    while(value >= 100)
+    {
+        v = value % 100;
+        value /= 100;
+        dst[pos] = digits[v * 2 + 1];
+        dst[pos - 1] = digits[v * 2];
+        pos -= 2;
+    }
+    /* Handle last 1-2 digits */
+    if(value < 10)
+    {
+        dst[pos] = '0' + value;
+    }
+    else
+    {
+        dst[pos] = digits[value * 2 + 1];
+        dst[pos - 1] = digits[value * 2];
+    }
+    sb->length += numdigits;
+    data[sb->length] = '\0';
+    return true;
+}
+
+bool nn_strbuf_appendnumlong(LitStrBuffer* sb, long value)
+{
+    /* nn_strbuf_appendformat(sb, "%li", value); */
+    if(value < 0)
+    {
+        nn_strbuf_appendchar(sb, '-');
+        value = -value;
+    }
+    return nn_strbuf_appendnumulong(sb, value);
+}
+
+bool nn_strbuf_appendnumint(LitStrBuffer* sb, int value)
+{
+    /* nn_strbuf_appendformat(sb, "%i", value); */
+    return nn_strbuf_appendnumlong(sb, value);
+}
+
+/* Append string converted to lowercase */
+bool nn_strbuf_appendstrnlowercase(LitStrBuffer* sb, const char* str, size_t len)
+{
+    char* to;
+    char* data;
+    const char* plength;
+    nn_strbuf_ensurecapacity(sb, sb->length + len);
+    data = nn_strbuf_mutdata(sb);
+    to = data + sb->length;
+    plength = str + len;
+    for(; str < plength; str++, to++)
+    {
+        *to = tolower(*str);
+    }
+    sb->length += len;
+    data[sb->length] = '\0';
+    return true;
+}
+
+/* Append string converted to uppercase */
+bool nn_strbuf_appendstrnuppercase(LitStrBuffer* sb, const char* str, size_t len)
+{
+    char* to;
+    char* data;
+    const char* end;
+    nn_strbuf_ensurecapacity(sb, sb->length + len);
+    data = nn_strbuf_mutdata(sb);
+    to = data + sb->length;
+    end = str + len;
+    for(; str < end; str++, to++)
+    {
+        *to = toupper(*str);
+    }
+    sb->length += len;
+    data[sb->length] = '\0';
+    return true;
+}
+
+void nn_strbuf_shrink(LitStrBuffer* sb, size_t len)
+{
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    data[len] = 0;
+    sb->length = len;
+}
+
+/*
+// Remove \r and \n characters from the end of this StringBuffesr
+// Returns the number of characters removed
+*/
+size_t nn_strbuf_chomp(LitStrBuffer* sb)
+{
+    size_t oldlen;
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    oldlen = sb->length;
+    sb->length = nn_strutil_chomp(data, sb->length);
+    return oldlen - sb->length;
+}
+
+/* Reverse a string */
+void nn_strbuf_reverse(LitStrBuffer* sb)
+{
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    nn_strutil_reverseregion(data, sb->length);
+}
+
+/*
+// Get a substring as a new null terminated char array
+// (remember to free the returned char* after you're done with it!)
+*/
+char* nn_strbuf_substr(LitStrBuffer* sb, size_t start, size_t len)
+{
+    char* data;
+    char* newstr;
+    nn_strbuf_boundscheckreadrange(sb, start, len);
+    data = nn_strbuf_mutdata(sb);
+    newstr = (char*)lit_sysmem_malloc((len + 1) * sizeof(char));
+    strncpy(newstr, data + start, len);
+    newstr[len] = '\0';
+    return newstr;
+}
+
+void nn_strbuf_touppercase(LitStrBuffer* sb)
+{
+    char* pos;
+    char* end;
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    end = data + sb->length;
+    for(pos = data; pos < end; pos++)
+    {
+        *pos = (char)toupper(*pos);
+    }
+}
+
+void nn_strbuf_tolowercase(LitStrBuffer* sb)
+{
+    char* pos;
+    char* end;
+    char* data;
+    data = nn_strbuf_mutdata(sb);
+    end = data + sb->length;
+    for(pos = data; pos < end; pos++)
+    {
+        *pos = (char)tolower(*pos);
+    }
+}
+
+/*
+// Copy a string to this LitStrBuffer, overwriting any existing characters
+// Note: dstpos + len can be longer the the current sb LitStrBuffer
+*/
+void nn_strbuf_copyover(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
+{
+    size_t newlen;
+    char* data;
+    if(src == NULL || len == 0)
+    {
+        return;
+    }
+    nn_strbuf_boundscheckinsert(sb, dstpos);
+    /*
+    // Check if sb buffer can handle string
+    // src may have pointed to sb, which has now moved
+    */
+    newlen = STRBUF_MAX(dstpos + len, sb->length);
+    nn_strbuf_ensurecapacity(sb, newlen);
+    data = nn_strbuf_mutdata(sb);
+    /* memmove instead of strncpy, as it can handle overlapping regions */
+    memmove(data + dstpos, src, len * sizeof(char));
+    if(dstpos + len > sb->length)
+    {
+        /* Extended string - add '\0' char */
+        sb->length = dstpos + len;
+        data[sb->length] = '\0';
+    }
+}
+
+/* Insert: copy to a LitStrBuffer, shifting any existing characters along */
+void nn_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
+{
+    char* data;
+    char* insert;
+    if(src == NULL || len == 0)
+    {
+        return;
+    }
+    nn_strbuf_boundscheckinsert(sb, dstpos);
+    /*
+    // Check if sb buffer has capacity for inserted string plus \0
+    // src may have pointed to sb, which will be moved in realloc when
+    // calling ensure capacity
+    */
+    nn_strbuf_ensurecapacity(sb, sb->length + len);
+    data = nn_strbuf_mutdata(sb);
+    insert = data + dstpos;
+    /* dstpos could be at the end (== sb->length) */
+    if(dstpos < sb->length)
+    {
+        /* Shift some characters up */
+        memmove(insert + len, insert, (sb->length - dstpos) * sizeof(char));
+        if(src >= data && src < data + sb->capacity)
+        {
+            /* src/sb strings point to the same string in memory */
+            if(src < insert)
+            {
+                memmove(insert, src, len * sizeof(char));
+            }
+            else if(src > insert)
+            {
+                memmove(insert, src + len, len * sizeof(char));
+            }
+        }
+        else
+        {
+            memmove(insert, src, len * sizeof(char));
+        }
+    }
+    else
+    {
+        memmove(insert, src, len * sizeof(char));
+    }
+    /* Update size */
+    sb->length += len;
+    data[sb->length] = '\0';
+}
+
+/*
+// Overwrite dstpos..(dstpos+dstlen-1) with srclen chars from src
+// if dstlen != srclen, content to the right of dstlen is shifted
+// Example:
+//   nn_strbuf_set(sb, "aaabbccc");
+//   char *mystr = "xxx";
+//   nn_strbuf_overwrite(sb,3,2,mystr,strlen(mystr));
+//   // sb is now "aaaxxxccc"
+//   nn_strbuf_overwrite(sb,3,2,"_",1);
+//   // sb is now "aaa_ccc"
+*/
+void nn_strbuf_overwrite(LitStrBuffer* sb, size_t dstpos, size_t dstlen, const char* src, size_t srclen)
+{
+    size_t len;
+    size_t newlen;
+    char* tgt;
+    char* end;
+    char* data;
+    nn_strbuf_boundscheckreadrange(sb, dstpos, dstlen);
+    if(src == NULL)
+    {
+        return;
+    }
+    if(dstlen == srclen)
+    {
+        nn_strbuf_copyover(sb, dstpos, src, srclen);
+    }
+    newlen = sb->length + srclen - dstlen;
+    nn_strbuf_ensurecapacity(sb, newlen);
+    data = nn_strbuf_mutdata(sb);
+    if(src >= data && src < data + sb->capacity)
+    {
+        if(srclen < dstlen)
+        {
+            /* copy */
+            memmove(data + dstpos, src, srclen * sizeof(char));
+            /* resize (shrink) */
+            memmove(data + dstpos + srclen, data + dstpos + dstlen, (sb->length - dstpos - dstlen) * sizeof(char));
+        }
+        else
+        {
+            /*
+            // Buffer is going to grow and src points to this buffer
+            // resize (grow)
+            */
+            memmove(data + dstpos + srclen, data + dstpos + dstlen, (sb->length - dstpos - dstlen) * sizeof(char));
+            tgt = data + dstpos;
+            end = data + dstpos + srclen;
+            if(src < tgt + dstlen)
+            {
+                len = STRBUF_MIN((size_t)(end - src), srclen);
+                memmove(tgt, src, len);
+                tgt += len;
+                src += len;
+                srclen -= len;
+            }
+            if(src >= tgt + dstlen)
+            {
+                /* shift to account for resizing */
+                src += srclen - dstlen;
+                memmove(tgt, src, srclen);
+            }
+        }
+    }
+    else
+    {
+        /* resize */
+        memmove(data + dstpos + srclen, data + dstpos + dstlen, (sb->length - dstpos - dstlen) * sizeof(char));
+        /* copy */
+        memcpy(data + dstpos, src, srclen * sizeof(char));
+    }
+    sb->length = newlen;
+    data[sb->length] = '\0';
+}
+
+/*
+// Remove characters from the buffer
+//   nn_strbuf_set(sb, "aaaBBccc");
+//   nn_strbuf_erase(sb, 3, 2);
+//   // sb is now "aaaccc"
+*/
+void nn_strbuf_erase(LitStrBuffer* sb, size_t pos, size_t len)
+{
+    char* data;
+    nn_strbuf_boundscheckreadrange(sb, pos, len);
+    data = nn_strbuf_mutdata(sb);
+    memmove(data + pos, data + pos + len, sb->length - pos - len);
+    sb->length -= len;
+    data[sb->length] = '\0';
+}
+
+/*
+// sprintf
+*/
+
+int nn_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, va_list argptr)
+{
+    size_t buflen;
+    int numchars;
+    va_list vacpy;
+    char* data;
+    nn_strbuf_boundscheckinsert(sb, pos);
+    /* Length of remaining buffer */
+    buflen = sb->capacity - pos;
+    if(buflen == 0 && !nn_strbuf_ensurecapacity(sb, sb->capacity << 1))
+    {
+        fprintf(stderr, "%s:%i:Error: Out of memory\n", __FILE__, __LINE__);
+        abort();
+    }
+    data = nn_strbuf_mutdata(sb);
+    /* Make a copy of the list of args incase we need to resize buff and try again */
+    va_copy(vacpy, argptr);
+    numchars = vsnprintf(data + pos, buflen, fmt, argptr);
+    va_end(argptr);
+    /*
+    // numchars is the number of chars that would be written (not including '\0')
+    // numchars < 0 => failure
+    */
+    if(numchars < 0)
+    {
+        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        abort();
+    }
+    /* numchars does not include the null terminating byte */
+    if((size_t)numchars + 1 > buflen)
+    {
+        nn_strbuf_ensurecapacity(sb, pos + (size_t)numchars);
+        /*
+        // now use the argptr copy we made earlier
+        // Don't need to use vsnprintf now, vsprintf will do since we know it'll fit
+        */
+        data = nn_strbuf_mutdata(sb);
+        numchars = vsprintf(data + pos, fmt, vacpy);
+        if(numchars < 0)
+        {
+            fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+            abort();
+        }
+    }
+    va_end(vacpy);
+    /*
+    // Don't need to NUL terminate, vsprintf/vnsprintf does that for us
+    // Update length
+    */
+    sb->length = pos + (size_t)numchars;
+    return numchars;
+}
+
+int nn_strbuf_appendformatv(LitStrBuffer* sb, const char* fmt, va_list argptr)
+{
+    return nn_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
+}
+
+/* sprintf to the end of a LitStrBuffer (adds string terminator after sprint) */
+int nn_strbuf_appendformat(LitStrBuffer* sb, const char* fmt, ...)
+{
+    int numchars;
+    va_list argptr;
+    va_start(argptr, fmt);
+    numchars = nn_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
+    va_end(argptr);
+    return numchars;
+}
+
+/* Print at a given position (overwrite chars at positions >= pos) */
+int nn_strbuf_appendformatat(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
+{
+    int numchars;
+    va_list argptr;
+    nn_strbuf_boundscheckinsert(sb, pos);
+    va_start(argptr, fmt);
+    numchars = nn_strbuf_appendformatposv(sb, pos, fmt, argptr);
+    va_end(argptr);
+    return numchars;
+}
+
+/*
+// sprintf without terminating character
+// Does not prematurely end the string if you sprintf within the string
+// (terminates string if sprintf to the end)
+// Does not prematurely end the string if you sprintf within the string
+// (vs at the end)
+*/
+int nn_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
+{
+    size_t len;
+    int nchars;
+    char lastchar;
+    va_list argptr;
+    char* data;
+    nn_strbuf_boundscheckinsert(sb, pos);
+    len = sb->length;
+    /* Call vsnprintf with NULL, 0 to get resulting string length without writing */
+    va_start(argptr, fmt);
+    nchars = vsnprintf(NULL, 0, fmt, argptr);
+    va_end(argptr);
+    if(nchars < 0)
+    {
+        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        abort();
+    }
+    /* Save overwritten char */
+    data = nn_strbuf_mutdata(sb);
+    lastchar = (pos + (size_t)nchars < sb->length) ? data[pos + (size_t)nchars] : 0;
+    va_start(argptr, fmt);
+    nchars = nn_strbuf_appendformatposv(sb, pos, fmt, argptr);
+    va_end(argptr);
+    if(nchars < 0)
+    {
+        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        abort();
+    }
+    /* Restore length if shrunk, null terminate if extended */
+    if(sb->length < len)
+    {
+        sb->length = len;
+    }
+    else
+    {
+        data[sb->length] = '\0';
+    }
+    /* Re-instate overwritten character */
+    data[pos + (size_t)nchars] = lastchar;
+    return nchars;
+}
+
+/* Trim whitespace characters from the start and end of a string */
+void nn_strbuf_triminplace(LitStrBuffer* sb)
+{
+    size_t start;
+    char* data;
+    if(sb->length == 0)
+    {
+        return;
+    }
+    data = nn_strbuf_mutdata(sb);
+    /* Trim end first */
+    while(sb->length > 0 && isspace((int)data[sb->length - 1]))
+    {
+        sb->length--;
+    }
+    data[sb->length] = '\0';
+    if(sb->length == 0)
+    {
+        return;
+    }
+    start = 0;
+    while(start < sb->length && isspace((int)data[start]))
+    {
+        start++;
+    }
+    if(start != 0)
+    {
+        sb->length -= start;
+        memmove(data, data + start, sb->length * sizeof(char));
+        data[sb->length] = '\0';
+    }
+}
+
+/*
+// Trim the characters listed in `list` from the left of `sb`
+// `list` is a null-terminated string of characters
+*/
+void nn_strbuf_trimleftinplace(LitStrBuffer* sb, const char* list)
+{
+    size_t start;
+    char* data;
+    start = 0;
+    data = nn_strbuf_mutdata(sb);
+    while(start < sb->length && (strchr(list, data[start]) != NULL))
+    {
+        start++;
+    }
+    if(start != 0)
+    {
+        sb->length -= start;
+        memmove(data, data + start, sb->length * sizeof(char));
+        data[sb->length] = '\0';
+    }
+}
+
+/*
+// Trim the characters listed in `list` from the right of `sb`
+// `list` is a null-terminated string of characters
+*/
+void nn_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
+{
+    char* data;
+    if(sb->length == 0)
+    {
+        return;
+    }
+    data = nn_strbuf_mutdata(sb);
+    while(sb->length > 0 && strchr(list, data[sb->length - 1]) != NULL)
+    {
+        sb->length--;
+    }
+    data[sb->length] = '\0';
+}
+
+void nn_iostream_initvars(NNIOStream* pr, NNPrMode mode)
+{
+    pr->fromstack = false;
+    pr->wrmode = NEON_PRMODE_UNDEFINED;
+    pr->shouldclose = false;
+    pr->shouldflush = false;
+    pr->stringtaken = false;
+    pr->shortenvalues = false;
+    pr->jsonmode = false;
+    pr->maxvallength = 15;
+    pr->handle = NULL;
+    pr->wrmode = mode;
+}
+
+
+bool nn_iostream_makestackio(NNIOStream* pr, FILE* fh, bool shouldclose)
+{
+    nn_iostream_initvars(pr, NEON_PRMODE_FILE);
+    pr->fromstack = true;
+    pr->handle = fh;
+    pr->shouldclose = shouldclose;
+    return true;
+}
+
+bool nn_iostream_makestackopenfile(NNIOStream* pr, const char* path, bool writemode)
+{
+    const char* mode;
+    nn_iostream_initvars(pr, NEON_PRMODE_FILE);
+    mode = "rb";
+    if(writemode)
+    {
+        mode = "wb";
+    }
+    pr->fromstack = true;
+    pr->shouldclose = true;
+    pr->handle = fopen(path, mode);
+    if(pr->handle == NULL)
+    {
+        return false;
+    }
+    return true;
+}
+
+
+bool nn_iostream_makestackstring(NNIOStream* pr)
+{
+    nn_iostream_initvars(pr, NEON_PRMODE_STRING);
+    pr->fromstack = true;
+    pr->wrmode = NEON_PRMODE_STRING;
+    nn_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
+    return true;
+}
+
+
+NNIOStream* nn_iostream_makeundefined(NNPrMode mode)
+{
+    NNIOStream* pr;
+    pr = (NNIOStream*)lit_sysmem_malloc(sizeof(NNIOStream));
+    if(!pr)
+    {
+        fprintf(stderr, "cannot allocate NNIOStream\n");
+        return NULL;
+    }
+    nn_iostream_initvars(pr, mode);
+    return pr;
+}
+
+NNIOStream* nn_iostream_makeio(FILE* fh, bool shouldclose)
+{
+    NNIOStream* pr;
+    pr = nn_iostream_makeundefined(NEON_PRMODE_FILE);
+    pr->handle = fh;
+    pr->shouldclose = shouldclose;
+    return pr;
+}
+
+NNIOStream* nn_iostream_makeopenfile(const char* path, bool writemode)
+{
+    NNIOStream* pr;
+    pr = nn_iostream_makeundefined(NEON_PRMODE_FILE);
+    if(nn_iostream_makestackopenfile(pr, path, writemode))
+    {
+        pr->fromstack = false;
+        return pr;
+    }
+    else
+    {
+        nn_iostream_destroy(pr);
+    }
+    return NULL;
+}
+
+NNIOStream* nn_iostream_makestring()
+{
+    NNIOStream* pr;
+    pr = nn_iostream_makeundefined(NEON_PRMODE_STRING);
+    nn_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
+    return pr;
+}
+
+void nn_iostream_destroy(NNIOStream* pr)
+{
+    if(pr == NULL)
+    {
+        return;
+    }
+    if(pr->wrmode == NEON_PRMODE_UNDEFINED)
+    {
+        return;
+    }
+    /*fprintf(stderr, "nn_iostream_destroy: pr->wrmode=%d\n", pr->wrmode);*/
+    if(pr->wrmode == NEON_PRMODE_STRING)
+    {
+        if(!pr->stringtaken)
+        {
+            nn_strbuf_destroyfromstack(&pr->strbuf);
+        }
+    }
+    else if(pr->wrmode == NEON_PRMODE_FILE)
+    {
+        if(pr->shouldclose)
+        {
+            #if 0
+            fclose(pr->handle);
+            #endif
+        }
+    }
+    if(!pr->fromstack)
+    {
+        lit_sysmem_free(pr);
+        pr = NULL;
+    }
+}
+
+#if 0
+LitString* nn_iostream_takestring(LitState* state, NNIOStream* pr)
+{
+    size_t xlen;
+    LitString* os;
+    xlen = nn_strbuf_length(&pr->strbuf);
+    os = nn_string_makefromstrbuf(state, pr->strbuf, nn_util_hashstring(nn_strbuf_data(&pr->strbuf), xlen), xlen);
+    pr->stringtaken = true;
+    return os;
+}
+
+LitString* nn_iostream_copystring(LitState* state, NNIOStream* pr)
+{
+    LitString* os;
+    os = nn_string_copylen(state, nn_strbuf_data(&pr->strbuf), nn_strbuf_length(&pr->strbuf));
+    return os;
+}
+#endif
+
+void nn_iostream_flush(NNIOStream* pr)
+{
+    if(pr->shouldflush)
+    {
+        fflush(pr->handle);
+    }
+}
+
+bool nn_iostream_writestringl(NNIOStream* pr, const char* estr, size_t elen)
+{
+    //fprintf(stderr, "writestringl: (%d) <<<%.*s>>>\n", elen, elen, estr);
+    size_t chlen;
+    chlen = sizeof(char);
+    if(elen > 0)
+    {
+        if(pr->wrmode == NEON_PRMODE_FILE)
+        {
+            fwrite(estr, chlen, elen, pr->handle);
+            nn_iostream_flush(pr);
+        }
+        else if(pr->wrmode == NEON_PRMODE_STRING)
+        {
+            nn_strbuf_appendstrn(&pr->strbuf, estr, elen);
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool nn_iostream_writestring(NNIOStream* pr, const char* estr)
+{
+    return nn_iostream_writestringl(pr, estr, strlen(estr));
+}
+
+bool nn_iostream_writechar(NNIOStream* pr, int b)
+{
+    char ch;
+    if(pr->wrmode == NEON_PRMODE_STRING)
+    {
+        ch = b;
+        nn_iostream_writestringl(pr, &ch, 1);
+    }
+    else if(pr->wrmode == NEON_PRMODE_FILE)
+    {
+        fputc(b, pr->handle);
+        nn_iostream_flush(pr);
+    }
+    return true;
+}
+
+bool nn_iostream_writeescapedchar(NNIOStream* pr, int ch)
+{
+    switch(ch)
+    {
+        case '\'':
+            {
+                nn_iostream_writestring(pr, "\\\'");
+            }
+            break;
+        case '\"':
+            {
+                nn_iostream_writestring(pr, "\\\"");
+            }
+            break;
+        case '\\':
+            {
+                nn_iostream_writestring(pr, "\\\\");
+            }
+            break;
+        case '\b':
+            {
+                nn_iostream_writestring(pr, "\\b");
+            }
+            break;
+        case '\f':
+            {
+                nn_iostream_writestring(pr, "\\f");
+            }
+            break;
+        case '\n':
+            {
+                nn_iostream_writestring(pr, "\\n");
+            }
+            break;
+        case '\r':
+            {
+                nn_iostream_writestring(pr, "\\r");
+            }
+            break;
+        case '\t':
+            {
+                nn_iostream_writestring(pr, "\\t");
+            }
+            break;
+        case 0:
+            {
+                nn_iostream_writestring(pr, "\\0");
+            }
+            break;
+        default:
+            {
+                nn_iostream_printf(pr, "\\x%02x", (unsigned char)ch);
+            }
+            break;
+    }
+    return true;
+}
+
+bool nn_iostream_writequotedstring(NNIOStream* pr, const char* str, size_t len, bool withquot)
+{
+    int bch;
+    size_t i;
+    bch = 0;
+    if(withquot)
+    {
+        nn_iostream_writechar(pr, '"');
+    }
+    for(i = 0; i < len; i++)
+    {
+        bch = str[i];
+        if((bch < 32) || (bch > 127) || (bch == '\"') || (bch == '\\'))
+        {
+            nn_iostream_writeescapedchar(pr, bch);
+        }
+        else
+        {
+            nn_iostream_writechar(pr, bch);
+        }
+    }
+    if(withquot)
+    {
+        nn_iostream_writechar(pr, '"');
+    }
+    return true;
+}
+
+bool nn_iostream_vwritefmttostring(NNIOStream* pr, const char* fmt, va_list va)
+{
+    nn_strbuf_appendformatv(&pr->strbuf, fmt, va);
+    return true;
+}
+
+bool nn_iostream_vwritefmt(NNIOStream* pr, const char* fmt, va_list va)
+{
+    if(pr->wrmode == NEON_PRMODE_STRING)
+    {
+        return nn_iostream_vwritefmttostring(pr, fmt, va);
+    }
+    else if(pr->wrmode == NEON_PRMODE_FILE)
+    {
+        vfprintf(pr->handle, fmt, va);
+        nn_iostream_flush(pr);
+    }
+    return true;
+}
+
+
+bool nn_iostream_printf(NNIOStream* pr, const char* fmt, ...)
+{
+    bool b;
+    va_list va;
+    va_start(va, fmt);
+    b = nn_iostream_vwritefmt(pr, fmt, va);
+    va_end(va);
+    return b;
+}
+
+
 bool lit_is_digit(char c)
 {
     return c >= '0' && c <= '9';
@@ -1475,7 +3130,7 @@ void lit_free_object(LitState* state, LitObject* object)
         case LIT_OBJ_STRING:
         {
             LitString* string = (LitString*)object;
-            lit_sysmem_free(string->chars);
+            nn_strbuf_destroyfromstack(&string->strbuf);
             LIT_FREE(state, LitString, object);
             break;
         }
@@ -1953,9 +3608,9 @@ int lit_decode_num_bytes(uint8_t byte)
 int lit_ustring_length(LitString* string)
 {
     int length = 0;
-    for(uint32_t i = 0; i < string->length;)
+    for(uint32_t i = 0; i < string->strbuf.length;)
     {
-        i += lit_decode_num_bytes(string->chars[i]);
+        i += lit_decode_num_bytes(string->strbuf.data[i]);
         length++;
     }
     return length;
@@ -1963,15 +3618,15 @@ int lit_ustring_length(LitString* string)
 
 LitString* lit_ustring_code_point_at(LitState* state, LitString* string, uint32_t index)
 {
-    if(index >= string->length)
+    if(index >= string->strbuf.length)
     {
         return NULL;
     }
-    int codepoint = lit_ustring_decode((uint8_t*)string->chars + index, string->length - index);
+    int codepoint = lit_ustring_decode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
     if(codepoint == -1)
     {
         char bytes[2];
-        bytes[0] = string->chars[index];
+        bytes[0] = string->strbuf.data[index];
         bytes[1] = '\0';
         return lit_string_copy(state, bytes, 1);
     }
@@ -1988,7 +3643,7 @@ LitString* lit_ustring_from_code_point(LitState* state, int value)
 
 LitString* lit_ustring_from_range(LitState* state, LitString* source, int start, uint32_t count)
 {
-    uint8_t* from = (uint8_t*)source->chars;
+    uint8_t* from = (uint8_t*)source->strbuf.data;
     int length = 0;
     for(uint32_t i = 0; i < count; i++)
     {
@@ -1999,7 +3654,7 @@ LitString* lit_ustring_from_range(LitState* state, LitString* source, int start,
     for(uint32_t i = 0; i < count; i++)
     {
         int index = start + i;
-        int codepoint = lit_ustring_decode(from + index, source->length - index);
+        int codepoint = lit_ustring_decode(from + index, source->strbuf.length - index);
         if(codepoint != -1)
         {
             to += lit_ustring_encode(codepoint, to);
@@ -2111,17 +3766,29 @@ int lit_ustring_decode(const uint8_t* bytes, uint32_t length)
     return value;
 }
 
-int lit_uchar_offset(char* str, int index)
+int is_utf(int c)
 {
-#define is_utf(c) (((c)&0xC0) != 0x80)
+    return (((c)&0xC0) != 0x80);
+}
+
+int lit_uchar_offset(const char* str, int index)
+{
     int offset = 0;
     while(index > 0 && str[offset])
     {
-        (void)(is_utf(str[++offset]) || is_utf(str[++offset]) || is_utf(str[++offset]) || ++offset);
+        if(!is_utf(str[++offset]))
+        {
+            if(!is_utf(str[++offset]))
+            {
+                if(!is_utf(str[++offset]))
+                {
+                    ++offset;
+                }
+            }
+        }
         index--;
     }
     return offset;
-#undef is_utf
 }
 
 bool lit_value_isbool(LitValue v)
@@ -2144,7 +3811,7 @@ bool lit_value_isobject(LitValue v)
     return (v.type == TINVAL_OBJECT);
 }
 
-bool IS_OBJECTS_TYPE(LitValue value, LitObjType t)
+bool lit_value_isobjtype(LitValue value, LitObjType t)
 {
     if(lit_value_isobject(value))
     {
@@ -2155,27 +3822,31 @@ bool IS_OBJECTS_TYPE(LitValue value, LitObjType t)
 
 bool lit_value_ismap(LitValue value)
 {
-    return IS_OBJECTS_TYPE(value, LIT_OBJ_MAP);
+    return lit_value_isobjtype(value, LIT_OBJ_MAP);
 }
 
-#define IS_STRING(value) IS_OBJECTS_TYPE(value, LIT_OBJ_STRING)
-#define IS_FUNCTION(value) IS_OBJECTS_TYPE(value, LIT_OBJ_FUNCTION)
-#define IS_NATIVE_METHOD(value) IS_OBJECTS_TYPE(value, LIT_OBJ_NATIVEMETHOD)
-#define IS_PRIMITIVE_METHOD(value) IS_OBJECTS_TYPE(value, LIT_OBJ_PRIMITIVEMETHOD)
-#define IS_MODULE(value) IS_OBJECTS_TYPE(value, LIT_OBJ_MODULE)
-#define IS_CLOSURE(value) IS_OBJECTS_TYPE(value, LIT_OBJ_CLOSURE)
-#define IS_CLOSURE_PROTOTYPE(value) IS_OBJECTS_TYPE(value, LIT_OBJ_CLOSUREPROTOTYPE)
-#define IS_CLASS(value) IS_OBJECTS_TYPE(value, LIT_OBJ_CLASS)
+bool IS_STRING(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJ_STRING);
+}
+
+#define IS_FUNCTION(value) lit_value_isobjtype(value, LIT_OBJ_FUNCTION)
+#define IS_NATIVE_METHOD(value) lit_value_isobjtype(value, LIT_OBJ_NATIVEMETHOD)
+#define IS_PRIMITIVE_METHOD(value) lit_value_isobjtype(value, LIT_OBJ_PRIMITIVEMETHOD)
+#define IS_MODULE(value) lit_value_isobjtype(value, LIT_OBJ_MODULE)
+#define IS_CLOSURE(value) lit_value_isobjtype(value, LIT_OBJ_CLOSURE)
+#define IS_CLOSURE_PROTOTYPE(value) lit_value_isobjtype(value, LIT_OBJ_CLOSUREPROTOTYPE)
+#define IS_CLASS(value) lit_value_isobjtype(value, LIT_OBJ_CLASS)
 bool lit_value_isinstance(LitValue value)
 {
-    return IS_OBJECTS_TYPE(value, LIT_OBJ_INSTANCE);
+    return lit_value_isobjtype(value, LIT_OBJ_INSTANCE);
 }
 
-#define IS_ARRAY(value) (IS_OBJECTS_TYPE(value, LIT_OBJ_ARRAY) || IS_OBJECTS_TYPE(value, LIT_OBJ_VARARGARRAY))
-#define IS_VARARG_ARRAY(value) IS_OBJECTS_TYPE(value, LIT_OBJ_VARARGARRAY)
-#define IS_RANGE(value) IS_OBJECTS_TYPE(value, LIT_OBJ_RANGE)
-#define IS_FIELD(value) IS_OBJECTS_TYPE(value, LIT_OBJ_FIELD)
-#define IS_REFERENCE(value) IS_OBJECTS_TYPE(value, LIT_OBJ_REFERENCE)
+#define IS_ARRAY(value) (lit_value_isobjtype(value, LIT_OBJ_ARRAY) || lit_value_isobjtype(value, LIT_OBJ_VARARGARRAY))
+#define IS_VARARG_ARRAY(value) lit_value_isobjtype(value, LIT_OBJ_VARARGARRAY)
+#define IS_RANGE(value) lit_value_isobjtype(value, LIT_OBJ_RANGE)
+#define IS_FIELD(value) lit_value_isobjtype(value, LIT_OBJ_FIELD)
+#define IS_REFERENCE(value) lit_value_isobjtype(value, LIT_OBJ_REFERENCE)
 
 
 double lit_value_asnumber(LitValue value)
@@ -2195,7 +3866,7 @@ LitObject* lit_value_asobject(LitValue v)
 
 
 #define AS_STRING(value) ((LitString*)lit_value_asobject(value))
-#define AS_CSTRING(value) (((LitString*)lit_value_asobject(value))->chars)
+#define AS_CSTRING(value) (((LitString*)lit_value_asobject(value))->strbuf.data)
 #define AS_FUNCTION(value) ((LitFunction*)lit_value_asobject(value))
 #define AS_NATIVE_FUNCTION(value) ((LitNativeFunction*)lit_value_asobject(value))
 #define AS_NATIVE_PRIMITIVE(value) ((LitNativePrimitive*)lit_value_asobject(value))
@@ -2314,45 +3985,45 @@ void lit_value_printobject(LitValue value)
         }
         case LIT_OBJ_FUNCTION:
         {
-            printf("function %s", AS_FUNCTION(value)->name->chars);
+            printf("function %s", AS_FUNCTION(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_CLOSURE:
         {
 #ifdef LIT_TRACE_STACK
-            printf("closure %s", AS_CLOSURE(value)->function->name->chars);
+            printf("closure %s", AS_CLOSURE(value)->function->name->strbuf.data);
 #else
-            printf("function %s", AS_CLOSURE(value)->function->name->chars);
+            printf("function %s", AS_CLOSURE(value)->function->name->strbuf.data);
 #endif
             break;
         }
         case LIT_OBJ_CLOSUREPROTOTYPE:
         {
 #ifdef LIT_TRACE_STACK
-            printf("closure %s", AS_CLOSURE_PROTOTYPE(value)->function->name->chars);
+            printf("closure %s", AS_CLOSURE_PROTOTYPE(value)->function->name->strbuf.data);
 #else
-            printf("function %s", AS_CLOSURE_PROTOTYPE(value)->function->name->chars);
+            printf("function %s", AS_CLOSURE_PROTOTYPE(value)->function->name->strbuf.data);
 #endif
             break;
         }
         case LIT_OBJ_NATIVEPRIMITIVE:
         {
-            printf("function %s", AS_NATIVE_PRIMITIVE(value)->name->chars);
+            printf("function %s", AS_NATIVE_PRIMITIVE(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_NATIVEFUNCTION:
         {
-            printf("function %s", AS_NATIVE_FUNCTION(value)->name->chars);
+            printf("function %s", AS_NATIVE_FUNCTION(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_PRIMITIVEMETHOD:
         {
-            printf("function %s", AS_PRIMITIVE_METHOD(value)->name->chars);
+            printf("function %s", AS_PRIMITIVE_METHOD(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_NATIVEMETHOD:
         {
-            printf("function %s", AS_NATIVE_METHOD(value)->name->chars);
+            printf("function %s", AS_NATIVE_METHOD(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_FIBER:
@@ -2362,7 +4033,7 @@ void lit_value_printobject(LitValue value)
         }
         case LIT_OBJ_MODULE:
         {
-            printf("module %s", AS_MODULE(value)->name->chars);
+            printf("module %s", AS_MODULE(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_UPVALUE:
@@ -2380,12 +4051,12 @@ void lit_value_printobject(LitValue value)
         }
         case LIT_OBJ_CLASS:
         {
-            printf("class %s", AS_CLASS(value)->name->chars);
+            printf("class %s", AS_CLASS(value)->name->strbuf.data);
             break;
         }
         case LIT_OBJ_INSTANCE:
         {
-            printf("%s instance", lit_value_asinstance(value)->klass->name->chars);
+            printf("%s instance", lit_value_asinstance(value)->klass->name->strbuf.data);
             break;
         }
         case LIT_OBJ_BOUNDMETHOD:
@@ -2454,7 +4125,7 @@ void lit_value_printobject(LitValue value)
                         {
                             printf(" ");
                         }
-                        printf("%s: ", entry->key->chars);
+                        printf("%s: ", entry->key->strbuf.data);
                         lit_value_printvalue(entry->value);
                         hadbefore = true;
                     }
@@ -2683,7 +4354,7 @@ const char* lit_args_checkstring(LitVm* vm, LitValue* args, uint8_t argc, uint8_
     {
         lit_vm_raisefatalerror(vm, "Expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_get_value_type(args[id]));
     }
-    return AS_STRING(args[id])->chars;
+    return AS_STRING(args[id])->strbuf.data;
 }
 
 const char* lit_args_getstring(LitVm* vm, LitValue* args, uint8_t argc, uint8_t id, const char* def)
@@ -2693,7 +4364,7 @@ const char* lit_args_getstring(LitVm* vm, LitValue* args, uint8_t argc, uint8_t 
     {
         return def;
     }
-    return AS_STRING(args[id])->chars;
+    return AS_STRING(args[id])->strbuf.data;
 }
 
 LitString* lit_args_checkobjstring(LitVm* vm, LitValue* args, uint8_t argc, uint8_t id)
@@ -3590,8 +5261,8 @@ LitToken lit_scanner_makeerrortoken(LitScanner* scanner, const char* fmt, ...)
     va_end(args);
     LitToken token;
     token.type = LTOKEN_ERROR;
-    token.start = result->chars;
-    token.length = result->length;
+    token.start = result->strbuf.data;
+    token.length = result->strbuf.length;
     token.line = scanner->line;
     return token;
 }
@@ -4250,7 +5921,7 @@ void lit_parser_failactual(LitParser* parser, LitToken* token, const char* messa
 
 void lit_parser_failatv(LitParser* parser, LitToken* token, const char* fmt, va_list args)
 {
-    lit_parser_failactual(parser, token, lit_state_errorfmtv(parser->state, token->line, fmt, args)->chars);
+    lit_parser_failactual(parser, token, lit_state_errorfmtv(parser->state, token->line, fmt, args)->strbuf.data);
 }
 
 void lit_parser_failherefmt(LitParser* parser, const char* fmt, ...)
@@ -4319,7 +5990,7 @@ void lit_parser_consume(LitParser* parser, LitTokenType type, const char* error)
     lit_parser_failactual(parser, &parser->current,
                  lit_state_errorfmt(parser->state, parser->current.line, "Expected %s, got '%.*s'", error, line ? 8 : parser->previous.length,
                                   line ? "new line" : parser->previous.start)
-                 ->chars);
+                 ->strbuf.data);
 }
 
 bool lit_parser_matchlinefeed(LitParser* parser)
@@ -4686,7 +6357,7 @@ LitExpression* lit_parser_ruleinterpolation(LitParser* parser, bool canassign)
     LitInterpolationExpression* expression = lit_ast_makeinterpolationexpr(parser->previous.line);
     do
     {
-        if(AS_STRING(parser->previous.value)->length > 0)
+        if(AS_STRING(parser->previous.value)->strbuf.length > 0)
         {
             lit_exprlist_push(&expression->expressions,
                                   (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
@@ -4694,7 +6365,7 @@ LitExpression* lit_parser_ruleinterpolation(LitParser* parser, bool canassign)
         lit_exprlist_push(&expression->expressions, lit_parser_parseexpr(parser));
     } while(lit_parser_match(parser, LTOKEN_INTERPOLATION));
     lit_parser_consume(parser, LTOKEN_STRING, "end of interpolation");
-    if(AS_STRING(parser->previous.value)->length > 0)
+    if(AS_STRING(parser->previous.value)->strbuf.length > 0)
     {
         lit_exprlist_push(&expression->expressions,
                               (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
@@ -5601,7 +7272,7 @@ void lit_emitter_raiseerror(LitEmitter* emitter, LitUInt line, const char* fmt, 
 {
     va_list args;
     va_start(args, fmt);
-    lit_state_raiseerror(emitter->state, COMPILE_ERROR, lit_state_errorfmtv(emitter->state, line, fmt, args)->chars);
+    lit_state_raiseerror(emitter->state, COMPILE_ERROR, lit_state_errorfmtv(emitter->state, line, fmt, args)->strbuf.data);
     va_end(args);
 }
 
@@ -5723,7 +7394,7 @@ LitFunction* lit_emitter_compilerend(LitEmitter* emitter, LitString* name)
 #ifdef LIT_TRACE_CHUNK
     if(!emitter->state->had_error)
     {
-        lit_debug_disaschunk(&function->chunk, function->name->chars, NULL);
+        lit_debug_disaschunk(&function->chunk, function->name->strbuf.data, NULL);
     }
 #endif
     return function;
@@ -6641,7 +8312,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             }
             else if(!emitter->class_has_super)
             {
-                lit_emitter_raiseerror(emitter, expression->line, "'super' can't be used in class '%s', because it doesn't have a super class", emitter->class_name->chars);
+                lit_emitter_raiseerror(emitter, expression->line, "'super' can't be used in class '%s', because it doesn't have a super class", emitter->class_name->strbuf.data);
             }
             LitSuperExpression* expr = (LitSuperExpression*)expression;
             if(!expr->ignore_emit)
@@ -7133,7 +8804,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
         {
             LitString* clsname;
             LitMethodStatement* stmt = (LitMethodStatement*)statement;
-            bool constructor = stmt->name->length == 11 && memcmp(stmt->name->chars, "constructor", 11) == 0;
+            bool constructor = stmt->name->strbuf.length == 11 && memcmp(stmt->name->strbuf.data, "constructor", 11) == 0;
             if(constructor && stmt->is_static)
             {
                 lit_emitter_raiseerror(emitter, statement->line, "Constructors can't be static (at least for now)");
@@ -7149,7 +8820,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
             clsname = (LitString*)lit_value_asobject(lit_value_fromobject(emitter->class_name));
             {
             #if 0
-                fprintf(stderr, "emitter->class_name=%.*s\n", clsname->length, clsname->chars);
+                fprintf(stderr, "emitter->class_name=%.*s\n", clsname->strbuf.length, clsname->strbuf.data);
             #endif
             }
             LitFunction* function = lit_emitter_compilerend(emitter, clsname);
@@ -7319,7 +8990,7 @@ LitModule* lit_emitter_emitmod(LitEmitter* emitter, LitDynListExpr* statements, 
 
 void lit_debug_disasmodule(LitModule* module, const char* source)
 {
-    lit_debug_disaschunk(&module->main_function->chunk, module->main_function->name->chars, source);
+    lit_debug_disaschunk(&module->main_function->chunk, module->main_function->name->strbuf.data, source);
 }
 
 void lit_debug_printconst(LitValue value)
@@ -7327,22 +8998,22 @@ void lit_debug_printconst(LitValue value)
     if(IS_FUNCTION(value))
     {
         LitString* fnname = AS_FUNCTION(value)->name;
-        printf("%sfunction %.*s%s", COLOR_CYAN, fnname->length, fnname->chars, COLOR_RESET);
+        printf("%sfunction %.*s%s", COLOR_CYAN, fnname->strbuf.length, fnname->strbuf.data, COLOR_RESET);
     }
     else if(IS_CLOSURE(value))
     {
         LitString* fnname = AS_CLOSURE(value)->function->name;
-        printf("%sclosure %.*s%s", COLOR_CYAN, fnname->length, fnname->chars, COLOR_RESET);
+        printf("%sclosure %.*s%s", COLOR_CYAN, fnname->strbuf.length, fnname->strbuf.data, COLOR_RESET);
     }
     else if(IS_CLOSURE_PROTOTYPE(value))
     {
         LitString* fnname = AS_CLOSURE_PROTOTYPE(value)->function->name;
-        printf("%sclosure prototype %.*s%s", COLOR_CYAN, fnname->length, fnname->chars, COLOR_RESET);
+        printf("%sclosure prototype %.*s%s", COLOR_CYAN, fnname->strbuf.length, fnname->strbuf.data, COLOR_RESET);
     }
     else if(IS_STRING(value))
     {
         LitString* string = AS_STRING(value);
-        printf("%s\"%.*s\"%s", COLOR_CYAN, string->length, string->chars, COLOR_RESET);
+        printf("%s\"%.*s\"%s", COLOR_CYAN, string->strbuf.length, string->strbuf.data, COLOR_RESET);
     }
     else if(lit_value_isnumber(value))
     {
@@ -7624,7 +9295,7 @@ void lit_debug_traceframe(LitFiber* fiber)
         return;
     }
     LitCallFrame* frame = &fiber->framevals[fiber->framecount - 1];
-    printf("== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->chars,
+    printf("== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->strbuf.data,
            frame->function->argcount, frame->function->max_registers, frame->function->max_registers + (int)(fiber->stack_top - fiber->stack),
            fiber->stack_capacity, frame->return_address == NULL);
 #endif
@@ -7934,7 +9605,7 @@ LitValue objfnobject_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitVal
             }
             valuesconverted[i] = value;
             keys[i] = entry->key;
-            objfnstring_length += entry->key->length + 2 + value->length + (i == valueamount - 1 ? 1 : 2) + indentation;
+            objfnstring_length += entry->key->strbuf.length + 2 + value->strbuf.length + (i == valueamount - 1 ? 1 : 2) + indentation;
             i++;
         }
     } while(i < valueamount);
@@ -7949,12 +9620,12 @@ LitValue objfnobject_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitVal
         {
             buffer[bufferindex++] = '\t';
         }
-        memcpy(&buffer[bufferindex], key->chars, key->length);
-        bufferindex += key->length;
+        memcpy(&buffer[bufferindex], key->strbuf.data, key->strbuf.length);
+        bufferindex += key->strbuf.length;
         memcpy(&buffer[bufferindex], ": ", 2);
         bufferindex += 2;
-        memcpy(&buffer[bufferindex], value->chars, value->length);
-        bufferindex += value->length;
+        memcpy(&buffer[bufferindex], value->strbuf.data, value->strbuf.length);
+        bufferindex += value->strbuf.length;
         if(i == valueamount - 1)
         {
             buffer[bufferindex++] = '\n';
@@ -8080,13 +9751,13 @@ LitValue objfnstring_plus(LitVm* vm, LitValue instance, LitUInt argc, LitValue* 
     {
         stringvalue = lit_tostring_value(vm->state, value, 0);
     }
-    LitUInt length = string->length + stringvalue->length;
-    LitString* result = lit_object_makeemptystring(vm->state, length);
-    result->chars = lit_sysmem_malloc((length + 1) * sizeof(char));
-    result->chars[length] = '\0';
-    memcpy(result->chars, string->chars, string->length);
-    memcpy(result->chars + string->length, stringvalue->chars, stringvalue->length);
-    result->hash = lit_string_hash(result->chars, result->length);
+    LitUInt length = string->strbuf.length + stringvalue->strbuf.length;
+    LitString* result = lit_string_makeemptystring(vm->state, length, true);
+    result->strbuf.data = lit_sysmem_malloc((length + 1) * sizeof(char));
+    result->strbuf.data[length] = '\0';
+    memcpy(result->strbuf.data, string->strbuf.data, string->strbuf.length);
+    memcpy(result->strbuf.data + string->strbuf.length, stringvalue->strbuf.data, stringvalue->strbuf.length);
+    result->hash = lit_string_hash(result->strbuf.data, result->strbuf.length);
     lit_string_register(vm->state, result);
     return lit_value_fromobject(result);
 }
@@ -8100,10 +9771,10 @@ LitValue objfnstring_compare(LitVm* vm, LitValue instance, LitUInt argc, LitValu
     if(IS_STRING(args[0]))
     {
         other = AS_STRING(args[0]);
-        if(self->length == other->length)
+        if(self->strbuf.length == other->strbuf.length)
         {
-            //fprintf(stderr, "string: same length(self=\"%s\" other=\"%s\")... strncmp=%d\n", self->chars, other->chars, strncmp(self->chars, other->chars, self->length));
-            if(memcmp(self->chars, other->chars, self->length) == 0)
+            //fprintf(stderr, "string: same length(self=\"%s\" other=\"%s\")... strncmp=%d\n", self->strbuf.data, other->strbuf.data, strncmp(self->strbuf.data, other->strbuf.data, self->strbuf.length));
+            if(memcmp(self->strbuf.data, other->strbuf.data, self->strbuf.length) == 0)
             {
                 return lit_value_makebool(true);
             }
@@ -8124,12 +9795,12 @@ LitValue objfnstring_compare(LitVm* vm, LitValue instance, LitUInt argc, LitValu
 
 LitValue objfnstring_less(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
-    return lit_value_makebool(strcmp(AS_STRING(instance)->chars, LIT_CHECK_STRING(0)) < 0);
+    return lit_value_makebool(strcmp(AS_STRING(instance)->strbuf.data, LIT_CHECK_STRING(0)) < 0);
 }
 
 LitValue objfnstring_greater(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
-    return lit_value_makebool(strcmp(AS_STRING(instance)->chars, LIT_CHECK_STRING(0)) > 0);
+    return lit_value_makebool(strcmp(AS_STRING(instance)->strbuf.data, LIT_CHECK_STRING(0)) > 0);
 }
 
 LitValue objfnstring_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -8145,7 +9816,7 @@ LitValue objfnstring_tonumber(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     (void)vm;
     (void)argc;
     (void)args;
-    double result = strtod(AS_STRING(instance)->chars, NULL);
+    double result = strtod(AS_STRING(instance)->strbuf.data, NULL);
     if(errno == ERANGE)
     {
         errno = 0;
@@ -8159,12 +9830,12 @@ LitValue objfnstring_touppercase(LitVm* vm, LitValue instance, LitUInt argc, Lit
     (void)argc;
     (void)args;
     LitString* string = AS_STRING(instance);
-    char buffer[string->length];
-    for(LitUInt i = 0; i < string->length; i++)
+    char buffer[string->strbuf.length];
+    for(LitUInt i = 0; i < string->strbuf.length; i++)
     {
-        buffer[i] = (char)toupper(string->chars[i]);
+        buffer[i] = (char)toupper(string->strbuf.data[i]);
     }
-    return lit_value_fromobject(lit_string_copy(vm->state, buffer, string->length));
+    return lit_value_fromobject(lit_string_copy(vm->state, buffer, string->strbuf.length));
 }
 
 LitValue objfnstring_tolowercase(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -8172,12 +9843,12 @@ LitValue objfnstring_tolowercase(LitVm* vm, LitValue instance, LitUInt argc, Lit
     (void)argc;
     (void)args;
     LitString* string = AS_STRING(instance);
-    char buffer[string->length];
-    for(LitUInt i = 0; i < string->length; i++)
+    char buffer[string->strbuf.length];
+    for(LitUInt i = 0; i < string->strbuf.length; i++)
     {
-        buffer[i] = (char)tolower(string->chars[i]);
+        buffer[i] = (char)tolower(string->strbuf.data[i]);
     }
-    return lit_value_fromobject(lit_string_copy(vm->state, buffer, string->length));
+    return lit_value_fromobject(lit_string_copy(vm->state, buffer, string->strbuf.length));
 }
 
 LitValue objfnstring_contains(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -8188,7 +9859,7 @@ LitValue objfnstring_contains(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     {
         return lit_value_makebool(true);
     }
-    return lit_value_makebool(strstr(string->chars, sub->chars) != NULL);
+    return lit_value_makebool(strstr(string->strbuf.data, sub->strbuf.data) != NULL);
 }
 
 LitValue objfnstring_startswith(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -8199,13 +9870,13 @@ LitValue objfnstring_startswith(LitVm* vm, LitValue instance, LitUInt argc, LitV
     {
         return lit_value_makebool(true);
     }
-    if(sub->length > string->length)
+    if(sub->strbuf.length > string->strbuf.length)
     {
         return lit_value_makebool(false);
     }
-    for(LitUInt i = 0; i < sub->length; i++)
+    for(LitUInt i = 0; i < sub->strbuf.length; i++)
     {
-        if(sub->chars[i] != string->chars[i])
+        if(sub->strbuf.data[i] != string->strbuf.data[i])
         {
             return lit_value_makebool(false);
         }
@@ -8221,14 +9892,14 @@ LitValue objfnstring_endswith(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     {
         return lit_value_makebool(true);
     }
-    if(sub->length > string->length)
+    if(sub->strbuf.length > string->strbuf.length)
     {
         return lit_value_makebool(false);
     }
-    LitUInt start = string->length - sub->length;
-    for(LitUInt i = 0; i < sub->length; i++)
+    LitUInt start = string->strbuf.length - sub->strbuf.length;
+    for(LitUInt i = 0; i < sub->strbuf.length; i++)
     {
-        if(sub->chars[i] != string->chars[i + start])
+        if(sub->strbuf.data[i] != string->strbuf.data[i + start])
         {
             return lit_value_makebool(false);
         }
@@ -8247,12 +9918,12 @@ LitValue objfnstring_replace(LitVm* vm, LitValue instance, LitUInt argc, LitValu
     LitString* what = AS_STRING(args[0]);
     LitString* with = AS_STRING(args[1]);
     LitUInt bufferlength = 0;
-    for(LitUInt i = 0; i < string->length; i++)
+    for(LitUInt i = 0; i < string->strbuf.length; i++)
     {
-        if(strncmp(string->chars + i, what->chars, what->length) == 0)
+        if(strncmp(string->strbuf.data + i, what->strbuf.data, what->strbuf.length) == 0)
         {
-            i += what->length - 1;
-            bufferlength += with->length;
+            i += what->strbuf.length - 1;
+            bufferlength += with->strbuf.length;
         }
         else
         {
@@ -8261,17 +9932,17 @@ LitValue objfnstring_replace(LitVm* vm, LitValue instance, LitUInt argc, LitValu
     }
     LitUInt bufferindex = 0;
     char buffer[bufferlength + 1];
-    for(LitUInt i = 0; i < string->length; i++)
+    for(LitUInt i = 0; i < string->strbuf.length; i++)
     {
-        if(strncmp(string->chars + i, what->chars, what->length) == 0)
+        if(strncmp(string->strbuf.data + i, what->strbuf.data, what->strbuf.length) == 0)
         {
-            memcpy(buffer + bufferindex, with->chars, with->length);
-            bufferindex += with->length;
-            i += what->length - 1;
+            memcpy(buffer + bufferindex, with->strbuf.data, with->strbuf.length);
+            bufferindex += with->strbuf.length;
+            i += what->strbuf.length - 1;
         }
         else
         {
-            buffer[bufferindex] = string->chars[i];
+            buffer[bufferindex] = string->strbuf.data[i];
             bufferindex++;
         }
     }
@@ -8296,8 +9967,8 @@ LitValue objfnstring_splice(LitVm* vm, LitString* string, int from, int to)
     {
         lit_vm_raisefatalerror(vm, "String splice from bound is larger that to bound");
     }
-    from = lit_uchar_offset(string->chars, from);
-    to = lit_uchar_offset(string->chars, to);
+    from = lit_uchar_offset(string->strbuf.data, from);
+    to = lit_uchar_offset(string->strbuf.data, to);
     return lit_value_fromobject(lit_ustring_from_range(vm->state, string, from, to - from + 1));
 }
 
@@ -8329,7 +10000,7 @@ LitValue objfnstring_subscript(LitVm* vm, LitValue instance, LitUInt argc, LitVa
             return lit_value_makenull();
         }
     }
-    LitString* c = lit_ustring_code_point_at(vm->state, string, lit_uchar_offset(string->chars, index));
+    LitString* c = lit_ustring_code_point_at(vm->state, string, lit_uchar_offset(string->strbuf.data, index));
     return c == NULL ? lit_value_makenull() : lit_value_fromobject(c);
 }
 
@@ -8347,7 +10018,7 @@ LitValue objfnstring_iterator(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     LitString* string = AS_STRING(instance);
     if(lit_value_isnull(args[0]))
     {
-        if(string->length == 0)
+        if(string->strbuf.length == 0)
         {
             return lit_value_makenull();
         }
@@ -8361,11 +10032,11 @@ LitValue objfnstring_iterator(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     do
     {
         index++;
-        if(index >= (int)string->length)
+        if(index >= (int)string->strbuf.length)
         {
             return lit_value_makenull();
         }
-    } while((string->chars[index] & 0xc0) == 0x80);
+    } while((string->strbuf.data[index] & 0xc0) == 0x80);
     return lit_value_makenumber(index);
 }
 
@@ -8917,7 +10588,7 @@ LitValue objfnarray_join(LitVm* vm, LitValue instance, LitUInt argc, LitValue* a
     {
         LitString* string = lit_tostring_value(vm->state, values->values[i], 0);
         strings[i] = string;
-        length += string->length;
+        length += string->strbuf.length;
     }
     LitUInt index = 0;
     char chars[length + 1];
@@ -8925,8 +10596,8 @@ LitValue objfnarray_join(LitVm* vm, LitValue instance, LitUInt argc, LitValue* a
     for(LitUInt i = 0; i < values->count; i++)
     {
         LitString* string = strings[i];
-        memcpy(chars + index, string->chars, string->length);
-        index += string->length;
+        memcpy(chars + index, string->strbuf.data, string->strbuf.length);
+        index += string->strbuf.length;
     }
     return lit_value_fromobject(lit_string_copy(vm->state, chars, length));
 }
@@ -9072,7 +10743,7 @@ LitValue objfnarray_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValu
             value = AS_STRING(lit_string_format(state, "\"@\"", lit_value_fromobject(value)));
         }
         valuesconverted[i] = value;
-        slength += value->length + (i == valueamount - 1 ? 1 : 2);
+        slength += value->strbuf.length + (i == valueamount - 1 ? 1 : 2);
     }
     char buffer[slength + 1];
     memcpy(buffer, "[ ", 2);
@@ -9080,8 +10751,8 @@ LitValue objfnarray_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValu
     for(LitUInt i = 0; i < valueamount; i++)
     {
         LitString* part = valuesconverted[i];
-        memcpy(&buffer[bufferindex], part->chars, part->length);
-        bufferindex += part->length;
+        memcpy(&buffer[bufferindex], part->strbuf.data, part->strbuf.length);
+        bufferindex += part->strbuf.length;
         if(hasmore && i == valueamount - 2)
         {
             memcpy(&buffer[bufferindex], " ... ", 5);
@@ -9261,7 +10932,7 @@ LitValue objfnmap_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValue*
             }
             valuesconverted[i] = value;
             keys[i] = entry->key;
-            slength += entry->key->length + 2 + value->length + (i == valueamount - 1 ? 1 : 2) + indentation;
+            slength += entry->key->strbuf.length + 2 + value->strbuf.length + (i == valueamount - 1 ? 1 : 2) + indentation;
             i++;
         }
     } while(i < valueamount);
@@ -9280,12 +10951,12 @@ LitValue objfnmap_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValue*
         {
             buffer[bufferindex++] = '\t';
         }
-        memcpy(&buffer[bufferindex], key->chars, key->length);
-        bufferindex += key->length;
+        memcpy(&buffer[bufferindex], key->strbuf.data, key->strbuf.length);
+        bufferindex += key->strbuf.length;
         memcpy(&buffer[bufferindex], ": ", 2);
         bufferindex += 2;
-        memcpy(&buffer[bufferindex], value->chars, value->length);
-        bufferindex += value->length;
+        memcpy(&buffer[bufferindex], value->strbuf.data, value->strbuf.length);
+        bufferindex += value->strbuf.length;
         if(hasmore && i == valueamount - 1)
         {
 #ifdef LIT_SINGLE_LINE_MAPS
@@ -9442,7 +11113,7 @@ LitValue lit_corefn_print(LitVm* vm, LitUInt argc, LitValue* args)
     for(LitUInt i = 0; i < argc; i++)
     {
         s = lit_tostring_value(vm->state, args[i], 0);
-        lit_printf(vm->state, "%.*s", s->length, s->chars);
+        lit_printf(vm->state, "%.*s", s->strbuf.length, s->strbuf.data);
     }
     return lit_value_makenull();
 }
@@ -9717,27 +11388,27 @@ void lit_write_uint32_t(FILE* file, uint32_t byte)
     fwrite(&byte, sizeof(uint32_t), 1, file);
 }
 
-void lit_write_uint64_t(FILE* file, uint64_t byte)
+void lit_util_writeuint64(FILE* file, uint64_t byte)
 {
     fwrite(&byte, sizeof(uint64_t), 1, file);
 }
 
-void lit_write_double(FILE* file, double byte)
+void lit_util_writedouble(FILE* file, double byte)
 {
     fwrite(&byte, sizeof(double), 1, file);
 }
 
-void lit_write_string(FILE* file, LitString* string)
+void lit_util_writestring(FILE* file, LitString* string)
 {
-    uint16_t c = string->length;
+    uint16_t c = string->strbuf.length;
     fwrite(&c, sizeof(uint16_t), 1, file);
     for(uint16_t i = 0; i < c; i++)
     {
-        lit_write_uint8_t(file, (uint8_t)string->chars[i] ^ LIT_STRING_KEY);
+        lit_write_uint8_t(file, (uint8_t)string->strbuf.data[i] ^ LIT_STRING_KEY);
     }
 }
 
-uint8_t lit_read_uint8_t(FILE* file)
+uint8_t lit_util_readuint8(FILE* file)
 {
     size_t rsz;
     (void)rsz;
@@ -9745,7 +11416,7 @@ uint8_t lit_read_uint8_t(FILE* file)
     return btmp;
 }
 
-uint16_t lit_read_uint16_t(FILE* file)
+uint16_t lit_util_readuint16(FILE* file)
 {
     size_t rsz;
     (void)rsz;
@@ -9753,7 +11424,7 @@ uint16_t lit_read_uint16_t(FILE* file)
     return stmp;
 }
 
-uint32_t lit_read_uint32_t(FILE* file)
+uint32_t lit_util_readuint32(FILE* file)
 {
     size_t rsz;
     (void)rsz;
@@ -9761,7 +11432,7 @@ uint32_t lit_read_uint32_t(FILE* file)
     return itmp;
 }
 
-double lit_read_double(FILE* file)
+double lit_util_readdouble(FILE* file)
 {
     size_t rsz;
     (void)rsz;
@@ -9769,7 +11440,7 @@ double lit_read_double(FILE* file)
     return dtmp;
 }
 
-LitString* lit_read_string(LitState* state, FILE* file)
+LitString* lit_util_readstring(LitState* state, FILE* file)
 {
     size_t rsz;
     uint16_t length;
@@ -9782,7 +11453,7 @@ LitString* lit_read_string(LitState* state, FILE* file)
     char line[length];
     for(uint16_t i = 0; i < length; i++)
     {
-        line[i] = (char)lit_read_uint8_t(file) ^ LIT_STRING_KEY;
+        line[i] = (char)lit_util_readuint8(file) ^ LIT_STRING_KEY;
     }
     return lit_string_copy(state, line, length);
 }
@@ -9843,8 +11514,8 @@ LitString* lit_read_estring(LitState* state, LitEmulatedFile* file)
 void save_function(FILE* file, LitFunction* function)
 {
     save_chunk(file, &function->chunk);
-    lit_write_string(file, function->name);
-    lit_write_uint8_t(file, function->argcount);
+    lit_util_writestring(file, function->name);
+    lit_write_uint32_t(file, function->argcount);
     lit_write_uint32_t(file, function->upvaluecount);
     lit_write_uint8_t(file, (uint8_t)function->vararg);
     lit_write_uint8_t(file, (uint16_t)function->max_registers);
@@ -9855,8 +11526,8 @@ LitFunction* load_function(LitState* state, LitEmulatedFile* file, LitModule* mo
     LitFunction* function = lit_object_makefunction(state, module);
     load_chunk(state, file, module, &function->chunk);
     function->name = lit_read_estring(state, file);
-    function->argcount = lit_read_euint8_t(file);
-    function->upvaluecount = lit_read_euint16_t(file);
+    function->argcount = lit_read_euint32_t(file);
+    function->upvaluecount = lit_read_euint32_t(file);
     function->vararg = (bool)lit_read_euint8_t(file);
     function->max_registers = lit_read_euint8_t(file);
     return function;
@@ -9867,7 +11538,7 @@ void save_chunk(FILE* file, LitChunk* chunk)
     lit_write_uint32_t(file, chunk->compiledcodecount);
     for(LitUInt i = 0; i < chunk->compiledcodecount; i++)
     {
-        lit_write_uint64_t(file, chunk->compiledcodechunk[i]);
+        lit_util_writeuint64(file, chunk->compiledcodechunk[i]);
     }
     if(chunk->haslineinfo)
     {
@@ -9894,7 +11565,7 @@ void save_chunk(FILE* file, LitChunk* chunk)
             {
                 case LIT_OBJ_STRING:
                 {
-                    lit_write_string(file, AS_STRING(constant));
+                    lit_util_writestring(file, AS_STRING(constant));
                     break;
                 }
                 case LIT_OBJ_FUNCTION:
@@ -9912,7 +11583,7 @@ void save_chunk(FILE* file, LitChunk* chunk)
         else
         {
             lit_write_uint8_t(file, 0);
-            lit_write_double(file, lit_value_asnumber(constant));
+            lit_util_writedouble(file, lit_value_asnumber(constant));
         }
     }
 }
@@ -9982,7 +11653,7 @@ void lit_save_module(LitModule* module, FILE* file)
 {
     bool disabled;
     disabled = false;
-    lit_write_string(file, module->name);
+    lit_util_writestring(file, module->name);
     lit_write_uint16_t(file, module->private_count);
     lit_write_uint8_t(file, (uint8_t)disabled);
     if(!disabled)
@@ -9992,7 +11663,7 @@ void lit_save_module(LitModule* module, FILE* file)
         {
             if(privates->entries[i].key != NULL)
             {
-                lit_write_string(file, privates->entries[i].key);
+                lit_util_writestring(file, privates->entries[i].key);
                 lit_write_uint16_t(file, (uint16_t)lit_value_asnumber(privates->entries[i].value));
             }
         }
@@ -10041,11 +11712,13 @@ LitModule* lit_load_module(LitState* state, const char* input)
             first = module;
         }
     }
+    #if 0
     if(lit_read_euint16_t(&file) != LIT_BYTECODE_END_NUMBER)
     {
         lit_state_raiseerror(state, COMPILE_ERROR, "Failed to read compiled code, unknown end number");
         return NULL;
     }
+    #endif
     return first;
 }
 
@@ -10220,7 +11893,7 @@ LitValue file_write(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
     LIT_ENSURE_ARGS(1)
     LitString* value = lit_tostring_value(vm->state, args[0], 0);
-    fwrite(value->chars, sizeof(char), value->length, LIT_EXTRACT_DATA(LitFileData)->file);
+    fwrite(value->strbuf.data, sizeof(char), value->strbuf.length, LIT_EXTRACT_DATA(LitFileData)->file);
     return lit_value_makenull();
 }
 
@@ -10260,7 +11933,7 @@ LitValue file_writeString(LitVm* vm, LitValue instance, LitUInt argc, LitValue* 
     }
     LitString* string = AS_STRING(args[0]);
     LitFileData* data = LIT_EXTRACT_DATA(LitFileData);
-    lit_write_string(data->file, string);
+    lit_util_writestring(data->file, string);
     return lit_value_makenull();
 }
 
@@ -10280,11 +11953,11 @@ LitValue file_readAll(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args
     fseek(data->file, 0, SEEK_END);
     LitUInt length = ftell(data->file);
     fseek(data->file, 0, SEEK_SET);
-    LitString* result = lit_object_makeemptystring(vm->state, length);
-    result->chars = lit_sysmem_malloc((length + 1) * sizeof(char));
-    result->chars[length] = '\0';
-    rsz = fread(result->chars, sizeof(char), length, data->file);
-    result->hash = lit_string_hash(result->chars, result->length);
+    LitString* result = lit_string_makeemptystring(vm->state, length, true);
+    result->strbuf.data = lit_sysmem_malloc((length + 1) * sizeof(char));
+    result->strbuf.data[length] = '\0';
+    rsz = fread(result->strbuf.data, sizeof(char), length, data->file);
+    result->hash = lit_string_hash(result->strbuf.data, result->strbuf.length);
     lit_string_register(vm->state, result);
     return lit_value_fromobject(result);
 }
@@ -10305,28 +11978,28 @@ LitValue file_readByte(LitVm* vm, LitValue instance, LitUInt argc, LitValue* arg
 {
     (void)argc;
     (void)args;
-    return lit_value_makenumber(lit_read_uint8_t(LIT_EXTRACT_DATA(LitFileData)->file));
+    return lit_value_makenumber(lit_util_readuint8(LIT_EXTRACT_DATA(LitFileData)->file));
 }
 
 LitValue file_readShort(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
     (void)argc;
     (void)args;
-    return lit_value_makenumber(lit_read_uint16_t(LIT_EXTRACT_DATA(LitFileData)->file));
+    return lit_value_makenumber(lit_util_readuint16(LIT_EXTRACT_DATA(LitFileData)->file));
 }
 
 LitValue file_readNumber(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
     (void)argc;
     (void)args;
-    return lit_value_makenumber(lit_read_uint32_t(LIT_EXTRACT_DATA(LitFileData)->file));
+    return lit_value_makenumber(lit_util_readuint32(LIT_EXTRACT_DATA(LitFileData)->file));
 }
 
 LitValue file_readBool(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
 {
     (void)argc;
     (void)args;
-    return lit_value_makebool((char)lit_read_uint8_t(LIT_EXTRACT_DATA(LitFileData)->file) == '1');
+    return lit_value_makebool((char)lit_util_readuint8(LIT_EXTRACT_DATA(LitFileData)->file) == '1');
 }
 
 LitValue file_readString(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -10334,7 +12007,7 @@ LitValue file_readString(LitVm* vm, LitValue instance, LitUInt argc, LitValue* a
     (void)argc;
     (void)args;
     LitFileData* data = LIT_EXTRACT_DATA(LitFileData);
-    LitString* string = lit_read_string(vm->state, data->file);
+    LitString* string = lit_util_readstring(vm->state, data->file);
     return string == NULL ? lit_value_makenull() : lit_value_fromobject(string);
 }
 
@@ -11415,10 +13088,10 @@ bool lit_value_iscallablefunction(LitValue value)
     return false;
 }
 
-LitString* lit_object_makeemptystring(LitState* state, LitUInt length)
+LitString* lit_string_makeemptystring(LitState* state, LitUInt length, bool preallocated)
 {
     LitString* string = ALLOCATE_OBJECT(state, LitString, LIT_OBJ_STRING);
-    string->length = length;
+    nn_strbuf_initbasicempty(&string->strbuf, length, true, preallocated);
     return string;
 }
 
@@ -11429,10 +13102,19 @@ void lit_string_register(LitState* state, LitString* string)
     lit_state_poproot(state);
 }
 
-LitString* lit_object_allocstring(LitState* state, char* chars, LitUInt length, uint32_t hash)
+LitString* lit_string_makestringfrom(LitState* state, char* chars, LitUInt length, uint32_t hash, bool preallocated)
 {
-    LitString* string = lit_object_makeemptystring(state, length);
-    string->chars = chars;
+    LitString* string;
+    string = lit_string_makeemptystring(state, length, preallocated);
+    if(preallocated)
+    {
+        nn_strbuf_setdata(&string->strbuf, chars);
+        nn_strbuf_setlength(&string->strbuf, length);
+    }
+    else
+    {
+        nn_strbuf_appendstrn(&string->strbuf, chars, length);
+    }
     string->hash = hash;
     lit_string_register(state, string);
     return string;
@@ -11457,7 +13139,7 @@ LitString* lit_string_take(LitState* state, const char* chars, LitUInt length)
     {
         return interned;
     }
-    return lit_object_allocstring(state, (char*)chars, length, hash);
+    return lit_string_makestringfrom(state, (char*)chars, length, hash, true);
 }
 
 LitString* lit_string_copy(LitState* state, const char* chars, LitUInt length)
@@ -11474,7 +13156,7 @@ LitString* lit_string_copy(LitState* state, const char* chars, LitUInt length)
 #ifdef LIT_LOG_ALLOCATION
     printf("Allocated new string '%s'\n", chars);
 #endif
-    return lit_object_allocstring(state, heapchars, length, hash);
+    return lit_string_makestringfrom(state, heapchars, length, hash, true);
 }
 
 LitValue lit_string_numbertostring(LitState* state, double value)
@@ -11526,14 +13208,14 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
                 LitString* ss = AS_STRING(v);
                 if(ss != NULL)
                 {
-                    totallength += ss->length;
+                    totallength += ss->strbuf.length;
                     break;
                 }
                 goto defaultending;
             }
             case '#':
             {
-                totallength += AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)))->length;
+                totallength += AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)))->strbuf.length;
                 break;
             }
             default:
@@ -11545,10 +13227,10 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
         }
     }
     va_end(arglist);
-    LitString* result = lit_object_makeemptystring(state, totallength);
-    result->chars = lit_sysmem_malloc((totallength + 1) * sizeof(char));
-    result->chars[totallength] = '\0';
-    char* start = result->chars;
+    LitString* result = lit_string_makeemptystring(state, totallength, true);
+    result->strbuf.data = lit_sysmem_malloc((totallength + 1) * sizeof(char));
+    result->strbuf.data[totallength] = '\0';
+    char* start = result->strbuf.data;
     va_start(arglist, format);
     for(const char* c = format; *c != '\0'; c++)
     {
@@ -11571,8 +13253,8 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
                 LitString* string = AS_STRING(va_arg(arglist, LitValue));
                 if(string != NULL)
                 {
-                    memcpy(start, string->chars, string->length);
-                    start += string->length;
+                    memcpy(start, string->strbuf.data, string->strbuf.length);
+                    start += string->strbuf.length;
                     break;
                 }
                 goto defaultendingcopying;
@@ -11580,8 +13262,8 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
             case '#':
             {
                 LitString* string = AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)));
-                memcpy(start, string->chars, string->length);
-                start += string->length;
+                memcpy(start, string->strbuf.data, string->strbuf.length);
+                start += string->strbuf.length;
                 break;
             }
             default:
@@ -11593,7 +13275,7 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
         }
     }
     va_end(arglist);
-    result->hash = lit_string_hash(result->chars, result->length);
+    result->hash = lit_string_hash(result->strbuf.data, result->strbuf.length);
     lit_string_register(state, result);
     state->allow_gc = wasallowed;
     return lit_value_fromobject(result);
@@ -12134,7 +13816,7 @@ LitString* lit_table_find_string(LitTable* table, const char* chars, LitUInt len
                 return NULL;
             }
         }
-        else if(entry->key->length == length && entry->key->hash == hash && memcmp(entry->key->chars, chars, length) == 0)
+        else if(entry->key->strbuf.length == length && entry->key->hash == hash && memcmp(entry->key->strbuf.data, chars, length) == 0)
         {
             return entry->key;
         }
@@ -12413,7 +14095,7 @@ LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, ch
         }
         LitDynListExpr statements;
         lit_exprlist_init(&statements);
-        if(lit_parser_parsesource(state->parser, modname->chars, code, &statements))
+        if(lit_parser_parsesource(state->parser, modname->strbuf.data, code, &statements))
         {
             relstmts(state, &statements);
             return NULL;
@@ -12435,15 +14117,6 @@ LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, ch
     return state->had_error ? NULL : module;
 }
 
-LitModule* lit_state_getmodulebyname(LitState* state, const char* name)
-{
-    LitValue value;
-    if(lit_table_get(&state->vm->modules->values, CONST_STRING(state, name), &value))
-    {
-        return AS_MODULE(value);
-    }
-    return NULL;
-}
 
 LitResult lit_state_interninterpretsource(LitState* state, LitString* modname, char* code)
 {
@@ -12706,13 +14379,13 @@ bool lit_vm_handleerror(LitVm* vm, LitString* errorstring)
     }
     // Maan, formatting c strings is hard...
     int count = (int)fiber->framecount - 1;
-    size_t length = snprintf(NULL, 0, "%s%s\n", COLOR_RED, errorstring->chars);
+    size_t length = snprintf(NULL, 0, "%s%s\n", COLOR_RED, errorstring->strbuf.data);
     for(int i = count; i >= 0; i--)
     {
         LitCallFrame* frame = &fiber->framevals[i];
         LitFunction* function = frame->function;
         LitChunk* chunk = &function->chunk;
-        const char* name = function->name == NULL ? "unknown" : function->name->chars;
+        const char* name = function->name == NULL ? "unknown" : function->name->strbuf.data;
         if(chunk->haslineinfo)
         {
             length += snprintf(NULL, 0, "[line %d] in %s()\n", lit_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1), name);
@@ -12725,13 +14398,13 @@ bool lit_vm_handleerror(LitVm* vm, LitString* errorstring)
     length += snprintf(NULL, 0, "%s", COLOR_RESET);
     char buffer[length + 1];
     buffer[length] = '\0';
-    char* start = buffer + sprintf(buffer, "%s%s\n", COLOR_RED, errorstring->chars);
+    char* start = buffer + sprintf(buffer, "%s%s\n", COLOR_RED, errorstring->strbuf.data);
     for(int i = count; i >= 0; i--)
     {
         LitCallFrame* frame = &fiber->framevals[i];
         LitFunction* function = frame->function;
         LitChunk* chunk = &function->chunk;
-        const char* name = function->name == NULL ? "unknown" : function->name->chars;
+        const char* name = function->name == NULL ? "unknown" : function->name->strbuf.data;
         if(chunk->haslineinfo)
         {
             start += sprintf(start, "[line %d] in %s()\n", lit_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1), name);
@@ -13089,7 +14762,7 @@ LitResult lit_interpret_module(LitState* state, LitModule* module)
     } \
     else \
     { \
-        lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->chars, klass->name->chars) \
+        lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data) \
     } \
     lit_vmmac_readframe()
 
@@ -13679,7 +15352,7 @@ dispatch:
         {
             LitClass* klass = AS_CLASS(vm->registers[LIT_INSTRUCTION_A(vm->instruction)]);
             LitString* name = AS_STRING(vm->constants[LIT_INSTRUCTION_B(vm->instruction)]);
-            if((klass->init_method == NULL || (klass->super != NULL && klass->init_method == ((LitClass*)klass->super)->init_method)) && name->length == 11 && memcmp(name->chars, "constructor", 11) == 0)
+            if((klass->init_method == NULL || (klass->super != NULL && klass->init_method == ((LitClass*)klass->super)->init_method)) && name->strbuf.length == 11 && memcmp(name->strbuf.data, "constructor", 11) == 0)
             {
                 klass->init_method = lit_value_asobject(lit_vmmac_getrc(LIT_INSTRUCTION_C(vm->instruction)));
             }
@@ -13708,7 +15381,7 @@ dispatch:
                             LitField* field = AS_FIELD(value);
                             if(field->getter == NULL)
                             {
-                                lit_vmmac_fail("Class %s does not have a getter for the field %s", instance->klass->name->chars, name->chars);
+                                lit_vmmac_fail("Class %s does not have a getter for the field %s", instance->klass->name->strbuf.data, name->strbuf.data);
                             }
                             lit_vmmac_writeframe();
                             lit_vmmac_callvalue(lit_value_fromobject(AS_FIELD(value)->getter), resultreg, 0);
@@ -13740,7 +15413,7 @@ dispatch:
                         LitField* field = AS_FIELD(value);
                         if(field->getter == NULL)
                         {
-                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->chars, name->chars);
+                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe();
                         lit_vmmac_callvalue(lit_value_fromobject(field->getter), resultreg, 0);
@@ -13767,7 +15440,7 @@ dispatch:
                         LitField* field = AS_FIELD(value);
                         if(field->getter == NULL)
                         {
-                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->chars, name->chars);
+                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe();
                         lit_vmmac_callvalue(lit_value_fromobject(AS_FIELD(value)->getter), resultreg, 0);
@@ -13823,7 +15496,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->chars, fieldname->chars);
+                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -13848,7 +15521,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", inst->klass->name->chars, fieldname->chars);
+                        lit_vmmac_fail("Class %s does not have a setter for the field %s", inst->klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -13877,7 +15550,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->chars, fieldname->chars);
+                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -13886,7 +15559,7 @@ dispatch:
                 }
                 else
                 {
-                    lit_vmmac_fail("Class %s does not contain field %s", klass->name->chars, fieldname->chars);
+                    lit_vmmac_fail("Class %s does not contain field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                 }
             }
             vm->registers[resultreg] = value;
@@ -13957,7 +15630,7 @@ dispatch:
             }
             else
             {
-                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->chars, klass->name->chars);
+                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
             }
             lit_vmmac_readframe();
             lit_vmmac_dispatchnext();
@@ -13989,7 +15662,7 @@ dispatch:
             }
             else
             {
-                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->chars, klass->name->chars);
+                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
             }
             lit_vmmac_readframe();
             lit_vmmac_dispatchnext();
@@ -14154,7 +15827,7 @@ void run_repl(LitState* state)
         LitResult result = lit_state_interpretsource(state, "repl", line);
         if(result.type == INTERPRET_OK && !lit_value_isnull(result.result))
         {
-            printf("%s%s%s\n", COLOR_GREEN, lit_tostring_value(state, result.result, 0)->chars, COLOR_RESET);
+            printf("%s%s%s\n", COLOR_GREEN, lit_tostring_value(state, result.result, 0)->strbuf.data, COLOR_RESET);
         }
         lit_eventsystem_loop(state);
     }
