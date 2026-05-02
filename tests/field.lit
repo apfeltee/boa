@@ -2,7 +2,7 @@ class Awesome {
 
 }
 
-var instance = new Awesome()
+var instance = Awesome()
 println(instance.test) // Expected: null
 
 instance.test = 32

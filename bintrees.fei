@@ -9,8 +9,8 @@ class Tree
         {
             var item2 = item + item;
             depth = depth - 1;
-            this.left = new Tree(item2 - 1, depth);
-            this.right = new Tree(item2, depth);
+            this.left = Tree(item2 - 1, depth);
+            this.right = Tree(item2, depth);
         }
         else
         {
@@ -44,10 +44,10 @@ var stretchdepth = maxdepth + 1;
 
 var start = clock();
 
-var dep =  (new Tree(0, stretchdepth)).check();
+var dep =  (Tree(0, stretchdepth)).check();
 println("stretch tree of depth:", stretchdepth, " check:",dep);
 
-var longlivedtree = new Tree(0, maxdepth);
+var longlivedtree = Tree(0, maxdepth);
 
 
 var iterations = 1;
@@ -67,8 +67,8 @@ while (depth < stretchdepth)
     i = 1;
     while (i <= iterations)
     {
-        var t1 = (new Tree(i, depth)).check();
-        var t2 = (new Tree(-i, depth)).check();
+        var t1 = (Tree(i, depth)).check();
+        var t2 = (Tree(-i, depth)).check();
         checkme = checkme + t1 + t2;
         i = i + 1;
     }

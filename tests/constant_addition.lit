@@ -4,4 +4,4 @@ class A {
 	}
 }
 
-println(new A() + 1) // Expected: 33
+println(A() + 1) // Expected: 33

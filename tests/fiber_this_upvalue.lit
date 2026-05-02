@@ -1,7 +1,7 @@
 class A {
 	a() {
 		function b() {
-			new Fiber(() => {
+			Fiber(() => {
 				println(this) // Expected: A instance
 			}).run()
 		}
@@ -10,4 +10,4 @@ class A {
 	}
 }
 
-new A().a()
+A().a()

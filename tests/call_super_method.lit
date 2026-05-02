@@ -17,5 +17,5 @@ class C : B {
 	}
 }
 
-new C() // Expected: sup
+C() // Expected: sup
 // Expected: function A:constructor

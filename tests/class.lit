@@ -3,7 +3,7 @@ class Base {
 }
 
 println(Base.super) // Expected: class Object
-println(new Base()) // Expected: Base instance
+println(Base()) // Expected: Base instance
 println(Base.name) // Expected: Base
 
 class Child : Base {

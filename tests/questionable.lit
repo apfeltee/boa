@@ -7,5 +7,5 @@ class Awesome {
 	}
 }
 
-a = new Awesome()
+a = Awesome()
 a?.test() // Expected: Yes

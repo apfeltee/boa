@@ -15,7 +15,7 @@ println(a &= 10) // Expected: 2
 println(a ^= 31) // Expected: 29
 
 class Test {}
-var test = new Test()
+var test = Test()
 test.a = 32
 
 println(test.a += 32) // Expected: 64

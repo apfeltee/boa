@@ -1,4 +1,6 @@
 
+SHELL = /bin/zsh -G
+
 INCFLAGS =
 
 unflags = \
@@ -14,10 +16,9 @@ unflags = \
 	-Wunused-parameter \
 	-Wunused-result \
 	-Wunused-value \
-	-Wunused-variable \
+	-Wunused-variable
 
-#unflags += -Wvla
-
+#unflags += 	-Wvla
 ## has a tendency to report false positives!
 #unflags += -pedantic
 
@@ -26,13 +27,24 @@ allunflags = $(unflags)
 #allunflags = $(unflags) 
 
 WFLAGS = -Wall -Wextra -Wshadow -Wpointer-arith -Wuninitialized -Winit-self  $(allunflags)
-#WFLAGS += -Wmaybe-uninitialized -Wjump-misses-init
-#WFLAGS += -ansi -pedantic
+WFLAGS += -Wmaybe-uninitialized  -Wnull-dereference -Wduplicated-cond
+WFLAGS +=  -Wwrite-strings
+
+## very verbose
+#WFLAGS += -Wconversion
+
+## will complain about computed gotos
+#WFLAGS += -pedantic
+
+## also very verbose
+#WFLAGS += -Weffc++
+
 #WFLAGS = -w
 
 
 OPTFLAGS = -O0
 #OPTFLAGS = -O5 -funroll-loops -flto -ffast-math 
+
 
 ## empty by default
 EXTRAFLAGS =
@@ -44,22 +56,26 @@ EXTRAFLAGS =
 #*** WARNING ***
 # causes quite a steep use of memory!
 #EXTRAFLAGS += -fsanitize=undefined
-
 #EXTRAFLAGS += -fsanitize=memory
 #EXTRAFLAGS += -fsanitize=address
 #EXTRAFLAGS += -fstack-protector-all -ftrapv
+#export COLLECT_NO_DEMANGLE=0
 
 ### WARNING: can be quite verbose! prints unused sections, giving a better clue which functions can be removed.
 #EXTRAFLAGS += -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--print-gc-sections
 
-#CC = clang++ -gdwarf-4 $(WFLAGS) $(EXTRAFLAGS)
-#CC = g++ $(WFLAGS) $(EXTRAFLAGS)
-CC = gcc $(WFLAGS) $(EXTRAFLAGS)
-#CC = clang -gdwarf-4 $(WFLAGS) $(EXTRAFLAGS)
-#CC = tcc $(WFLAGS) $(EXTRAFLAGS)
+CFLAGS =
+#CFLAGS += $(INCFLAGS) -Ofast -march=native -flto -ffast-math -funroll-loops
+CFLAGS += $(INCFLAGS) $(OPTFLAGS) -g3 -ggdb3
+#CFLAGS += -DNEON_INLINE="__attribute__((hot, optimize(5)))"
 
-#CFLAGS = $(INCFLAGS) -Ofast -march=native -flto -ffast-math -funroll-loops
-CFLAGS = $(INCFLAGS) $(OPTFLAGS) -g3 -ggdb3
+CC = gcc $(WFLAGS) $(EXTRAFLAGS)
+#CC = clang -gdwarf-4 -ferror-limit=1000 $(WFLAGS) $(EXTRAFLAGS)
+
+CC = gcc $(WFLAGS) $(EXTRAFLAGS)
+#CC = tcc $(WFLAGS) $(EXTRAFLAGS)
+DEPCC = gcc
+
 LDFLAGS = -ldl -lm -lreadline
 target = run
 
@@ -76,6 +92,7 @@ ifeq (, $(shell which cproto))
 havecproto = 0
 endif
 
+.PHONY: all
 all: $(protofile) $(target)
 
 ## dear god what a kludge
@@ -89,20 +106,18 @@ $(protofile): $(srcfiles_all)
 endif
 
 $(target): $(objfiles_all)
-	@echo "LINK $@"
-	@$(CC) -o $@ $^ $(LDFLAGS)
+	$(CC) -o $(target) $(objfiles_all) $(LDFLAGS)
 
 -include $(depfiles_all)
 
 # rule to generate a dep file by using the C preprocessor
 # (see man cpp for details on the -MM and -MT options)
 %.d: %.c
-	@echo "DEP $@ -> $<"
-	@$(CC) $(CFLAGS) $< -MM -MT $(@:.d=.o) -MF $@
+	$(DEPCC) $(CFLAGS) $< -MM -MT $(@:.d=.o) -MF $@
 
 %.o: %.c
-	@echo "CC $< -> $@"
-	@$(CC) $(CFLAGS) -c $(DBGFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -c $(DBGFLAGS) -o $@ $<
+
 
 .PHONY: clean
 clean:
@@ -117,3 +132,4 @@ distclean: cleandep clean
 
 .PHONY: rebuild
 rebuild: clean cleandep $(target)
+
