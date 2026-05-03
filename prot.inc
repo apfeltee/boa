@@ -598,8 +598,11 @@ LitString *lit_string_makestringfrom(LitState *state, char *chars, LitUInt lengt
 uint32_t lit_string_hash(const char *key, LitUInt length);
 LitString *lit_string_take(LitState *state, const char *chars, LitUInt length);
 LitString *lit_string_copy(LitState *state, const char *chars, LitUInt length);
+void lit_string_appendlen(LitString *dest, const char *str, size_t len);
+void lit_string_append(LitString *dest, const char *str);
+void lit_string_appendbyte(LitString *dest, int b);
 LitValue lit_string_numbertostring(LitState *state, double value);
-LitValue lit_string_format(LitState *state, const char *format, ...);
+LitValue lit_string_valformat(LitState *state, const char *format, ...);
 LitObject *lit_object_allocobject(LitState *state, size_t size, LitObjType type);
 LitFunction *lit_object_makefunction(LitState *state, LitModule *module);
 LitValue lit_function_getname(LitVm *vm, LitValue instance);

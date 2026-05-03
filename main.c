@@ -535,15 +535,15 @@ OP_REFERENCE_FIELD, // R(A) = ref R(B)[C(C)]
 OP_SET_REFERENCE, // ref R(A) := R(B)
 };
 
-enum NNPrMode
+enum LitIOStrMode
 {
-    NEON_PRMODE_UNDEFINED,
-    NEON_PRMODE_STRING,
-    NEON_PRMODE_FILE
+    LIT_IOSTRMODE_UNDEFINED,
+    LIT_IOSTRMODE_STRING,
+    LIT_IOSTRMODE_FILE
 };
 
 typedef uint32_t LitUInt;
-typedef enum NNPrMode NNPrMode;
+typedef enum LitIOStrMode LitIOStrMode;
 typedef enum /**/LitObjType LitObjType;
 typedef enum /**/LitFunctionType LitFunctionType;
 typedef enum /**/LitErrorType LitErrorType;
@@ -617,7 +617,7 @@ typedef struct LitFileData LitFileData;
 typedef struct LitResult LitResult;
 typedef struct LitToken LitToken;
 typedef struct LitDynListExpr LitDynListExpr;
-typedef struct NNIOStream NNIOStream;
+typedef struct LitIOStream LitIOStream;
 typedef struct LitStrBuffer LitStrBuffer;
 typedef struct LitValue LitValue;
 
@@ -678,13 +678,13 @@ struct LitStrBuffer
     char* data;
 };
 
-struct NNIOStream
+struct LitIOStream
 {
     /* if file: should be closed when writer is destroyed? */
     uint8_t shouldclose;
     /* if file: should write operations be flushed via fflush()? */
     uint8_t shouldflush;
-    /* if string: true if $strbuf was taken via nn_iostream_take() */
+    /* if string: true if $strbuf was taken via lit_iostream_take() */
     uint8_t stringtaken;
     /* was this writer instance created on stack? */
     uint8_t fromstack;
@@ -692,7 +692,7 @@ struct NNIOStream
     uint8_t jsonmode;
     size_t maxvallength;
     /* the mode that determines what writer actually does */
-    NNPrMode wrmode;
+    LitIOStrMode wrmode;
     LitStrBuffer strbuf;
     FILE* handle;
 };
@@ -1407,8 +1407,8 @@ struct LitFileData
 jmp_buf g_vmglobaljumpbuf;
 
 /* Bounds check when inserting (pos <= len are valid) */
-#define nn_strbuf_boundscheckinsert(sb, pos) nn_strutil_callboundscheckinsert(sb, pos, __FILE__, __LINE__)
-#define nn_strbuf_boundscheckreadrange(sb, start, len) nn_strutil_callboundscheckreadrange(sb, start, len, __FILE__, __LINE__)
+#define lit_strbuf_boundscheckinsert(sb, pos) nn_strutil_callboundscheckinsert(sb, pos, __FILE__, __LINE__)
+#define lit_strbuf_boundscheckreadrange(sb, start, len) nn_strutil_callboundscheckreadrange(sb, start, len, __FILE__, __LINE__)
 
 size_t nn_strutil_rndup2pow64(uint64_t x)
 {
@@ -1651,7 +1651,7 @@ void nn_strutil_callboundscheckreadrange(LitStrBuffer* sb, size_t start, size_t 
     if(start + len > sb->length)
     {
         fprintf(stderr,"%s:%i: - out of bounds error [start: %ld; length: %ld; strlen: %ld; buf:%.*s%s]\n",
-                file, line, (long)start, (long)len, (long)sb->length, (int)STRBUF_MIN(5, sb->length), nn_strbuf_data(sb), sb->length > 5 ? "..." : "");
+                file, line, (long)start, (long)len, (long)sb->length, (int)STRBUF_MIN(5, sb->length), lit_strbuf_data(sb), sb->length > 5 ? "..." : "");
         errno = EDOM;
         abort();
     }
@@ -1840,7 +1840,7 @@ size_t nn_strutil_inpreplace(char* target, size_t tgtlen, int findme, const char
 }
 
 
-LitStrBuffer* nn_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
+LitStrBuffer* lit_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
 {
     //fprintf(stderr, "in makelong...\n");
     sb->isintern = false;
@@ -1859,7 +1859,7 @@ LitStrBuffer* nn_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
     return sb;
 }
 
-bool nn_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool onstack, bool preallocated)
+bool lit_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool onstack, bool preallocated)
 {
     memset(sb, 0, sizeof(LitStrBuffer));
     sb->isintern = false;
@@ -1872,19 +1872,19 @@ bool nn_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool onstack, bool p
     }
     if(len > 0)
     {
-        nn_strbuf_resize(sb, len);
+        lit_strbuf_resize(sb, len);
     }
     return true;
 }
 
-bool nn_strbuf_makebasicemptystack(LitStrBuffer* sb, const char* str, size_t len)
+bool lit_strbuf_makebasicemptystack(LitStrBuffer* sb, const char* str, size_t len)
 {
-    nn_strbuf_initbasicempty(sb, len, true, false);
-    nn_strbuf_appendstrn(sb, str, len);
+    lit_strbuf_initbasicempty(sb, len, true, false);
+    lit_strbuf_appendstrn(sb, str, len);
     return true;
 }
 
-LitStrBuffer* nn_strbuf_makebasicempty(const char* str, size_t len)
+LitStrBuffer* lit_strbuf_makebasicempty(const char* str, size_t len)
 {
     LitStrBuffer* sb;
     sb = (LitStrBuffer*)lit_sysmem_malloc(sizeof(LitStrBuffer));
@@ -1892,15 +1892,15 @@ LitStrBuffer* nn_strbuf_makebasicempty(const char* str, size_t len)
     {
         return NULL;
     }
-    if(!nn_strbuf_initbasicempty(sb, len, false, false))
+    if(!lit_strbuf_initbasicempty(sb, len, false, false))
     {
         return NULL;
     }
-    nn_strbuf_appendstrn(sb, str, len);
+    lit_strbuf_appendstrn(sb, str, len);
     return sb;
 }
 
-bool nn_strbuf_destroyfromstack(LitStrBuffer* sb)
+bool lit_strbuf_destroyfromstack(LitStrBuffer* sb)
 {
     if(!sb->isintern)
     {
@@ -1909,16 +1909,16 @@ bool nn_strbuf_destroyfromstack(LitStrBuffer* sb)
     return true;
 }
 
-bool nn_strbuf_destroy(LitStrBuffer* sb)
+bool lit_strbuf_destroy(LitStrBuffer* sb)
 {
-    nn_strbuf_destroyfromstack(sb);
+    lit_strbuf_destroyfromstack(sb);
     lit_sysmem_free(sb);
     return true;
 }
 
 
 /* Clear the content of an existing LitStrBuffer (sets size to 0) */
-void nn_strbuf_reset(LitStrBuffer* sb)
+void lit_strbuf_reset(LitStrBuffer* sb)
 {
     if(sb->data)
     {
@@ -1929,7 +1929,7 @@ void nn_strbuf_reset(LitStrBuffer* sb)
 
 
 /* Ensure capacity for len characters plus '\0' character - exits on FAILURE */
-bool nn_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
+bool lit_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
 {
     bool mustcopy;
     char* ptr;
@@ -1971,48 +1971,48 @@ bool nn_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
 // (+ a null terminating character).  Can also be used to downsize the buffer's
 // memory usage.  Returns 1 on success, 0 on failure.
 */
-bool nn_strbuf_resize(LitStrBuffer* sb, size_t newlen)
+bool lit_strbuf_resize(LitStrBuffer* sb, size_t newlen)
 {
-    return nn_strbuf_ensurecapacity(sb, newlen);
+    return lit_strbuf_ensurecapacity(sb, newlen);
 }
 
-bool nn_strbuf_setlength(LitStrBuffer* sb, size_t len)
+bool lit_strbuf_setlength(LitStrBuffer* sb, size_t len)
 {
     sb->length  = len;
     return true;
 }
 
-bool nn_strbuf_setdata(LitStrBuffer* sb, char* str)
+bool lit_strbuf_setdata(LitStrBuffer* sb, char* str)
 {
     sb->data = str;
     return true;
 }
 
-size_t nn_strbuf_length(LitStrBuffer* sb)
+size_t lit_strbuf_length(LitStrBuffer* sb)
 {
     return sb->length;
 }
 
-const char* nn_strbuf_data(LitStrBuffer* sb)
+const char* lit_strbuf_data(LitStrBuffer* sb)
 {
     return sb->data;
 }
 
-#define nn_strbuf_mutdata(sb) \
+#define lit_strbuf_mutdata(sb) \
     ( \
         (sb)->data \
     )
 
-int nn_strbuf_get(LitStrBuffer* sb, size_t idx)
+int lit_strbuf_get(LitStrBuffer* sb, size_t idx)
 {
     return sb->data[idx];
 }
 
-bool nn_strbuf_containschar(LitStrBuffer* sb, char ch)
+bool lit_strbuf_containschar(LitStrBuffer* sb, char ch)
 {
     size_t i;
     const char* data;
-    data = nn_strbuf_data(sb);
+    data = lit_strbuf_data(sb);
     for(i=0; i<sb->length; i++)
     {
         if(data[i] == ch)
@@ -2023,32 +2023,32 @@ bool nn_strbuf_containschar(LitStrBuffer* sb, char ch)
     return false;
 }
 
-bool nn_strbuf_fullreplace(LitStrBuffer* sb, const char* findstr, size_t findlen, const char* substr, size_t sublen)
+bool lit_strbuf_fullreplace(LitStrBuffer* sb, const char* findstr, size_t findlen, const char* substr, size_t sublen)
 {
     size_t nl;
     size_t needed;
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     needed = nn_strutil_strrepcount(data, sb->length, findstr, findlen, sublen);
     if(needed == 0)
     {
         return false;
     }
-    nn_strbuf_ensurecapacity(sb, sb->capacity + needed);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->capacity + needed);
+    data = lit_strbuf_mutdata(sb);
     nl = nn_strutil_strreplace1(&data, sb->length, findstr, findlen, substr, sublen);
     sb->length = nl;
     return true;
 }
 
-bool nn_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, size_t sublen)
+bool lit_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, size_t sublen)
 {
     size_t i;
     size_t nlen;
     size_t needed;
     char* data;
     needed = sb->capacity;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     for(i=0; i<sb->length; i++)
     {
         if(data[i] == findme)
@@ -2056,11 +2056,11 @@ bool nn_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, siz
             needed += sublen;
         }
     }
-    if(!nn_strbuf_ensurecapacity(sb, needed+1))
+    if(!lit_strbuf_ensurecapacity(sb, needed+1))
     {
         return false;
     }
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     nlen = nn_strutil_inpreplace(data, sb->length, findme, substr, sublen, sb->capacity);
     sb->length = nlen;
     return true;
@@ -2068,21 +2068,21 @@ bool nn_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, siz
 
 
 /* Set string buffer to contain a given string */
-bool nn_strbuf_set(LitStrBuffer* sb, size_t idx, int b)
+bool lit_strbuf_set(LitStrBuffer* sb, size_t idx, int b)
 {
     char* data;
-    nn_strbuf_ensurecapacity(sb, idx);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, idx);
+    data = lit_strbuf_mutdata(sb);
     data[idx] = b;
     return true;
 }
 
 /* Add a character to the end of this LitStrBuffer */
-bool nn_strbuf_appendchar(LitStrBuffer* sb, int c)
+bool lit_strbuf_appendchar(LitStrBuffer* sb, int c)
 {
     char* data;
-    nn_strbuf_ensurecapacity(sb, sb->length + 1);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->length + 1);
+    data = lit_strbuf_mutdata(sb);
     data[sb->length] = c;
     data[sb->length + 1] = '\0';
     sb->length++;
@@ -2093,15 +2093,15 @@ bool nn_strbuf_appendchar(LitStrBuffer* sb, int c)
 // Copy N characters from a character array to the end of this LitStrBuffer
 // strlen(str) must be >= len
 */
-bool nn_strbuf_appendstrn(LitStrBuffer* sb, const char* str, size_t len)
+bool lit_strbuf_appendstrn(LitStrBuffer* sb, const char* str, size_t len)
 {
     int epos;
     char* data;
     epos = 0;
     if(len > 0)
     {
-        nn_strbuf_ensurecapacity(sb, sb->length + len);
-        data = nn_strbuf_mutdata(sb);
+        lit_strbuf_ensurecapacity(sb, sb->length + len);
+        data = lit_strbuf_mutdata(sb);
         if(sb->length > 0)
         {
             epos = sb->length;
@@ -2114,14 +2114,14 @@ bool nn_strbuf_appendstrn(LitStrBuffer* sb, const char* str, size_t len)
 }
 
 /* Copy a character array to the end of this NNStringBuf^^fer */
-bool nn_strbuf_appendstr(LitStrBuffer* sb, const char* str)
+bool lit_strbuf_appendstr(LitStrBuffer* sb, const char* str)
 {
-    return nn_strbuf_appendstrn(sb, str, strlen(str));
+    return lit_strbuf_appendstrn(sb, str, strlen(str));
 }
 
-bool nn_strbuf_appendbuff(LitStrBuffer* sb1, LitStrBuffer* sb2)
+bool lit_strbuf_appendbuff(LitStrBuffer* sb1, LitStrBuffer* sb2)
 {
-    return nn_strbuf_appendstrn(sb1, nn_strbuf_data(sb2), sb2->length);
+    return lit_strbuf_appendstrn(sb1, lit_strbuf_data(sb2), sb2->length);
 }
 
 /*
@@ -2190,7 +2190,7 @@ size_t nn_strutil_numofdigits(unsigned long v)
 
 
 /* Convert integers to string to append */
-bool nn_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
+bool lit_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
 {
     size_t v;
     size_t pos;
@@ -2207,8 +2207,8 @@ bool nn_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
     );
     numdigits = nn_strutil_numofdigits(value);
     pos = numdigits - 1;
-    nn_strbuf_ensurecapacity(sb, sb->length + numdigits);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->length + numdigits);
+    data = lit_strbuf_mutdata(sb);
     dst = data + sb->length;
     while(value >= 100)
     {
@@ -2233,31 +2233,31 @@ bool nn_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
     return true;
 }
 
-bool nn_strbuf_appendnumlong(LitStrBuffer* sb, long value)
+bool lit_strbuf_appendnumlong(LitStrBuffer* sb, long value)
 {
-    /* nn_strbuf_appendformat(sb, "%li", value); */
+    /* lit_strbuf_appendformat(sb, "%li", value); */
     if(value < 0)
     {
-        nn_strbuf_appendchar(sb, '-');
+        lit_strbuf_appendchar(sb, '-');
         value = -value;
     }
-    return nn_strbuf_appendnumulong(sb, value);
+    return lit_strbuf_appendnumulong(sb, value);
 }
 
-bool nn_strbuf_appendnumint(LitStrBuffer* sb, int value)
+bool lit_strbuf_appendnumint(LitStrBuffer* sb, int value)
 {
-    /* nn_strbuf_appendformat(sb, "%i", value); */
-    return nn_strbuf_appendnumlong(sb, value);
+    /* lit_strbuf_appendformat(sb, "%i", value); */
+    return lit_strbuf_appendnumlong(sb, value);
 }
 
 /* Append string converted to lowercase */
-bool nn_strbuf_appendstrnlowercase(LitStrBuffer* sb, const char* str, size_t len)
+bool lit_strbuf_appendstrnlowercase(LitStrBuffer* sb, const char* str, size_t len)
 {
     char* to;
     char* data;
     const char* plength;
-    nn_strbuf_ensurecapacity(sb, sb->length + len);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->length + len);
+    data = lit_strbuf_mutdata(sb);
     to = data + sb->length;
     plength = str + len;
     for(; str < plength; str++, to++)
@@ -2270,13 +2270,13 @@ bool nn_strbuf_appendstrnlowercase(LitStrBuffer* sb, const char* str, size_t len
 }
 
 /* Append string converted to uppercase */
-bool nn_strbuf_appendstrnuppercase(LitStrBuffer* sb, const char* str, size_t len)
+bool lit_strbuf_appendstrnuppercase(LitStrBuffer* sb, const char* str, size_t len)
 {
     char* to;
     char* data;
     const char* end;
-    nn_strbuf_ensurecapacity(sb, sb->length + len);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->length + len);
+    data = lit_strbuf_mutdata(sb);
     to = data + sb->length;
     end = str + len;
     for(; str < end; str++, to++)
@@ -2288,10 +2288,10 @@ bool nn_strbuf_appendstrnuppercase(LitStrBuffer* sb, const char* str, size_t len
     return true;
 }
 
-void nn_strbuf_shrink(LitStrBuffer* sb, size_t len)
+void lit_strbuf_shrink(LitStrBuffer* sb, size_t len)
 {
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     data[len] = 0;
     sb->length = len;
 }
@@ -2300,21 +2300,21 @@ void nn_strbuf_shrink(LitStrBuffer* sb, size_t len)
 // Remove \r and \n characters from the end of this StringBuffesr
 // Returns the number of characters removed
 */
-size_t nn_strbuf_chomp(LitStrBuffer* sb)
+size_t lit_strbuf_chomp(LitStrBuffer* sb)
 {
     size_t oldlen;
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     oldlen = sb->length;
     sb->length = nn_strutil_chomp(data, sb->length);
     return oldlen - sb->length;
 }
 
 /* Reverse a string */
-void nn_strbuf_reverse(LitStrBuffer* sb)
+void lit_strbuf_reverse(LitStrBuffer* sb)
 {
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     nn_strutil_reverseregion(data, sb->length);
 }
 
@@ -2322,24 +2322,24 @@ void nn_strbuf_reverse(LitStrBuffer* sb)
 // Get a substring as a new null terminated char array
 // (remember to free the returned char* after you're done with it!)
 */
-char* nn_strbuf_substr(LitStrBuffer* sb, size_t start, size_t len)
+char* lit_strbuf_substr(LitStrBuffer* sb, size_t start, size_t len)
 {
     char* data;
     char* newstr;
-    nn_strbuf_boundscheckreadrange(sb, start, len);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_boundscheckreadrange(sb, start, len);
+    data = lit_strbuf_mutdata(sb);
     newstr = (char*)lit_sysmem_malloc((len + 1) * sizeof(char));
     strncpy(newstr, data + start, len);
     newstr[len] = '\0';
     return newstr;
 }
 
-void nn_strbuf_touppercase(LitStrBuffer* sb)
+void lit_strbuf_touppercase(LitStrBuffer* sb)
 {
     char* pos;
     char* end;
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     end = data + sb->length;
     for(pos = data; pos < end; pos++)
     {
@@ -2347,12 +2347,12 @@ void nn_strbuf_touppercase(LitStrBuffer* sb)
     }
 }
 
-void nn_strbuf_tolowercase(LitStrBuffer* sb)
+void lit_strbuf_tolowercase(LitStrBuffer* sb)
 {
     char* pos;
     char* end;
     char* data;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     end = data + sb->length;
     for(pos = data; pos < end; pos++)
     {
@@ -2364,7 +2364,7 @@ void nn_strbuf_tolowercase(LitStrBuffer* sb)
 // Copy a string to this LitStrBuffer, overwriting any existing characters
 // Note: dstpos + len can be longer the the current sb LitStrBuffer
 */
-void nn_strbuf_copyover(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
+void lit_strbuf_copyover(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
 {
     size_t newlen;
     char* data;
@@ -2372,14 +2372,14 @@ void nn_strbuf_copyover(LitStrBuffer* sb, size_t dstpos, const char* src, size_t
     {
         return;
     }
-    nn_strbuf_boundscheckinsert(sb, dstpos);
+    lit_strbuf_boundscheckinsert(sb, dstpos);
     /*
     // Check if sb buffer can handle string
     // src may have pointed to sb, which has now moved
     */
     newlen = STRBUF_MAX(dstpos + len, sb->length);
-    nn_strbuf_ensurecapacity(sb, newlen);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, newlen);
+    data = lit_strbuf_mutdata(sb);
     /* memmove instead of strncpy, as it can handle overlapping regions */
     memmove(data + dstpos, src, len * sizeof(char));
     if(dstpos + len > sb->length)
@@ -2391,7 +2391,7 @@ void nn_strbuf_copyover(LitStrBuffer* sb, size_t dstpos, const char* src, size_t
 }
 
 /* Insert: copy to a LitStrBuffer, shifting any existing characters along */
-void nn_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
+void lit_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t len)
 {
     char* data;
     char* insert;
@@ -2399,14 +2399,14 @@ void nn_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t l
     {
         return;
     }
-    nn_strbuf_boundscheckinsert(sb, dstpos);
+    lit_strbuf_boundscheckinsert(sb, dstpos);
     /*
     // Check if sb buffer has capacity for inserted string plus \0
     // src may have pointed to sb, which will be moved in realloc when
     // calling ensure capacity
     */
-    nn_strbuf_ensurecapacity(sb, sb->length + len);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, sb->length + len);
+    data = lit_strbuf_mutdata(sb);
     insert = data + dstpos;
     /* dstpos could be at the end (== sb->length) */
     if(dstpos < sb->length)
@@ -2443,32 +2443,32 @@ void nn_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t l
 // Overwrite dstpos..(dstpos+dstlen-1) with srclen chars from src
 // if dstlen != srclen, content to the right of dstlen is shifted
 // Example:
-//   nn_strbuf_set(sb, "aaabbccc");
+//   lit_strbuf_set(sb, "aaabbccc");
 //   char *mystr = "xxx";
-//   nn_strbuf_overwrite(sb,3,2,mystr,strlen(mystr));
+//   lit_strbuf_overwrite(sb,3,2,mystr,strlen(mystr));
 //   // sb is now "aaaxxxccc"
-//   nn_strbuf_overwrite(sb,3,2,"_",1);
+//   lit_strbuf_overwrite(sb,3,2,"_",1);
 //   // sb is now "aaa_ccc"
 */
-void nn_strbuf_overwrite(LitStrBuffer* sb, size_t dstpos, size_t dstlen, const char* src, size_t srclen)
+void lit_strbuf_overwrite(LitStrBuffer* sb, size_t dstpos, size_t dstlen, const char* src, size_t srclen)
 {
     size_t len;
     size_t newlen;
     char* tgt;
     char* end;
     char* data;
-    nn_strbuf_boundscheckreadrange(sb, dstpos, dstlen);
+    lit_strbuf_boundscheckreadrange(sb, dstpos, dstlen);
     if(src == NULL)
     {
         return;
     }
     if(dstlen == srclen)
     {
-        nn_strbuf_copyover(sb, dstpos, src, srclen);
+        lit_strbuf_copyover(sb, dstpos, src, srclen);
     }
     newlen = sb->length + srclen - dstlen;
-    nn_strbuf_ensurecapacity(sb, newlen);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_ensurecapacity(sb, newlen);
+    data = lit_strbuf_mutdata(sb);
     if(src >= data && src < data + sb->capacity)
     {
         if(srclen < dstlen)
@@ -2516,15 +2516,15 @@ void nn_strbuf_overwrite(LitStrBuffer* sb, size_t dstpos, size_t dstlen, const c
 
 /*
 // Remove characters from the buffer
-//   nn_strbuf_set(sb, "aaaBBccc");
-//   nn_strbuf_erase(sb, 3, 2);
+//   lit_strbuf_set(sb, "aaaBBccc");
+//   lit_strbuf_erase(sb, 3, 2);
 //   // sb is now "aaaccc"
 */
-void nn_strbuf_erase(LitStrBuffer* sb, size_t pos, size_t len)
+void lit_strbuf_erase(LitStrBuffer* sb, size_t pos, size_t len)
 {
     char* data;
-    nn_strbuf_boundscheckreadrange(sb, pos, len);
-    data = nn_strbuf_mutdata(sb);
+    lit_strbuf_boundscheckreadrange(sb, pos, len);
+    data = lit_strbuf_mutdata(sb);
     memmove(data + pos, data + pos + len, sb->length - pos - len);
     sb->length -= len;
     data[sb->length] = '\0';
@@ -2534,21 +2534,21 @@ void nn_strbuf_erase(LitStrBuffer* sb, size_t pos, size_t len)
 // sprintf
 */
 
-int nn_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, va_list argptr)
+int lit_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, va_list argptr)
 {
     size_t buflen;
     int numchars;
     va_list vacpy;
     char* data;
-    nn_strbuf_boundscheckinsert(sb, pos);
+    lit_strbuf_boundscheckinsert(sb, pos);
     /* Length of remaining buffer */
     buflen = sb->capacity - pos;
-    if(buflen == 0 && !nn_strbuf_ensurecapacity(sb, sb->capacity << 1))
+    if(buflen == 0 && !lit_strbuf_ensurecapacity(sb, sb->capacity << 1))
     {
         fprintf(stderr, "%s:%i:Error: Out of memory\n", __FILE__, __LINE__);
         abort();
     }
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     /* Make a copy of the list of args incase we need to resize buff and try again */
     va_copy(vacpy, argptr);
     numchars = vsnprintf(data + pos, buflen, fmt, argptr);
@@ -2559,22 +2559,22 @@ int nn_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, va
     */
     if(numchars < 0)
     {
-        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* numchars does not include the null terminating byte */
     if((size_t)numchars + 1 > buflen)
     {
-        nn_strbuf_ensurecapacity(sb, pos + (size_t)numchars);
+        lit_strbuf_ensurecapacity(sb, pos + (size_t)numchars);
         /*
         // now use the argptr copy we made earlier
         // Don't need to use vsnprintf now, vsprintf will do since we know it'll fit
         */
-        data = nn_strbuf_mutdata(sb);
+        data = lit_strbuf_mutdata(sb);
         numchars = vsprintf(data + pos, fmt, vacpy);
         if(numchars < 0)
         {
-            fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+            fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
             abort();
         }
     }
@@ -2587,30 +2587,30 @@ int nn_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, va
     return numchars;
 }
 
-int nn_strbuf_appendformatv(LitStrBuffer* sb, const char* fmt, va_list argptr)
+int lit_strbuf_appendformatv(LitStrBuffer* sb, const char* fmt, va_list argptr)
 {
-    return nn_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
+    return lit_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
 }
 
 /* sprintf to the end of a LitStrBuffer (adds string terminator after sprint) */
-int nn_strbuf_appendformat(LitStrBuffer* sb, const char* fmt, ...)
+int lit_strbuf_appendformat(LitStrBuffer* sb, const char* fmt, ...)
 {
     int numchars;
     va_list argptr;
     va_start(argptr, fmt);
-    numchars = nn_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
+    numchars = lit_strbuf_appendformatposv(sb, sb->length, fmt, argptr);
     va_end(argptr);
     return numchars;
 }
 
 /* Print at a given position (overwrite chars at positions >= pos) */
-int nn_strbuf_appendformatat(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
+int lit_strbuf_appendformatat(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
 {
     int numchars;
     va_list argptr;
-    nn_strbuf_boundscheckinsert(sb, pos);
+    lit_strbuf_boundscheckinsert(sb, pos);
     va_start(argptr, fmt);
-    numchars = nn_strbuf_appendformatposv(sb, pos, fmt, argptr);
+    numchars = lit_strbuf_appendformatposv(sb, pos, fmt, argptr);
     va_end(argptr);
     return numchars;
 }
@@ -2622,14 +2622,14 @@ int nn_strbuf_appendformatat(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
 // Does not prematurely end the string if you sprintf within the string
 // (vs at the end)
 */
-int nn_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
+int lit_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt, ...)
 {
     size_t len;
     int nchars;
     char lastchar;
     va_list argptr;
     char* data;
-    nn_strbuf_boundscheckinsert(sb, pos);
+    lit_strbuf_boundscheckinsert(sb, pos);
     len = sb->length;
     /* Call vsnprintf with NULL, 0 to get resulting string length without writing */
     va_start(argptr, fmt);
@@ -2637,18 +2637,18 @@ int nn_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt, 
     va_end(argptr);
     if(nchars < 0)
     {
-        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* Save overwritten char */
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     lastchar = (pos + (size_t)nchars < sb->length) ? data[pos + (size_t)nchars] : 0;
     va_start(argptr, fmt);
-    nchars = nn_strbuf_appendformatposv(sb, pos, fmt, argptr);
+    nchars = lit_strbuf_appendformatposv(sb, pos, fmt, argptr);
     va_end(argptr);
     if(nchars < 0)
     {
-        fprintf(stderr, "Warning: nn_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* Restore length if shrunk, null terminate if extended */
@@ -2666,7 +2666,7 @@ int nn_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt, 
 }
 
 /* Trim whitespace characters from the start and end of a string */
-void nn_strbuf_triminplace(LitStrBuffer* sb)
+void lit_strbuf_triminplace(LitStrBuffer* sb)
 {
     size_t start;
     char* data;
@@ -2674,7 +2674,7 @@ void nn_strbuf_triminplace(LitStrBuffer* sb)
     {
         return;
     }
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     /* Trim end first */
     while(sb->length > 0 && isspace((int)data[sb->length - 1]))
     {
@@ -2702,12 +2702,12 @@ void nn_strbuf_triminplace(LitStrBuffer* sb)
 // Trim the characters listed in `list` from the left of `sb`
 // `list` is a null-terminated string of characters
 */
-void nn_strbuf_trimleftinplace(LitStrBuffer* sb, const char* list)
+void lit_strbuf_trimleftinplace(LitStrBuffer* sb, const char* list)
 {
     size_t start;
     char* data;
     start = 0;
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     while(start < sb->length && (strchr(list, data[start]) != NULL))
     {
         start++;
@@ -2724,14 +2724,14 @@ void nn_strbuf_trimleftinplace(LitStrBuffer* sb, const char* list)
 // Trim the characters listed in `list` from the right of `sb`
 // `list` is a null-terminated string of characters
 */
-void nn_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
+void lit_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
 {
     char* data;
     if(sb->length == 0)
     {
         return;
     }
-    data = nn_strbuf_mutdata(sb);
+    data = lit_strbuf_mutdata(sb);
     while(sb->length > 0 && strchr(list, data[sb->length - 1]) != NULL)
     {
         sb->length--;
@@ -2739,10 +2739,10 @@ void nn_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
     data[sb->length] = '\0';
 }
 
-void nn_iostream_initvars(NNIOStream* pr, NNPrMode mode)
+void lit_iostream_initvars(LitIOStream* pr, LitIOStrMode mode)
 {
     pr->fromstack = false;
-    pr->wrmode = NEON_PRMODE_UNDEFINED;
+    pr->wrmode = LIT_IOSTRMODE_UNDEFINED;
     pr->shouldclose = false;
     pr->shouldflush = false;
     pr->stringtaken = false;
@@ -2754,19 +2754,19 @@ void nn_iostream_initvars(NNIOStream* pr, NNPrMode mode)
 }
 
 
-bool nn_iostream_makestackio(NNIOStream* pr, FILE* fh, bool shouldclose)
+bool lit_iostream_makestackio(LitIOStream* pr, FILE* fh, bool shouldclose)
 {
-    nn_iostream_initvars(pr, NEON_PRMODE_FILE);
+    lit_iostream_initvars(pr, LIT_IOSTRMODE_FILE);
     pr->fromstack = true;
     pr->handle = fh;
     pr->shouldclose = shouldclose;
     return true;
 }
 
-bool nn_iostream_makestackopenfile(NNIOStream* pr, const char* path, bool writemode)
+bool lit_iostream_makestackopenfile(LitIOStream* pr, const char* path, bool writemode)
 {
     const char* mode;
-    nn_iostream_initvars(pr, NEON_PRMODE_FILE);
+    lit_iostream_initvars(pr, LIT_IOSTRMODE_FILE);
     mode = "rb";
     if(writemode)
     {
@@ -2783,81 +2783,81 @@ bool nn_iostream_makestackopenfile(NNIOStream* pr, const char* path, bool writem
 }
 
 
-bool nn_iostream_makestackstring(NNIOStream* pr)
+bool lit_iostream_makestackstring(LitIOStream* pr)
 {
-    nn_iostream_initvars(pr, NEON_PRMODE_STRING);
+    lit_iostream_initvars(pr, LIT_IOSTRMODE_STRING);
     pr->fromstack = true;
-    pr->wrmode = NEON_PRMODE_STRING;
-    nn_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
+    pr->wrmode = LIT_IOSTRMODE_STRING;
+    lit_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
     return true;
 }
 
 
-NNIOStream* nn_iostream_makeundefined(NNPrMode mode)
+LitIOStream* lit_iostream_makeundefined(LitIOStrMode mode)
 {
-    NNIOStream* pr;
-    pr = (NNIOStream*)lit_sysmem_malloc(sizeof(NNIOStream));
+    LitIOStream* pr;
+    pr = (LitIOStream*)lit_sysmem_malloc(sizeof(LitIOStream));
     if(!pr)
     {
-        fprintf(stderr, "cannot allocate NNIOStream\n");
+        fprintf(stderr, "cannot allocate LitIOStream\n");
         return NULL;
     }
-    nn_iostream_initvars(pr, mode);
+    lit_iostream_initvars(pr, mode);
     return pr;
 }
 
-NNIOStream* nn_iostream_makeio(FILE* fh, bool shouldclose)
+LitIOStream* lit_iostream_makeio(FILE* fh, bool shouldclose)
 {
-    NNIOStream* pr;
-    pr = nn_iostream_makeundefined(NEON_PRMODE_FILE);
+    LitIOStream* pr;
+    pr = lit_iostream_makeundefined(LIT_IOSTRMODE_FILE);
     pr->handle = fh;
     pr->shouldclose = shouldclose;
     return pr;
 }
 
-NNIOStream* nn_iostream_makeopenfile(const char* path, bool writemode)
+LitIOStream* lit_iostream_makeopenfile(const char* path, bool writemode)
 {
-    NNIOStream* pr;
-    pr = nn_iostream_makeundefined(NEON_PRMODE_FILE);
-    if(nn_iostream_makestackopenfile(pr, path, writemode))
+    LitIOStream* pr;
+    pr = lit_iostream_makeundefined(LIT_IOSTRMODE_FILE);
+    if(lit_iostream_makestackopenfile(pr, path, writemode))
     {
         pr->fromstack = false;
         return pr;
     }
     else
     {
-        nn_iostream_destroy(pr);
+        lit_iostream_destroy(pr);
     }
     return NULL;
 }
 
-NNIOStream* nn_iostream_makestring()
+LitIOStream* lit_iostream_makestring()
 {
-    NNIOStream* pr;
-    pr = nn_iostream_makeundefined(NEON_PRMODE_STRING);
-    nn_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
+    LitIOStream* pr;
+    pr = lit_iostream_makeundefined(LIT_IOSTRMODE_STRING);
+    lit_strbuf_makebasicemptystack(&pr->strbuf, NULL, 0);
     return pr;
 }
 
-void nn_iostream_destroy(NNIOStream* pr)
+void lit_iostream_destroy(LitIOStream* pr)
 {
     if(pr == NULL)
     {
         return;
     }
-    if(pr->wrmode == NEON_PRMODE_UNDEFINED)
+    if(pr->wrmode == LIT_IOSTRMODE_UNDEFINED)
     {
         return;
     }
-    /*fprintf(stderr, "nn_iostream_destroy: pr->wrmode=%d\n", pr->wrmode);*/
-    if(pr->wrmode == NEON_PRMODE_STRING)
+    /*fprintf(stderr, "lit_iostream_destroy: pr->wrmode=%d\n", pr->wrmode);*/
+    if(pr->wrmode == LIT_IOSTRMODE_STRING)
     {
         if(!pr->stringtaken)
         {
-            nn_strbuf_destroyfromstack(&pr->strbuf);
+            lit_strbuf_destroyfromstack(&pr->strbuf);
         }
     }
-    else if(pr->wrmode == NEON_PRMODE_FILE)
+    else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
         if(pr->shouldclose)
         {
@@ -2874,25 +2874,25 @@ void nn_iostream_destroy(NNIOStream* pr)
 }
 
 #if 0
-LitString* nn_iostream_takestring(LitState* state, NNIOStream* pr)
+LitString* lit_iostream_takestring(LitState* state, LitIOStream* pr)
 {
     size_t xlen;
     LitString* os;
-    xlen = nn_strbuf_length(&pr->strbuf);
-    os = nn_string_makefromstrbuf(state, pr->strbuf, nn_util_hashstring(nn_strbuf_data(&pr->strbuf), xlen), xlen);
+    xlen = lit_strbuf_length(&pr->strbuf);
+    os = nn_string_makefromstrbuf(state, pr->strbuf, nn_util_hashstring(lit_strbuf_data(&pr->strbuf), xlen), xlen);
     pr->stringtaken = true;
     return os;
 }
 
-LitString* nn_iostream_copystring(LitState* state, NNIOStream* pr)
+LitString* lit_iostream_copystring(LitState* state, LitIOStream* pr)
 {
     LitString* os;
-    os = nn_string_copylen(state, nn_strbuf_data(&pr->strbuf), nn_strbuf_length(&pr->strbuf));
+    os = nn_string_copylen(state, lit_strbuf_data(&pr->strbuf), lit_strbuf_length(&pr->strbuf));
     return os;
 }
 #endif
 
-void nn_iostream_flush(NNIOStream* pr)
+void lit_iostream_flush(LitIOStream* pr)
 {
     if(pr->shouldflush)
     {
@@ -2900,21 +2900,21 @@ void nn_iostream_flush(NNIOStream* pr)
     }
 }
 
-bool nn_iostream_writestringl(NNIOStream* pr, const char* estr, size_t elen)
+bool lit_iostream_writestringl(LitIOStream* pr, const char* estr, size_t elen)
 {
     //fprintf(stderr, "writestringl: (%d) <<<%.*s>>>\n", elen, elen, estr);
     size_t chlen;
     chlen = sizeof(char);
     if(elen > 0)
     {
-        if(pr->wrmode == NEON_PRMODE_FILE)
+        if(pr->wrmode == LIT_IOSTRMODE_FILE)
         {
             fwrite(estr, chlen, elen, pr->handle);
-            nn_iostream_flush(pr);
+            lit_iostream_flush(pr);
         }
-        else if(pr->wrmode == NEON_PRMODE_STRING)
+        else if(pr->wrmode == LIT_IOSTRMODE_STRING)
         {
-            nn_strbuf_appendstrn(&pr->strbuf, estr, elen);
+            lit_strbuf_appendstrn(&pr->strbuf, estr, elen);
         }
         else
         {
@@ -2924,140 +2924,140 @@ bool nn_iostream_writestringl(NNIOStream* pr, const char* estr, size_t elen)
     return true;
 }
 
-bool nn_iostream_writestring(NNIOStream* pr, const char* estr)
+bool lit_iostream_writestring(LitIOStream* pr, const char* estr)
 {
-    return nn_iostream_writestringl(pr, estr, strlen(estr));
+    return lit_iostream_writestringl(pr, estr, strlen(estr));
 }
 
-bool nn_iostream_writechar(NNIOStream* pr, int b)
+bool lit_iostream_writechar(LitIOStream* pr, int b)
 {
     char ch;
-    if(pr->wrmode == NEON_PRMODE_STRING)
+    if(pr->wrmode == LIT_IOSTRMODE_STRING)
     {
         ch = b;
-        nn_iostream_writestringl(pr, &ch, 1);
+        lit_iostream_writestringl(pr, &ch, 1);
     }
-    else if(pr->wrmode == NEON_PRMODE_FILE)
+    else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
         fputc(b, pr->handle);
-        nn_iostream_flush(pr);
+        lit_iostream_flush(pr);
     }
     return true;
 }
 
-bool nn_iostream_writeescapedchar(NNIOStream* pr, int ch)
+bool lit_iostream_writeescapedchar(LitIOStream* pr, int ch)
 {
     switch(ch)
     {
         case '\'':
             {
-                nn_iostream_writestring(pr, "\\\'");
+                lit_iostream_writestring(pr, "\\\'");
             }
             break;
         case '\"':
             {
-                nn_iostream_writestring(pr, "\\\"");
+                lit_iostream_writestring(pr, "\\\"");
             }
             break;
         case '\\':
             {
-                nn_iostream_writestring(pr, "\\\\");
+                lit_iostream_writestring(pr, "\\\\");
             }
             break;
         case '\b':
             {
-                nn_iostream_writestring(pr, "\\b");
+                lit_iostream_writestring(pr, "\\b");
             }
             break;
         case '\f':
             {
-                nn_iostream_writestring(pr, "\\f");
+                lit_iostream_writestring(pr, "\\f");
             }
             break;
         case '\n':
             {
-                nn_iostream_writestring(pr, "\\n");
+                lit_iostream_writestring(pr, "\\n");
             }
             break;
         case '\r':
             {
-                nn_iostream_writestring(pr, "\\r");
+                lit_iostream_writestring(pr, "\\r");
             }
             break;
         case '\t':
             {
-                nn_iostream_writestring(pr, "\\t");
+                lit_iostream_writestring(pr, "\\t");
             }
             break;
         case 0:
             {
-                nn_iostream_writestring(pr, "\\0");
+                lit_iostream_writestring(pr, "\\0");
             }
             break;
         default:
             {
-                nn_iostream_printf(pr, "\\x%02x", (unsigned char)ch);
+                lit_iostream_printf(pr, "\\x%02x", (unsigned char)ch);
             }
             break;
     }
     return true;
 }
 
-bool nn_iostream_writequotedstring(NNIOStream* pr, const char* str, size_t len, bool withquot)
+bool lit_iostream_writequotedstring(LitIOStream* pr, const char* str, size_t len, bool withquot)
 {
     int bch;
     size_t i;
     bch = 0;
     if(withquot)
     {
-        nn_iostream_writechar(pr, '"');
+        lit_iostream_writechar(pr, '"');
     }
     for(i = 0; i < len; i++)
     {
         bch = str[i];
         if((bch < 32) || (bch > 127) || (bch == '\"') || (bch == '\\'))
         {
-            nn_iostream_writeescapedchar(pr, bch);
+            lit_iostream_writeescapedchar(pr, bch);
         }
         else
         {
-            nn_iostream_writechar(pr, bch);
+            lit_iostream_writechar(pr, bch);
         }
     }
     if(withquot)
     {
-        nn_iostream_writechar(pr, '"');
+        lit_iostream_writechar(pr, '"');
     }
     return true;
 }
 
-bool nn_iostream_vwritefmttostring(NNIOStream* pr, const char* fmt, va_list va)
+bool lit_iostream_vwritefmttostring(LitIOStream* pr, const char* fmt, va_list va)
 {
-    nn_strbuf_appendformatv(&pr->strbuf, fmt, va);
+    lit_strbuf_appendformatv(&pr->strbuf, fmt, va);
     return true;
 }
 
-bool nn_iostream_vwritefmt(NNIOStream* pr, const char* fmt, va_list va)
+bool lit_iostream_vwritefmt(LitIOStream* pr, const char* fmt, va_list va)
 {
-    if(pr->wrmode == NEON_PRMODE_STRING)
+    if(pr->wrmode == LIT_IOSTRMODE_STRING)
     {
-        return nn_iostream_vwritefmttostring(pr, fmt, va);
+        return lit_iostream_vwritefmttostring(pr, fmt, va);
     }
-    else if(pr->wrmode == NEON_PRMODE_FILE)
+    else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
         vfprintf(pr->handle, fmt, va);
-        nn_iostream_flush(pr);
+        lit_iostream_flush(pr);
     }
     return true;
 }
 
 
-bool nn_iostream_printf(NNIOStream* pr, const char* fmt, ...)
+bool lit_iostream_printf(LitIOStream* pr, const char* fmt, ...)
 {
     bool b;
     va_list va;
     va_start(va, fmt);
-    b = nn_iostream_vwritefmt(pr, fmt, va);
+    b = lit_iostream_vwritefmt(pr, fmt, va);
     va_end(va);
     return b;
 }
@@ -3130,7 +3130,7 @@ void lit_free_object(LitState* state, LitObject* object)
         case LIT_OBJ_STRING:
         {
             LitString* string = (LitString*)object;
-            nn_strbuf_destroyfromstack(&string->strbuf);
+            lit_strbuf_destroyfromstack(&string->strbuf);
             LIT_FREE(state, LitString, object);
             break;
         }
@@ -8181,7 +8181,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
         {
             LitFunctionStatement* expr = (LitFunctionStatement*)expression;
             LitString* name
-            = AS_STRING(lit_string_format(emitter->state, "lambda @:@", lit_value_fromobject(emitter->module->name), lit_string_numbertostring(emitter->state, expression->line)));
+            = AS_STRING(lit_string_valformat(emitter->state, "lambda @:@", lit_value_fromobject(emitter->module->name), lit_string_numbertostring(emitter->state, expression->line)));
             LitCompiler compiler;
             lit_emitter_compilerinit(emitter, &compiler, FUNCTION_REGULAR);
             lit_emitter_scopebegin(emitter);
@@ -8877,7 +8877,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
                 {
                     lit_emitter_scopeend(emitter);
                 }
-                getter = lit_emitter_compilerend(emitter, AS_STRING(lit_string_format(emitter->state, "@:get @", lit_value_fromobject(emitter->class_name), stmt->name)));
+                getter = lit_emitter_compilerend(emitter, AS_STRING(lit_string_valformat(emitter->state, "@:get @", lit_value_fromobject(emitter->class_name), stmt->name)));
             }
             if(stmt->setter != NULL)
             {
@@ -8891,7 +8891,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
                     lit_emitter_scopeend(emitter);
                 }
                 lit_emitter_freeregister(emitter, reg);
-                setter = lit_emitter_compilerend(emitter, AS_STRING(lit_string_format(emitter->state, "@:set @", lit_value_fromobject(emitter->class_name), stmt->name)));
+                setter = lit_emitter_compilerend(emitter, AS_STRING(lit_string_valformat(emitter->state, "@:set @", lit_value_fromobject(emitter->class_name), stmt->name)));
                 setter->argcount = 1;
                 setter->max_registers++;
             }
@@ -9315,9 +9315,9 @@ LitString* lit_state_errorfmtv(LitState* state, LitUInt line, const char* fmt, v
     buffer[buffersize - 1] = '\0';
     if(line != 0)
     {
-        return AS_STRING(lit_string_format(state, "[line #]: $", (double)line, (const char*)buffer));
+        return AS_STRING(lit_string_valformat(state, "[line #]: $", (double)line, (const char*)buffer));
     }
-    return AS_STRING(lit_string_format(state, "$", (const char*)buffer));
+    return AS_STRING(lit_string_valformat(state, "$", (const char*)buffer));
 }
 
 LitString* lit_state_errorfmt(LitState* state, LitUInt line, const char* fmt, ...)
@@ -9438,7 +9438,7 @@ LitValue objfnclass_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValu
 {
     (void)argc;
     (void)args;
-    return lit_string_format(vm->state, "class @", lit_value_fromobject(AS_CLASS(instance)->name));
+    return lit_string_valformat(vm->state, "class @", lit_value_fromobject(AS_CLASS(instance)->name));
 }
 
 int lit_coreutil_tableiterator(LitTable* table, int number)
@@ -9576,7 +9576,7 @@ LitValue objfnobject_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitVal
     LitClass* klass = lit_state_getclassfor(vm->state, instance);
     if(klass != state->object_class)
     {
-        return lit_string_format(state, "@ instance", lit_value_fromobject(klass->name));
+        return lit_string_valformat(state, "@ instance", lit_value_fromobject(klass->name));
     }
     LitTable* values = &lit_value_asinstance(instance)->fields;
     if(values->count == 0)
@@ -9599,7 +9599,7 @@ LitValue objfnobject_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitVal
             lit_state_pushroot(state, (LitObject*)value);
             if(IS_STRING(entry->value))
             {
-                value = AS_STRING(lit_string_format(state, "\"@\"", lit_value_fromobject(value)));
+                value = AS_STRING(lit_string_valformat(state, "\"@\"", lit_value_fromobject(value)));
                 lit_state_poproot(state);
                 lit_state_pushroot(state, (LitObject*)value);
             }
@@ -9751,14 +9751,10 @@ LitValue objfnstring_plus(LitVm* vm, LitValue instance, LitUInt argc, LitValue* 
     {
         stringvalue = lit_tostring_value(vm->state, value, 0);
     }
-    LitUInt length = string->strbuf.length + stringvalue->strbuf.length;
-    LitString* result = lit_string_makeemptystring(vm->state, length, true);
-    result->strbuf.data = lit_sysmem_malloc((length + 1) * sizeof(char));
-    result->strbuf.data[length] = '\0';
-    memcpy(result->strbuf.data, string->strbuf.data, string->strbuf.length);
-    memcpy(result->strbuf.data + string->strbuf.length, stringvalue->strbuf.data, stringvalue->strbuf.length);
-    result->hash = lit_string_hash(result->strbuf.data, result->strbuf.length);
-    lit_string_register(vm->state, result);
+    LitString* result;
+    result = lit_string_makeemptystring(vm->state, stringvalue->strbuf.length, false);
+    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+    lit_string_appendlen(result, stringvalue->strbuf.data, stringvalue->strbuf.length);
     return lit_value_fromobject(result);
 }
 
@@ -10305,7 +10301,7 @@ LitValue objfnmodule_toString(LitVm* vm, LitValue instance, LitUInt argc, LitVal
 {
     (void)argc;
     (void)args;
-    return lit_string_format(vm->state, "Module @", lit_value_fromobject(AS_MODULE(instance)->name));
+    return lit_string_valformat(vm->state, "Module @", lit_value_fromobject(AS_MODULE(instance)->name));
 }
 
 LitValue objfnmodule_name(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -10740,7 +10736,7 @@ LitValue objfnarray_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValu
         lit_state_pushroot(state, (LitObject*)value);
         if(IS_STRING(field))
         {
-            value = AS_STRING(lit_string_format(state, "\"@\"", lit_value_fromobject(value)));
+            value = AS_STRING(lit_string_valformat(state, "\"@\"", lit_value_fromobject(value)));
         }
         valuesconverted[i] = value;
         slength += value->strbuf.length + (i == valueamount - 1 ? 1 : 2);
@@ -10928,7 +10924,7 @@ LitValue objfnmap_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValue*
             lit_state_pushroot(state, (LitObject*)value);
             if(IS_STRING(field))
             {
-                value = AS_STRING(lit_string_format(state, "\"@\"", lit_value_fromobject(value)));
+                value = AS_STRING(lit_string_valformat(state, "\"@\"", lit_value_fromobject(value)));
             }
             valuesconverted[i] = value;
             keys[i] = entry->key;
@@ -11039,7 +11035,7 @@ LitValue objfnrange_tostring(LitVm* vm, LitValue instance, LitUInt argc, LitValu
     (void)argc;
     (void)args;
     LitRange* range = AS_RANGE(instance);
-    return lit_string_format(vm->state, "Range(#, #)", range->from, range->to);
+    return lit_string_valformat(vm->state, "Range(#, #)", range->from, range->to);
 }
 
 LitValue objfnrange_from(LitVm* vm, LitValue instance, LitUInt argc, LitValue* args)
@@ -13091,7 +13087,7 @@ bool lit_value_iscallablefunction(LitValue value)
 LitString* lit_string_makeemptystring(LitState* state, LitUInt length, bool preallocated)
 {
     LitString* string = ALLOCATE_OBJECT(state, LitString, LIT_OBJ_STRING);
-    nn_strbuf_initbasicempty(&string->strbuf, length, true, preallocated);
+    lit_strbuf_initbasicempty(&string->strbuf, length, true, preallocated);
     return string;
 }
 
@@ -13108,12 +13104,12 @@ LitString* lit_string_makestringfrom(LitState* state, char* chars, LitUInt lengt
     string = lit_string_makeemptystring(state, length, preallocated);
     if(preallocated)
     {
-        nn_strbuf_setdata(&string->strbuf, chars);
-        nn_strbuf_setlength(&string->strbuf, length);
+        lit_strbuf_setdata(&string->strbuf, chars);
+        lit_strbuf_setlength(&string->strbuf, length);
     }
     else
     {
-        nn_strbuf_appendstrn(&string->strbuf, chars, length);
+        lit_strbuf_appendstrn(&string->strbuf, chars, length);
     }
     string->hash = hash;
     lit_string_register(state, string);
@@ -13145,10 +13141,10 @@ LitString* lit_string_take(LitState* state, const char* chars, LitUInt length)
 LitString* lit_string_copy(LitState* state, const char* chars, LitUInt length)
 {
     uint32_t hash = lit_string_hash(chars, length);
-    LitString* interned = lit_table_find_string(&state->vm->strings, chars, length, hash);
-    if(interned != NULL)
+    LitString* res = lit_table_find_string(&state->vm->strings, chars, length, hash);
+    if(res != NULL)
     {
-        return interned;
+        return res;
     }
     char* heapchars = lit_sysmem_malloc((length + 1) * sizeof(char));
     memcpy(heapchars, chars, length);
@@ -13157,6 +13153,23 @@ LitString* lit_string_copy(LitState* state, const char* chars, LitUInt length)
     printf("Allocated new string '%s'\n", chars);
 #endif
     return lit_string_makestringfrom(state, heapchars, length, hash, true);
+}
+
+void lit_string_appendlen(LitString* dest, const char* str, size_t len)
+{
+    lit_strbuf_appendstrn(&dest->strbuf, str, len);
+}
+
+void lit_string_append(LitString* dest, const char* str)
+{
+    return lit_string_appendlen(dest, str, strlen(str));
+}
+
+void lit_string_appendbyte(LitString* dest, int b)
+{
+    char c;
+    c = b;
+    return lit_string_appendlen(dest, &c, 1);
 }
 
 LitValue lit_string_numbertostring(LitState* state, double value)
@@ -13181,56 +13194,12 @@ LitValue lit_string_numbertostring(LitState* state, double value)
     return lit_value_fromobject(lit_string_copy(state, buffer, length));
 }
 
-LitValue lit_string_format(LitState* state, const char* format, ...)
+LitValue lit_string_valformat(LitState* state, const char* format, ...)
 {
     bool wasallowed = state->allow_gc;
     state->allow_gc = false;
     va_list arglist;
-    va_start(arglist, format);
-    size_t totallength = 0;
-    for(const char* c = format; *c != '\0'; c++)
-    {
-        switch(*c)
-        {
-            case '$':
-            {
-                const char* cc = va_arg(arglist, const char*);
-                if(cc != NULL)
-                {
-                    totallength += strlen(cc);
-                    break;
-                }
-                goto defaultending;
-            }
-            case '@':
-            {
-                LitValue v = va_arg(arglist, LitValue);
-                LitString* ss = AS_STRING(v);
-                if(ss != NULL)
-                {
-                    totallength += ss->strbuf.length;
-                    break;
-                }
-                goto defaultending;
-            }
-            case '#':
-            {
-                totallength += AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)))->strbuf.length;
-                break;
-            }
-            default:
-            {
-            defaultending:
-                totallength++;
-                break;
-            }
-        }
-    }
-    va_end(arglist);
-    LitString* result = lit_string_makeemptystring(state, totallength, true);
-    result->strbuf.data = lit_sysmem_malloc((totallength + 1) * sizeof(char));
-    result->strbuf.data[totallength] = '\0';
-    char* start = result->strbuf.data;
+    LitString* result = lit_string_makeemptystring(state, 10, false);
     va_start(arglist, format);
     for(const char* c = format; *c != '\0'; c++)
     {
@@ -13242,8 +13211,7 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
                 if(string != NULL)
                 {
                     size_t length = strlen(string);
-                    memcpy(start, string, length);
-                    start += length;
+                    lit_string_appendlen(result, string, length);
                     break;
                 }
                 goto defaultendingcopying;
@@ -13253,8 +13221,7 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
                 LitString* string = AS_STRING(va_arg(arglist, LitValue));
                 if(string != NULL)
                 {
-                    memcpy(start, string->strbuf.data, string->strbuf.length);
-                    start += string->strbuf.length;
+                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
                     break;
                 }
                 goto defaultendingcopying;
@@ -13262,14 +13229,13 @@ LitValue lit_string_format(LitState* state, const char* format, ...)
             case '#':
             {
                 LitString* string = AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)));
-                memcpy(start, string->strbuf.data, string->strbuf.length);
-                start += string->strbuf.length;
+                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
                 break;
             }
             default:
             {
             defaultendingcopying:
-                *start++ = *c;
+                lit_string_appendbyte(result, *c);
                 break;
             }
         }
@@ -13367,9 +13333,9 @@ LitValue lit_function_getname(LitVm* vm, LitValue instance)
     }
     if(name == NULL)
     {
-        return lit_string_format(vm->state, "function #", *((double*)lit_value_asobject(instance)));
+        return lit_string_valformat(vm->state, "function #", *((double*)lit_value_asobject(instance)));
     }
-    return lit_string_format(vm->state, "function @", lit_value_fromobject(name));
+    return lit_string_valformat(vm->state, "function @", lit_value_fromobject(name));
 }
 
 LitUpvalue* lit_object_makeupvalue(LitState* state, LitValue* slot)
