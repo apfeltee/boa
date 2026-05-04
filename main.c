@@ -988,8 +988,8 @@ struct LitState
     int64_t bytes_allocated;
     int64_t next_gc;
     bool allow_gc;
-    LitIOStream* printerstdout;
-    LitIOStream* printerstderr;
+    LitIOStream* streamstdout;
+    LitIOStream* streamstderr;
     LitErrorFn error_fn;
     LitPrintFn print_fn;
     LitValue* roots;
@@ -3283,7 +3283,7 @@ void lit_mark_object(LitState* state, LitObject* object)
     object->marked = true;
 #ifdef LIT_LOG_MARKING
     fprintf(stderr, "%p mark ", (void*)object);
-    lit_value_printvalue(state->printerstderr, lit_value_fromobject(object));
+    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object));
     fprintf(stderr,"\n");
 #endif
     if(state->vmstate.gray_capacity < state->vmstate.gray_count + 1)
@@ -3344,7 +3344,7 @@ void blacken_object(LitState* state, LitObject* object)
 {
 #ifdef LIT_LOG_BLACKING
     fprintf(stderr, "%p blacken ", (void*)object);
-    lit_value_printvalue(state->printerstderr, lit_value_fromobject(object));
+    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object));
     fprintf(stderr, "\n");
 #endif
     switch(object->type)
@@ -10035,7 +10035,7 @@ LitValue objfnfiber_constructor(LitState* state, LitValue instance, LitUInt argc
     if((argc == 0) || (!lit_value_iscallablefunction(args[0])))
     {
         fprintf(stderr, "args[0]=");
-        lit_value_printvalue(state->printerstderr, args[0]);
+        lit_value_printvalue(state->streamstderr, args[0]);
         fprintf(stderr, "\n");
         lit_vm_raisefatalerror(state, "Fiber constructor expects a function as its argument");
     }
@@ -10670,54 +10670,33 @@ LitValue objfnarray_clone(LitState* state, LitValue instance, LitUInt argc, LitV
 
 LitValue objfnarray_tostring(LitState* state, LitValue instance, LitUInt argc, LitValue* args)
 {
-    LitUInt indentation = LIT_SINGLE_LINE_MAPS_ENABLED ? 0 : LIT_GET_NUMBER(0, 0) + 1;
-    LitDynListVal* values = &AS_ARRAY(instance)->values;
+    size_t i;
+    size_t valueamount;
+    LitIOStream pr;    
+    LitString* dest;
+    LitArray* self;
+    LitDynListVal* values;
+    self = AS_ARRAY(instance);
+    valueamount = self->values.count;
+    values = &self->values;
     if(values->count == 0)
     {
         return lit_value_fromobject(lit_string_copy(state, "[]"));
     }
-    bool hasmore = values->count > LIT_CONTAINER_OUTPUT_MAX;
-    LitUInt valueamount = hasmore ? LIT_CONTAINER_OUTPUT_MAX : values->count;
-    LitString* valuesconverted[valueamount];
-    LitUInt slength = 3;// "[ ]"
-    if(hasmore)
+    lit_iostream_makestackstring(&pr);
+    lit_iostream_writestring(&pr, "[");
+    for(i = 0; i < valueamount; i++)
     {
-        slength += 3;
-    }
-    for(LitUInt i = 0; i < valueamount; i++)
-    {
-        LitValue field = values->values[(hasmore && i == valueamount - 1) ? values->count - 1 : i];
-        LitString* value = lit_value_tostring(state, field, indentation);
-        lit_state_pushroot(state, (LitObject*)value);
-        if(IS_STRING(field))
+        LitValue field = values->values[i];
+        lit_value_printvalue(&pr, field);
+        if((i+1) < valueamount)
         {
-            value = AS_STRING(lit_string_valformat(state, "\"@\"", lit_value_fromobject(value)));
+            lit_iostream_writestring(&pr, ", ");
         }
-        valuesconverted[i] = value;
-        slength += value->strbuf.length + (i == valueamount - 1 ? 1 : 2);
     }
-    char buffer[slength + 1];
-    memcpy(buffer, "[ ", 2);
-    LitUInt bufferindex = 2;
-    for(LitUInt i = 0; i < valueamount; i++)
-    {
-        LitString* part = valuesconverted[i];
-        memcpy(&buffer[bufferindex], part->strbuf.data, part->strbuf.length);
-        bufferindex += part->strbuf.length;
-        if(hasmore && i == valueamount - 2)
-        {
-            memcpy(&buffer[bufferindex], " ... ", 5);
-            bufferindex += 5;
-        }
-        else
-        {
-            memcpy(&buffer[bufferindex], (i == valueamount - 1) ? " ]" : ", ", 2);
-            bufferindex += 2;
-        }
-        lit_state_poproot(state);
-    }
-    buffer[slength] = '\0';
-    return lit_value_fromobject(lit_string_copylen(state, buffer, slength));
+    lit_iostream_writestring(&pr, "]");
+    dest = lit_iostream_takestring(state, &pr);
+    return lit_value_fromobject(dest);
 }
 
 LitValue objfnarray_length(LitState* state, LitValue instance, LitUInt argc, LitValue* args)
@@ -10846,105 +10825,46 @@ LitValue objfnmap_clone(LitState* state, LitValue instance, LitUInt argc, LitVal
 
 LitValue objfnmap_tostring(LitState* state, LitValue instance, LitUInt argc, LitValue* args)
 {
-    LitMap* map = AS_MAP(instance);
-    LitTable* values = &map->values;
+    LitIOStream pr;
+    LitMap* self;
+    LitTable* values;
+    LitString* dest;
+    self = AS_MAP(instance);
+    values = &self->values;
     if(values->count == 0)
     {
         return lit_value_fromobject(lit_string_copy(state, "{}"));
     }
-    bool haswrapper = map->onindexfn != NULL;
-    bool hasmore = values->count > LIT_CONTAINER_OUTPUT_MAX;
-    LitUInt valueamount = hasmore ? LIT_CONTAINER_OUTPUT_MAX : values->count;
-    LitString* valuesconverted[valueamount];
-    LitString* keys[valueamount];
-    LitUInt indentation = LIT_SINGLE_LINE_MAPS_ENABLED ? 0 : LIT_GET_NUMBER(0, 0) + 1;
-    LitUInt slength = (LIT_SINGLE_LINE_MAPS_ENABLED ? 3 : 2) + indentation;
-    if(hasmore)
-    {
-        slength += LIT_SINGLE_LINE_MAPS_ENABLED ? 5 : 6;
-    }
-    LitUInt i = 0;
-    LitUInt index = 0;
+    lit_iostream_makestackstring(&pr);
+
+    bool haswrapper = self->onindexfn != NULL;
+    size_t valueamount = values->count;
+    size_t i = 0;
+    size_t index = 0;
     do
     {
-        LitTabEntry* entry = &values->entries[index++];
+        LitTabEntry* entry = &values->entries[index];
+        index++;
         if(entry->key != NULL)
         {
             // Special hidden key
-            LitValue field = haswrapper ? map->onindexfn(state, map, entry->key, NULL) : entry->value;
-            // This check is required to prevent infinite loops when playing with Module.privatevalues and such
-            LitString* value = (lit_value_ismap(field) && AS_MAP(field)->onindexfn != NULL) ? lit_string_copy(state, "map") : lit_value_tostring(state, field, indentation);
-            lit_state_pushroot(state, (LitObject*)value);
-            if(IS_STRING(field))
+            LitValue field = entry->value;
+            if(haswrapper)
             {
-                value = AS_STRING(lit_string_valformat(state, "\"@\"", lit_value_fromobject(value)));
+                field = self->onindexfn(state, self, entry->key, NULL);
             }
-            valuesconverted[i] = value;
-            keys[i] = entry->key;
-            slength += entry->key->strbuf.length + 2 + value->strbuf.length + (i == valueamount - 1 ? 1 : 2) + indentation;
+            lit_iostream_writestringl(&pr, entry->key->strbuf.data, entry->key->strbuf.length);
+            lit_iostream_writestring(&pr, ": ");
+            lit_value_printvalue(&pr, field);
             i++;
+            if((index+1) < values->count)
+            {
+                lit_iostream_writestring(&pr, ",");
+            }
         }
     } while(i < valueamount);
-    char buffer[slength + 1];
-#ifdef LIT_SINGLE_LINE_MAPS
-    memcpy(buffer, "{ ", 2);
-#else
-    memcpy(buffer, "{\n", 2);
-#endif
-    LitUInt bufferindex = 2;
-    for(i = 0; i < valueamount; i++)
-    {
-        LitString* key = keys[i];
-        LitString* value = valuesconverted[i];
-        for(LitUInt j = 0; j < indentation; j++)
-        {
-            buffer[bufferindex++] = '\t';
-        }
-        memcpy(&buffer[bufferindex], key->strbuf.data, key->strbuf.length);
-        bufferindex += key->strbuf.length;
-        memcpy(&buffer[bufferindex], ": ", 2);
-        bufferindex += 2;
-        memcpy(&buffer[bufferindex], value->strbuf.data, value->strbuf.length);
-        bufferindex += value->strbuf.length;
-        if(hasmore && i == valueamount - 1)
-        {
-#ifdef LIT_SINGLE_LINE_MAPS
-            memcpy(&buffer[bufferindex], ", ... }", 7);
-#else
-            memcpy(&buffer[bufferindex], ",\n\t...\n", 7);
-            bufferindex += 7;
-            for(LitUInt j = 0; j < indentation - 1; j++)
-            {
-                buffer[bufferindex++] = '\t';
-            }
-            buffer[bufferindex++] = '}';
-#endif
-        }
-        else
-        {
-#ifdef LIT_SINGLE_LINE_MAPS
-            memcpy(&buffer[bufferindex], (i == valueamount - 1) ? " }" : ", ", 2);
-#else
-            if(i == valueamount - 1)
-            {
-                buffer[bufferindex++] = '\n';
-                for(LitUInt j = 0; j < indentation - 1; j++)
-                {
-                    buffer[bufferindex++] = '\t';
-                }
-                buffer[bufferindex++] = '}';
-            }
-            else
-            {
-                memcpy(&buffer[bufferindex], ",\n", 2);
-            }
-#endif
-            bufferindex += 2;
-        }
-        lit_state_poproot(state);
-    }
-    buffer[slength] = '\0';
-    return lit_value_fromobject(lit_string_copylen(state, buffer, slength));
+    dest = lit_iostream_takestring(state, &pr);
+    return lit_value_fromobject(dest);
 }
 
 LitValue objfnmap_length(LitState* state, LitValue instance, LitUInt argc, LitValue* args)
@@ -12790,7 +12710,7 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
             for(int i = 0; i <= argc; i++)
             {
                 fprintf(stderr, "[ ");
-                lit_value_printvalue(state->printerstderr, *(slot + i));
+                lit_value_printvalue(state->streamstderr, *(slot + i));
                 fprintf(stderr, " ]");
             }
             printf("\n");
@@ -13847,8 +13767,9 @@ LitState* lit_state_make()
     state->last_module = NULL;
     state->config.traceexecution = false;
     state->config.tracechunk = false;
-    state->printerstdout = lit_iostream_makeio(stdout, false);
-    state->printerstderr = lit_iostream_makeio(stderr, false);
+    state->streamstdout = lit_iostream_makeio(stdout, false);
+    state->streamstdout->shouldflush = true;
+    state->streamstderr = lit_iostream_makeio(stderr, false);
     state->scanner = (LitScanner*)lit_sysmem_malloc(sizeof(LitScanner));
     state->parser = (LitParser*)lit_sysmem_malloc(sizeof(LitParser));
     lit_parser_init(state, (LitParser*)state->parser);
@@ -13870,8 +13791,8 @@ int64_t lit_state_destroy(LitState* state)
         state->roots = NULL;
     }
     lit_api_destroy(state);
-    lit_iostream_destroy(state->printerstdout);
-    lit_iostream_destroy(state->printerstderr);
+    lit_iostream_destroy(state->streamstdout);
+    lit_iostream_destroy(state->streamstderr);
     lit_eventsystem_destroy(state->event_system);
     lit_sysmem_free(state->event_system);
     lit_sysmem_free(state->scanner);
@@ -14864,12 +14785,12 @@ dispatch:
             for(int i = 0; i < state->vmstate.frame->function->maxregisters; i++)
             {
                 fprintf(stderr, "[ ");
-                lit_value_printvalue(state->printerstderr, *(state->vmstate.vmregisteritems + i));
+                lit_value_printvalue(state->streamstderr, *(state->vmstate.vmregisteritems + i));
                 fprintf(stderr, " ]");
             }
             fprintf(stderr, "\n");
         }
-        lit_debug_disasinstr(state->printerstderr, state->vmstate.current_chunk, (LitUInt)(state->vmstate.ip - state->vmstate.current_chunk->compiledcodechunk - 1), NULL, state->vmstate.frame != previousframe);
+        lit_debug_disasinstr(state->streamstderr, state->vmstate.current_chunk, (LitUInt)(state->vmstate.ip - state->vmstate.current_chunk->compiledcodechunk - 1), NULL, state->vmstate.frame != previousframe);
         previousframe = state->vmstate.frame;
     }
     #if defined(LIT_CONF_USECOMPUTEDGOTO) && (LIT_CONF_USECOMPUTEDGOTO == 1)
@@ -15750,7 +15671,7 @@ void run_repl(LitState* state)
         if(result.type == INTERPRET_OK && !lit_value_isnull(result.result))
         {
             printf("%s\n", COLOR_GREEN);
-            lit_value_printvalue(state->stdoutprinter, result.result);
+            lit_value_printvalue(state->streamstdout, result.result);
             printf("%s\n", COLOR_RESET);
         }
         lit_eventsystem_loop(state);
@@ -15841,7 +15762,7 @@ int main(int argc, char* argv[])
                 {
                     goto endmain;
                 }
-                lit_debug_disasmodule(state->printerstdout, module, source);
+                lit_debug_disasmodule(state->streamstdout, module, source);
             }
             else
             {
@@ -15920,7 +15841,7 @@ int main(int argc, char* argv[])
                 char* file = filestorun[i];
                 if(dump)
                 {
-                    result = lit_state_dumpfile(state, state->printerstdout, file).type;
+                    result = lit_state_dumpfile(state, state->streamstdout, file).type;
                 }
                 else
                 {
