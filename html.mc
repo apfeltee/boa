@@ -1,0 +1,162 @@
+
+/*
+* this is stupid, and only really for testing.
+*/
+
+var os = import "os"
+
+class CGI
+{
+    constructor()
+    {
+        this.m_params = {}
+        this.m_pinfo = []
+        pinf = "";
+        if(pinf != null)
+        {
+        }
+    }
+
+    pathIsIndex()
+    {
+        return ((this.m_pinfo.length == 0) || this.pathIs("index"));
+    }
+
+    pathIs(p)
+    {
+        return (this.m_pinfo[0] == p);
+    }
+
+    beginHeaders(code)
+    {
+        print(["Status: ", code, "\r\n"].join())        
+    }
+
+    endHeaders()
+    {
+        print("\r\n")
+    }
+
+    sendHeader(k, v)
+    {
+        print(["", k, ": ", v, "\r\n"].join())
+    }
+    
+}
+
+
+class HTMLGen
+{
+    constructor(out)
+    {
+        this.out = out
+    }
+
+    put(s)
+    {
+        print(s.toString())
+    }
+
+    tag(name, attribs, fn)
+    {
+        this.put("<" + name)
+        if(attribs is Object)
+        {
+            var keys = Object.keys(attribs);
+            var asize = keys.length
+            if(asize > 0)
+            {
+                var vi = 0;
+                this.put(" ")
+                for(var i=0; i<asize; i++)
+                {
+                    var k = keys[i];
+                    var val = attribs[k];
+                    vi++;
+                    this.put("" + k + "=\"" + val + "\"")
+                    if((vi+1) < asize)
+                    {
+                        this.put(" ")
+                    }
+                }
+            }
+        }
+        this.put(">")
+        if(fn is Function)
+        {
+            fn()
+        }
+        else
+        {
+            print(fn)
+        }
+        this.put("</" + name + ">")
+    }
+    
+}
+
+class App
+{
+    constructor()
+    {
+        this.cgi = new CGI()
+    }
+
+    sendPage(ctype, code)
+    {
+        this.cgi.beginHeaders(code)
+        this.cgi.sendHeader("Content-Type", ctype)
+        this.cgi.endHeaders()
+    }
+
+    sendError(code)
+    {
+        this.sendPage("text/html", code)
+        print("no such page.")
+    }
+
+    sendIndex(a)
+    {
+        this.sendPage("text/html", 200)
+        gh = new HTMLGen(null)
+        gh.tag("html", {}, function()
+        {
+            gh.tag("head", {}, function(){
+                gh.tag("title", {}, "dummy document (full of lies)")
+            })
+            gh.tag("body", {}, function()
+            {
+                gh.tag("h1", {}, "files: ")
+                gh.tag("ul", {}, function()
+                {
+                    var items = Directory.read(".")
+                    //var items = ["foo.exe", "stuff.mov", "source.f90", "runme.vbs", "twitter.php", "facebook.java"]
+                    var len = items.length;
+                    for(var i=0; i<items.length; i++)
+                    {
+                        url = ("web.cgi?f=" + items[i]);
+                        gh.tag("li", {}, function()
+                        {
+                            gh.tag("a", {href: url}, items[i])
+                        });
+                        gh.put("\n");
+                    }
+                })
+            })
+        })
+    }
+
+    main(a)
+    {
+        if(this.cgi.pathIsIndex())
+        {
+            this.sendIndex()
+        }
+        else
+        {
+            this.sendError(404);
+        }
+    }
+}
+
+App().main()
