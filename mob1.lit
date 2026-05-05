@@ -1,0 +1,29 @@
+
+
+function A(k, plusone, minusone, minusanother, plusanother, plusnull)
+{
+    function B()
+    {
+        k = k - 1;
+        return A(k, B, plusone, minusone, minusanother, plusanother);
+    }
+    if (k <= 0)
+    {
+        return plusanother() + plusnull();
+    }
+    return B();
+}
+
+function vnull()  { return  0; }
+function vone()  { return  1; }
+function vminusone() { return -1; }
+
+
+var i=0;
+while(i < 13)
+{
+    print("", i, " -> "); 
+    var res = A(i, vone, vminusone, vminusone, vone, vnull);
+    print(res, "\n");
+    i=i+1;
+}

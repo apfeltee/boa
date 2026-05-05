@@ -65,7 +65,7 @@ function song()
 };
 
 r = song()
-println("r=<", r, ">")
+println("r=", r, "")
 r["getDom"]()
 
 

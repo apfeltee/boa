@@ -1,1 +1,7 @@
-This is the directory for automatically generated c files, that are being converted from the lit source code in include/lit/std/raw/
+
+TODO:
+
+    - get rid of VLAs! there's not *too* many of them, but it's purely gcc/clang, doesn't play nice with other compilers.
+    - step above is absolutely a requirement to make lit ANSI compliant
+    - not yet ANSI compliant!
+    - SETBIT et al need better explanation. as in, any explanation at all
