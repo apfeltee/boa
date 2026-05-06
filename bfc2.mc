@@ -14,21 +14,23 @@
 * not very good.
 */
 
-const BFC_MAXMEMORY = 30000;
+var OpCode = {
+    MOVE: 1,
+    ADD: 2,
+    PRINTBYTE: 3,
+    READBYTE: 4,
+    JUMPIFFALSE: 5,
+    JUMPIFTRUE: 6
+}
 
-const OPCODE_MOVE = 1;
-const OPCODE_ADD = 2;
-const OPCODE_PRINTBYTE = 3;
-const OPCODE_READBYTE = 4;
-const OPCODE_JUMPIFFALSE = 5;
-const OPCODE_JUMPIFTRUE = 6;
-
-const FIELDTYPE_OPER = 0;
-const FIELDTYPE_ARGUMENT = 1;
+var Field = {
+    Oper: 0,
+    Argument: 1
+}
 
 function getchar()
 {
-    return null;
+    return null
 }
 
 class BFRunner
@@ -36,6 +38,8 @@ class BFRunner
     constructor()
     {
         this.compiledcode = [];
+        this.compiledcount = 0;
+        this.sourcepos = 0;
     }
 
     /*
@@ -45,169 +49,170 @@ class BFRunner
     */
     compile(program, len)
     {
-        var depth = 0;
-        var c = -1;
-        var sourcepos = 0;
-        var destcount = 0;
-        var destcode = [];
-        while(sourcepos < len)
+        var depth;
+        var target;
+        var c;
+        var mval;
+        var tmpop;
+        var nextop;
+        var pvop;
+        while(this.sourcepos < len)
         {
-            c = program[sourcepos];
-            sourcepos++;
+            c = program[this.sourcepos];
+            this.sourcepos++;
             if(c == ">" || c == "<")
             {
-                if((destcount > 0) && (destcode[destcount - 1][FIELDTYPE_OPER] == OPCODE_MOVE))
+                if((this.compiledcount > 0) && (this.compiledcode[this.compiledcount - 1][Field.Oper] == OpCode.MOVE))
                 {
                     // NOTE: may be truncated on assignment to arg
                     // coalesce
-                    var mval = -1;
+                    mval = -1;
                     if(c == ">")
                     {
                         mval = 1;
                     }
-                    var idx1 = destcount - 1
-                    var idx2 = FIELDTYPE_ARGUMENT;
-                    destcode[idx1][idx2] += mval;
+                    this.compiledcode[this.compiledcount - 1][Field.Argument] += mval;
                 }
                 else
                 {
-                    var mval = -1;
+                    pvop = OpCode.MOVE;
+                    mval = -1;
                     if(c == ">")
                     {
                         mval = 1;
                     }
-                    destcode.push([OPCODE_MOVE, mval])
-                    destcount++;
+                    this.compiledcode.push([OpCode.MOVE, mval])
+                    this.compiledcount++;
                 }
             }
             else if(c == "+" || c == "-")
             {
-                if((destcount > 0) && (destcode[destcount - 1][FIELDTYPE_OPER] == OPCODE_ADD))
+                if((this.compiledcount > 0) && (this.compiledcode[this.compiledcount - 1][Field.Oper] == OpCode.ADD))
                 {
                     // NOTE: may be truncated on assignment to arg
                     // coalesce
-                    var mval = -1;
+                    mval = -1;
                     if(c == "+")
                     {
                         mval = 1;
                     }
-                    destcode[destcount - 1][FIELDTYPE_ARGUMENT] += mval;
+                    this.compiledcode[this.compiledcount - 1][Field.Argument] += mval;
                 }
                 else
                 {
-                    var mval = -1;
+                    mval = -1;
                     if(c == "+")
                     {
                         mval = 1;
                     }
-                    destcode.push([OPCODE_ADD, mval])
-                    destcount++;
+                    this.compiledcode.push([OpCode.ADD, mval])
+                    this.compiledcount++;
                 }
             }
             else if(c == ".")
             {
-                destcode.push([OPCODE_PRINTBYTE, 0])
-                destcount++;
+                this.compiledcode.push([OpCode.PRINTBYTE, 0])
+                this.compiledcount++;
             }
             else if(c == ",")
             {
-                destcode.push([OPCODE_READBYTE, 0])
-                destcount++;
+                this.compiledcode.push([OpCode.READBYTE, 0])
+                this.compiledcount++;
             }
             else if(c == "[")
             {
-                destcode.push([OPCODE_JUMPIFFALSE, 0])
-                destcount++;
+                this.compiledcode.push([OpCode.JUMPIFFALSE, 0])
+                this.compiledcount++;
             }
             else if(c == "]")
             {
-                destcode.push([OPCODE_JUMPIFTRUE, 0])
-                destcount++;
+                this.compiledcode.push([OpCode.JUMPIFTRUE, 0])
+                this.compiledcount++;
             }
         }
-        println("compiled ", destcount, " instructions. now resolving jumps...")
+        println("compiled ", this.compiledcount, " instructions. now resolving jumps...")
         // Resolve all jumps
-        var i = 0;
-        while(i < destcount)
+        for(var i = 0; i < this.compiledcount; i++)
         {
-            var tmpop = destcode[i][FIELDTYPE_OPER];
-            if(tmpop == OPCODE_JUMPIFFALSE)
+            tmpop = this.compiledcode[i][Field.Oper];
+            if(tmpop == OpCode.JUMPIFFALSE)
             {
                 depth = 1;
-                var target = i + 1;
-                while((depth > 0) && (target < destcount))
+                target = i + 1;
+                while((depth > 0) && (target < this.compiledcount))
                 {
-                    var nextop = destcode[target][FIELDTYPE_OPER];
+                    nextop = this.compiledcode[target][Field.Oper];
                     target++;
-                    if(nextop == OPCODE_JUMPIFFALSE)
+                    if(nextop == OpCode.JUMPIFFALSE)
                     {
                         depth++;
                     }
-                    else if(nextop == OPCODE_JUMPIFTRUE)
+                    else if(nextop == OpCode.JUMPIFTRUE)
                     {
-                        depth-=1;
+                        depth--;
                     }
                 }
                 if(depth > 0)
                 {
-                    println("invalid program");
-                    //return false;
+                    // invalid program
+                    return false;
                 }
-                destcode[i][FIELDTYPE_ARGUMENT] = target;
+                this.compiledcode[i][Field.Argument] = target;
             }
-            else if(tmpop == OPCODE_JUMPIFTRUE)
+            else if(tmpop == OpCode.JUMPIFTRUE)
             {
                 depth = 1;
-                var target = i;
+                target = i;
                 while((depth > 0) && target >= 0)
                 {
-                    target-=1;
-                    var nextop = destcode[target][FIELDTYPE_OPER];
-                    if(nextop == OPCODE_JUMPIFTRUE)
+                    target--;
+                    nextop = this.compiledcode[target][Field.Oper];
+                    if(nextop == OpCode.JUMPIFTRUE)
                     {
                         depth++;
                     }
-                    else if(nextop == OPCODE_JUMPIFFALSE)
+                    else if(nextop == OpCode.JUMPIFFALSE)
                     {
-                        depth-=1;
+                        depth--;
                     }
                 }
                 if(depth > 0)
                 {
-                    println("invalid program");
-                    //return false;
+                    // invalid program
+                    return false;
                 }
-                destcode[i][FIELDTYPE_ARGUMENT] = target + 1;
+                this.compiledcode[i][Field.Argument] = target + 1;
             }
-            i++;
         }
         println("finished compiling!")
-        this.compiledcode = destcode
         return true;
     }
 
     // Run a compiled bytecode program.
     run()
     {
+        var datapos;
+        var codepos;
         var maxcodecount = this.compiledcode.length;
-        var mem = Array(BFC_MAXMEMORY, 0)
-        var datapos = 0;
-        var codepos = 0;
+        var mem = Array(30000, 0)
+        //var mem = []
+        datapos = 0;
+        codepos = 0;
         println("running ", maxcodecount, " instructions...")
         while(codepos < maxcodecount)
         {
-            var arg = this.compiledcode[codepos][FIELDTYPE_ARGUMENT];
-            var opc = this.compiledcode[codepos][FIELDTYPE_OPER];
-            codepos  = codepos + 1;
-            if(opc == OPCODE_MOVE)
+            var arg = this.compiledcode[codepos][Field.Argument];
+            var opc = this.compiledcode[codepos][Field.Oper];
+            codepos++;
+            if(opc == OpCode.MOVE)
             {
-                datapos = (((datapos + arg) + BFC_MAXMEMORY) % BFC_MAXMEMORY);
+                datapos = ((datapos + arg) + 30000) % 30000;
             }
-            else if(opc == OPCODE_ADD)
+            else if(opc == OpCode.ADD)
             {
                 mem[datapos] += arg;
             }
-            else if(opc == OPCODE_JUMPIFFALSE)
+            else if(opc == OpCode.JUMPIFFALSE)
             {
                 if(mem[datapos] > 0)
                 {
@@ -218,7 +223,7 @@ class BFRunner
                     codepos = arg;
                 }
             }
-            else if(opc == OPCODE_JUMPIFTRUE)
+            else if(opc == OpCode.JUMPIFTRUE)
             {
                 if(mem[datapos] > 0)
                 {
@@ -229,12 +234,13 @@ class BFRunner
                     codepos = codepos;
                 }
             }
-            else if(opc == OPCODE_PRINTBYTE)
+            else if(opc == OpCode.PRINTBYTE)
             {
-                printchar(mem[datapos]);
+                STDOUT.write(String.fromCharCode(mem[datapos]));
             }
-            else if(opc == OPCODE_READBYTE)
+            else if(opc == OpCode.READBYTE)
             {
+                //STDOUT.flush()
                 var c = getchar();
                 if(c == null)
                 {
@@ -250,27 +256,27 @@ class BFRunner
 
     optoname(op)
     {
-        if(op == OPCODE_MOVE)
+        if(op == OpCode.MOVE)
         {
             return "move";
         }
-        else if(op == OPCODE_ADD)
+        else if(op == OpCode.ADD)
         {
             return "add";
         }
-        else if(op == OPCODE_PRINTBYTE)
+        else if(op == OpCode.PRINTBYTE)
         {
             return "printbyte";
         }
-        else if(op == OPCODE_READBYTE)
+        else if(op == OpCode.READBYTE)
         {
             return "readbyte";
         }
-        else if(op == OPCODE_JUMPIFFALSE)
+        else if(op == OpCode.JUMPIFFALSE)
         {
             return "jumpiffalse";
         }
-        else if(op == OPCODE_JUMPIFTRUE)
+        else if(op == OpCode.JUMPIFTRUE)
         {
             return "jumpifnotzero";
         }
@@ -279,14 +285,13 @@ class BFRunner
 
     printbc()
     {
-        var i;
         var brline = 0;
         var len = this.compiledcode.length;
         print("compiled: ", len, " items: [\n");
         for(i=0; i<len; i++)
         {
-            var nopt = this.compiledcode[i][FIELDTYPE_OPER];
-            var arg = this.compiledcode[i][FIELDTYPE_ARGUMENT];
+            var nopt = this.compiledcode[i][Field.Oper];
+            var arg = this.compiledcode[i][Field.Argument];
             var optn = this.optoname(nopt);
             print("", optn, "(", arg, ")");
             if((i+1) < len)
@@ -306,8 +311,8 @@ class BFRunner
 
 function main()
 {
-    var src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
-    var bfr = BFRunner()
+    src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
+    var bfr = new BFRunner()
     println("src=", src)
     if(!bfr.compile(src, src.length))
     {
@@ -317,5 +322,4 @@ function main()
     bfr.run();
 }
 
-main();
-
+main()

@@ -53,7 +53,7 @@ function bf(bfsrc, input)
         }
         else if(c == TOK_DOT)
         {
-            STDOUT.putc(memory[memptr])
+            printchar(memory[memptr])
         }
         else if(c == TOK_COMMA)
         {

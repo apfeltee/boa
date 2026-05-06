@@ -42,7 +42,7 @@ WFLAGS +=  -Wwrite-strings
 #WFLAGS = -w
 
 
-OPTFLAGS = -O0
+OPTFLAGS = -Og
 #OPTFLAGS = -O5 -funroll-loops -flto -ffast-math 
 
 
