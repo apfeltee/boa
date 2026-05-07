@@ -18,7 +18,7 @@ unflags = \
 	-Wunused-value \
 	-Wunused-variable
 
-#unflags += 	-Wvla
+unflags += -Wvla
 ## has a tendency to report false positives!
 #unflags += -pedantic
 
