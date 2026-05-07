@@ -10718,27 +10718,35 @@ LitValue objfnarray_foreach(LitState* state, LitValue instance, LitUInt argc, Li
 
 LitValue objfnarray_join(LitState* state, LitValue instance, LitUInt argc, LitValue* args)
 {
+    bool havejoinee;
+    LitUInt i;
+    LitIOStream pr;
+    LitString* res;
+    LitValue joinee;
+    LitDynListVal* values;
     (void)argc;
     (void)args;
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
-    LitString* strings[values->count];
-    LitUInt length = 0;
-    for(LitUInt i = 0; i < values->count; i++)
+    havejoinee = false;
+    if(argc > 0)
     {
-        LitString* string = lit_value_tostring(state, values->values[i], 0);
-        strings[i] = string;
-        length += string->strbuf.length;
+        joinee = args[0];
+        havejoinee = true;
     }
-    LitUInt index = 0;
-    char chars[length + 1];
-    chars[length] = '\0';
-    for(LitUInt i = 0; i < values->count; i++)
+    lit_iostream_makestackstring(&pr);
+    values = &lit_value_asarray(instance)->values;
+    for(i = 0; i < values->count; i++)
     {
-        LitString* string = strings[i];
-        memcpy(chars + index, string->strbuf.data, string->strbuf.length);
-        index += string->strbuf.length;
+        lit_value_printvalue(state, &pr, values->values[i], false);
+        if((i+1) < values->count)
+        {
+            if(havejoinee)
+            {
+                lit_value_printvalue(state, &pr, joinee, false);
+            }
+        }
     }
-    return lit_value_fromobject(lit_string_copylen(state, chars, length));
+    res = lit_iostream_takestring(state, &pr);
+    return lit_value_fromobject(res);
 }
 
 bool sort_compare(LitState* state, LitValue a, LitValue b)
@@ -14043,19 +14051,17 @@ LitResult lit_state_dumpfile(LitState* state, LitIOStream* pr, const char* file)
     return result;
 }
 
-void lit_state_raiseerror(LitState* state, LitErrorType type, const char* message, ...)
+void lit_state_raiseerror(LitState* state, LitErrorType type, const char* fmt, ...)
 {
     va_list args;
+    LitIOStream pr;
     (void)type;
-    va_start(args, message);
-    va_list argscopy;
-    va_copy(argscopy, args);
-    size_t buffersize = vsnprintf(NULL, 0, message, argscopy) + 1;
-    va_end(argscopy);
-    char buffer[buffersize];
-    vsnprintf(buffer, buffersize, message, args);
+    lit_iostream_makestackstring(&pr);
+    va_start(args, fmt);
+    lit_iostream_vwritefmt(&pr, fmt, args);
     va_end(args);
-    state->error_fn(state, buffer);
+    state->error_fn(state, pr.psbuf.data);
+    lit_iostream_destroy(&pr);
     state->had_error = true;
 }
 
@@ -14213,13 +14219,12 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
 
 bool lit_vm_raiseerrorva(LitState* state, const char* format, va_list args)
 {
-    va_list argscopy;
-    va_copy(argscopy, args);
-    size_t buffersize = vsnprintf(NULL, 0, format, argscopy) + 1;
-    va_end(argscopy);
-    char buffer[buffersize];
-    vsnprintf(buffer, buffersize, format, args);
-    return lit_vm_handleerror(state, lit_string_copylen(state, buffer, buffersize));
+    LitIOStream pr;
+    LitString* str;
+    lit_iostream_makestackstring(&pr);
+    lit_iostream_vwritefmt(&pr, format, args);
+    str = lit_iostream_takestring(state, &pr);
+    return lit_vm_handleerror(state, str);
 }
 
 bool lit_vm_raiseerror(LitState* state, const char* format, ...)

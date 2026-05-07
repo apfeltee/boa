@@ -696,7 +696,7 @@ bool lit_state_compileandsavefiles(LitState *state, char *files[], LitUInt numfi
 char *lit_util_readsource(LitState *state, const char *filename);
 LitResult lit_state_interpretfile(LitState *state, const char *file);
 LitResult lit_state_dumpfile(LitState *state, LitIOStream *pr, const char *file);
-void lit_state_raiseerror(LitState *state, LitErrorType type, const char *message, ...);
+void lit_state_raiseerror(LitState *state, LitErrorType type, const char *fmt, ...);
 const char *lit_tostring_typename(LitObjType t);
 void lit_vmexec_traceframe(LitState *state, LitFiber *fiber);
 void lit_debug_traceprintvalue(LitState *state, const char *prefix, size_t framecount, size_t argc, LitValue *vals);
