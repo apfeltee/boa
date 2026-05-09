@@ -76,7 +76,7 @@ CC = gcc $(WFLAGS) $(EXTRAFLAGS)
 #CC = tcc $(WFLAGS) $(EXTRAFLAGS)
 DEPCC = gcc
 
-LDFLAGS = -ldl -lm -lreadline
+LDFLAGS = -ldl -lm
 target = run
 
 srcfiles_all = $(wildcard *.c)

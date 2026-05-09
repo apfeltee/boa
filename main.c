@@ -896,6 +896,8 @@ struct LitState
         bool traceexecution;
         bool tracechunk;
         bool isreplmode;
+        bool havedesttrace;
+        LitIOStream* desttrace;
     } config;
 
     struct
@@ -1087,13 +1089,13 @@ struct LitExpression
 
 struct LitLiteralExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitValue value;
 };
 
 struct LitBinaryExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* left;
     LitExpression* right;
     LitTokenType op;
@@ -1102,36 +1104,36 @@ struct LitBinaryExpression
 
 struct LitUnaryExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* right;
     LitTokenType op;
 };
 
 struct LitVarExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     const char* name;
     size_t length;
 };
 
 struct LitAssignExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* to;
     LitExpression* value;
 };
 
 struct LitCallExpression
 {
-    LitExpression expression;
-    LitExpression* callee;
+    LitExpression exprbase;
+    LitExpression* excallee;
     LitDynListExpr args;
     LitExpression* init;
 };
 
 struct LitGetExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* where;
     const char* name;
     size_t length;
@@ -1142,7 +1144,7 @@ struct LitGetExpression
 
 struct LitSetExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* where;
     const char* name;
     size_t length;
@@ -1166,32 +1168,32 @@ struct LitDynListParam
 
 struct LitArrayExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitDynListExpr values;
 };
 
 struct LitObjectExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitDynListVal keys;
     LitDynListExpr values;
 };
 
 struct LitSubscriptExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* array;
     LitExpression* index;
 };
 
 struct LitThisExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
 };
 
 struct LitSuperExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitString* method;
     bool ignore_emit;
     bool ignore_result;
@@ -1199,14 +1201,14 @@ struct LitSuperExpression
 
 struct LitRangeExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* from;
     LitExpression* to;
 };
 
 struct LitTernaryExpression
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* condition;
     LitExpression* if_branch;
     LitExpression* else_branch;
@@ -1214,31 +1216,31 @@ struct LitTernaryExpression
 
 struct LitInterpolationExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitDynListExpr expressions;
 };
 
 struct LitReferenceExpression
 {
-    LitExpression expression;
+    LitExpression exprbase;
     LitExpression* to;
 };
 
 struct LitExpressionStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* expression;
 };
 
 struct LitBlockStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitDynListExpr statements;
 };
 
 struct LitVarStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     const char* name;
     size_t length;
     bool constant;
@@ -1247,7 +1249,7 @@ struct LitVarStatement
 
 struct LitIfStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* condition;
     LitExpression* if_branch;
     LitExpression* else_branch;
@@ -1257,14 +1259,14 @@ struct LitIfStatement
 
 struct LitWhileStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* condition;
     LitExpression* body;
 };
 
 struct LitForStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* init;
     LitExpression* var;
     LitExpression* condition;
@@ -1275,17 +1277,17 @@ struct LitForStatement
 
 struct LitContinueStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
 };
 
 struct LitBreakStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
 };
 
 struct LitFunctionStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     const char* name;
     size_t length;
     LitDynListParam parameters;
@@ -1295,13 +1297,13 @@ struct LitFunctionStatement
 
 struct LitReturnStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitExpression* expression;
 };
 
 struct LitMethodStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitString* name;
     LitDynListParam parameters;
     LitExpression* body;
@@ -1310,7 +1312,7 @@ struct LitMethodStatement
 
 struct LitClassStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitString* name;
     LitString* parent;
     LitDynListExpr fields;
@@ -1318,7 +1320,7 @@ struct LitClassStatement
 
 struct LitFieldStatement
 {
-    LitExpression statement;
+    LitExpression exprbase;
     LitString* name;
     LitExpression* getter;
     LitExpression* setter;
@@ -4868,7 +4870,7 @@ void lit_ast_destroyexpression(LitState* state, LitExpression* expression)
         case LIT_ASTEXPRTYP_CALL:
         {
             LitCallExpression* expr = (LitCallExpression*)expression;
-            lit_ast_destroyexpression(state, expr->callee);
+            lit_ast_destroyexpression(state, expr->excallee);
             lit_ast_destroyexpression(state, expr->init);
             lit_ast_destroyexprlist(state, &expr->args);
             lit_sysmem_free(expression);
@@ -5017,7 +5019,7 @@ LitAssignExpression* lit_ast_makeassignexpr(size_t line, LitExpression* to, LitE
 LitCallExpression* lit_ast_makecallexpr(size_t line, LitExpression* callee)
 {
     LitCallExpression* expression = (LitCallExpression*)lit_ast_allocexpression(line, sizeof(LitCallExpression), LIT_ASTEXPRTYP_CALL);
-    expression->callee = callee;
+    expression->excallee = callee;
     expression->init = NULL;
     lit_exprlist_init(&expression->args);
     return expression;
@@ -7804,17 +7806,17 @@ void lit_emitter_emitbinaryexpr(LitEmitter* emitter, LitBinaryExpression* expr, 
         {
             if(expr->right->type != LIT_ASTEXPRTYP_VAR)
             {
-                return lit_emitter_raiseerror(emitter, expr->expression.line, "'is' operator is not used with a var expression");
+                return lit_emitter_raiseerror(emitter, ((LitExpression*)expr)->line, "'is' operator is not used with a var expression");
             }
             LitVarExpression* e = (LitVarExpression*)expr->right;
-            int constant = lit_emitter_addconst(emitter, expr->expression.line, lit_value_fromobject(lit_string_copylen(emitter->pstate, e->name, e->length)));
-            lit_emitter_emitabc(emitter, expr->expression.line, opcode, reg, b, constant);
+            int constant = lit_emitter_addconst(emitter, ((LitExpression*)expr)->line, lit_value_fromobject(lit_string_copylen(emitter->pstate, e->name, e->length)));
+            lit_emitter_emitabc(emitter, ((LitExpression*)expr)->line, opcode, reg, b, constant);
         }
         else
         {
             uint16_t rc = lit_emitter_reserveregister(emitter);
             uint16_t c = lit_emitter_parsearg(emitter, expr->right, rc);
-            lit_emitter_emitabc(emitter, expr->expression.line, opcode, reg, swap ? c : b, swap ? b : c);
+            lit_emitter_emitabc(emitter, ((LitExpression*)expr)->line, opcode, reg, swap ? c : b, swap ? b : c);
             lit_emitter_freeregister(emitter, rc);
         }
     }
@@ -8084,17 +8086,17 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             LitCallExpression* expr = (LitCallExpression*)expression;
             size_t argc = expr->args.count;
             uint16_t* argregs = (uint16_t*)lit_sysmem_malloc(argc * sizeof(uint16_t));
-            bool method = expr->callee->type == LIT_ASTEXPRTYP_GET;
-            bool super = expr->callee->type == LIT_ASTEXPRTYP_SUPER;
+            bool method = expr->excallee->type == LIT_ASTEXPRTYP_GET;
+            bool super = expr->excallee->type == LIT_ASTEXPRTYP_SUPER;
             if(method)
             {
-                ((LitGetExpression*)expr->callee)->ignore_emit = true;
+                ((LitGetExpression*)expr->excallee)->ignore_emit = true;
             }
             else if(super)
             {
-                ((LitSuperExpression*)expr->callee)->ignore_emit = true;
+                ((LitSuperExpression*)expr->excallee)->ignore_emit = true;
             }
-            lit_emitter_emitexpr(emitter, expr->callee, reg);
+            lit_emitter_emitexpr(emitter, expr->excallee, reg);
             uint8_t tmpreg = super ? lit_emitter_reserveregister(emitter) : 0;
             for(i = 0; i < argc; i++)
             {
@@ -8105,7 +8107,9 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
                 if(arg_reg != reg + i + supadd)
                 {
                     /* something went terribly wrong */
-                    fprintf(stderr, "callexpression error: arg_reg (%d) != reg (%d) + i (%ld) + supadd (%d)\n", arg_reg, reg, i, supadd);
+                    LitCallExpression* cl = (LitCallExpression*)expr->excallee;
+                    
+                    fprintf(stderr, "callexpression error on line %ld: arg_reg (%d) != (reg (%d) + i (%ld) + supadd (%d)) == %ld\n", expression->line, arg_reg, reg, i, supadd, reg + i + supadd);
 #if 0
                         UNREACHABLE
 #endif
@@ -8115,19 +8119,19 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             }
             if(method)
             {
-                if(expr->callee->type != LIT_ASTEXPRTYP_GET)
+                if(expr->excallee->type != LIT_ASTEXPRTYP_GET)
                 {
                     /* TODO: replace with a proper error code? */
                     UNREACHABLE
                 }
-                LitGetExpression* e = (LitGetExpression*)expr->callee;
+                LitGetExpression* e = (LitGetExpression*)expr->excallee;
                 int constant = lit_emitter_addconst(emitter, emitter->last_line, lit_value_fromobject(lit_string_copylen(emitter->pstate, e->name, e->length)));
                 lit_emitter_emitabc(emitter, expression->line, OP_INVOKE, reg, argc + 1, constant);
             }
             else if(super)
             {
                 assert(tmpreg == reg + 1);
-                LitSuperExpression* e = (LitSuperExpression*)expr->callee;
+                LitSuperExpression* e = (LitSuperExpression*)expr->excallee;
                 uint8_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "super", 5, emitter->last_line);
                 lit_emitter_emitabx(emitter, expression->line, OP_GET_UPVALUE, tmpreg, index);
                 lit_emitter_emitabc(emitter, expression->line, OP_MOVE, reg, 0, 0);
@@ -8145,7 +8149,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             lit_sysmem_free(argregs);
             if(method)
             {
-                LitExpression* get = expr->callee;
+                LitExpression* get = expr->excallee;
                 while(get != NULL)
                 {
                     if(get->type == LIT_ASTEXPRTYP_GET)
@@ -9761,6 +9765,7 @@ LitValue objfnstring_compare(LitState* state, LitValue instance, size_t argc, Li
 {
     LitString* self;
     LitString* other;
+    (void)state;
     (void)argc;
     self = AS_STRING(instance);
     if(IS_STRING(args[0]))
@@ -11142,6 +11147,7 @@ bool lit_coreutil_compileandinterpret(LitState* state, LitString* modname, char*
 
 LitValue lit_corefn_eval(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    (void)instance;
     char* code = (char*)LIT_CHECK_GETSTRINGDATA(0);
     //return lit_coreutil_compileandinterpret(state, state->vmstate.fiber->module->name, code);
     return lit_state_interpretsource(state, "<eval>", code).result;
@@ -13567,9 +13573,11 @@ LitState* lit_state_make()
     state->config.traceexecution = false;
     state->config.tracechunk = false;
     state->config.isreplmode = false;
+    state->config.havedesttrace = false;
     state->streamstdout = lit_iostream_makeio(stdout, false);
     state->streamstdout->shouldflush = true;
     state->streamstderr = lit_iostream_makeio(stderr, false);
+    state->config.desttrace = state->streamstderr;
     state->scanner = (LitScanner*)lit_sysmem_malloc(sizeof(LitScanner));
     state->parser = (LitParser*)lit_sysmem_malloc(sizeof(LitParser));
     lit_parser_init(state, (LitParser*)state->parser);
@@ -13592,6 +13600,10 @@ int64_t lit_state_destroy(LitState* state)
     lit_api_destroy(state);
     lit_iostream_destroy(state->streamstdout);
     lit_iostream_destroy(state->streamstderr);
+    if(state->config.havedesttrace)
+    {
+        lit_iostream_destroy(state->config.desttrace);
+    }
     lit_sysmem_free(state->scanner);
     lit_parser_destroy(state->parser);
     lit_sysmem_free(state->parser);
@@ -13911,7 +13923,7 @@ void lit_vmexec_traceframe(LitState* state, LitFiber* fiber)
             return;
         }
         LitCallFrame* frame = &fiber->framevals[fiber->framecount - 1];
-        fprintf(stder, "== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->strbuf.data, frame->function->argcount, frame->function->maxregisters, frame->function->maxregisters + (int)(fiber->stack_top - fiber->stack), fiber->stack_capacity, frame->returnaddress == NULL);
+        lit_iostream_printf(state->config.desttrace, "== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->strbuf.data, frame->function->argcount, frame->function->maxregisters, frame->function->maxregisters + (int)(fiber->stack_top - fiber->stack), fiber->stack_capacity, frame->returnaddress == NULL);
 #endif
     }
 }
@@ -13919,14 +13931,14 @@ void lit_vmexec_traceframe(LitState* state, LitFiber* fiber)
 void lit_debug_traceprintvalue(LitState* state, const char* prefix, size_t framecount, size_t argc, LitValue* vals)
 {
     size_t i;
-    fprintf(stderr, "-> f%ld %s{\n", framecount, prefix);
+    lit_iostream_printf(state->config.desttrace, "-> f%ld %s{\n", framecount, prefix);
     for(i = 0; i <= argc; i++)
     {
-        fprintf(stderr, "  [%ld]: ", i);
-        lit_value_printvalue(state, state->streamstderr, *(vals + i), true);
-        fprintf(stderr, "\n");
+        lit_iostream_printf(state->config.desttrace, "  [%ld]: ", i);
+        lit_value_printvalue(state, state->config.desttrace, *(vals + i), true);
+        lit_iostream_printf(state->config.desttrace, "\n");
     }
-    printf("}\n");
+    lit_iostream_printf(state->config.desttrace, "}\n");
 }
 
 void lit_vmexec_resetvm(LitState* state)
@@ -14469,7 +14481,7 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
     lit_vmexec_traceframe(state, fiber);
     if(state->config.traceexecution)
     {
-        printf("fiber start:\n");
+        lit_iostream_printf(state->config.desttrace, "fiber start:\n");
     }
 
 dispatch:
@@ -14481,7 +14493,7 @@ dispatch:
         {
             lit_debug_traceprintvalue(state, "<vm:registers>", fiber->framecount, state->vmstate.frame->function->maxregisters, state->vmstate.vmregisteritems);
         }
-        lit_debug_disasinstr(state->streamstderr, state->vmstate.current_chunk, (size_t)(state->vmstate.ip - state->vmstate.current_chunk->compiledcodechunk - 1), NULL, state->vmstate.frame != previousframe);
+        lit_debug_disasinstr(state->config.desttrace, state->vmstate.current_chunk, (size_t)(state->vmstate.ip - state->vmstate.current_chunk->compiledcodechunk - 1), NULL, state->vmstate.frame != previousframe);
         previousframe = state->vmstate.frame;
     }
 #if defined(LIT_CONF_USECOMPUTEDGOTO) && (LIT_CONF_USECOMPUTEDGOTO == 1)
@@ -14571,7 +14583,7 @@ dispatch:
                     }
                     if(state->config.traceexecution)
                     {
-                        fprintf(stderr, "fiber continue:\n");
+                        lit_iostream_printf(state->config.desttrace, "fiber continue:\n");
                     }
                     lit_vmmac_readframe(state, &fiber);
                     lit_vmmac_dispatchnext();
@@ -15559,18 +15571,21 @@ int main(int argc, char* argv[], char** envp)
     char* source;
     const char* bytecodefile;
     const char* filename;
+    FILE* tmpfh;
     char* scriptargv[128];
     optcontext_t options;
     linocontext_t lictx;
     LitState* state;
     LitArray* argarray;
-    LitStatusCode result = LIT_STATUS_OK;
+    LitStatusCode result;
+    result = LIT_STATUS_OK;
     static optlongflags_t longopts[] =
     {
         {"help", 'h', OPTPARSE_NONE, "this help"},
         {"dump", 'd', OPTPARSE_NONE, "dump instructions"},
         {"eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code"},
         {"trace", 't', OPTPARSE_NONE, "trace execution"},
+        {"dest", 'T', OPTPARSE_REQUIRED, "when '-t' is specified, write trace output to file. defaults to stderr"},
         {"output", 'o', OPTPARSE_REQUIRED, "compile a script to bytecode"},
         {0, 0, (optargtype_t)0, NULL}
     };
@@ -15620,6 +15635,17 @@ int main(int argc, char* argv[], char** envp)
         else if(co == 't')
         {
             state->config.traceexecution = true;
+        }
+        else if(co == 'T')
+        {
+            tmpfh = fopen(options.optarg, "wb");
+            if(tmpfh == NULL)
+            {
+                fprintf(stderr, "cannot open trace destination file '%s' for writing\n", options.optarg);
+                goto endmain;
+            }
+            state->config.desttrace = lit_iostream_makeio(tmpfh, true);
+            state->config.havedesttrace = true;
         }
     }
     if(wasusage || quitafterinit)
