@@ -116,7 +116,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #endif
 
 #define UNREACHABLE                                                                 \
-    fprintf(stderr, "Unreachable code was reached at %s:%i\n", __FILE__, __LINE__); \
+    fprintf(stderr, "unreachable code was reached at %s:%i\n", __FILE__, __LINE__); \
     assert(false);
 #define UINT8_COUNT UINT8_MAX + 1
 #define UINT16_COUNT UINT16_MAX + 1
@@ -136,7 +136,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_ENSURE_ARGS(count)                                                      \
     if(argc != count)                                                               \
     {                                                                               \
-        lit_vm_raisefatalerror(state, "Expected %i argument, got %i", count, argc); \
+        lit_vm_raisefatalerror(state, "expected %i arguments, got %i", count, argc); \
         return lit_value_makenull();                                                \
     }
 
@@ -185,20 +185,34 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
  */
 
 #define LIT_INSTRUCTION_OPCODE(instruction) (instruction & LIT_OPCODE_SIZE)
-#define LIT_INSTRUCTION_A(instruction) ((instruction >> LIT_A_ARG_POSITION) & LIT_A_ARG_SIZE)
-#define LIT_INSTRUCTION_B(instruction) ((instruction >> LIT_B_ARG_POSITION) & LIT_B_ARG_SIZE)
-#define LIT_INSTRUCTION_C(instruction) ((instruction >> LIT_C_ARG_POSITION) & LIT_C_ARG_SIZE)
-#define LIT_INSTRUCTION_BX(instruction) ((instruction >> LIT_BX_ARG_POSITION) & LIT_BX_ARG_SIZE)
-#define LIT_INSTRUCTION_SBX(instruction) (((instruction >> LIT_SBX_ARG_POSITION) & LIT_SBX_ARG_SIZE) * (((instruction >> LIT_SBX_FLAG_POSITION) & 0x1) == 1 ? -1 : 1))
+#define LIT_INSTRUCTION_A(instruction) (((int64_t)(instruction >> LIT_A_ARG_POSITION)) & LIT_A_ARG_SIZE)
+#define LIT_INSTRUCTION_B(instruction) (((int64_t)(instruction >> LIT_B_ARG_POSITION)) & LIT_B_ARG_SIZE)
+#define LIT_INSTRUCTION_C(instruction) (((int64_t)(instruction >> LIT_C_ARG_POSITION)) & LIT_C_ARG_SIZE)
+#define LIT_INSTRUCTION_BX(instruction) (((int64_t)(instruction >> LIT_BX_ARG_POSITION)) & LIT_BX_ARG_SIZE)
+#define LIT_INSTRUCTION_SBX(instruction) ((((int64_t)(instruction >> LIT_SBX_ARG_POSITION)) & LIT_SBX_ARG_SIZE) * (((((int64_t)instruction) >> LIT_SBX_FLAG_POSITION) & 0x1) == 1 ? -1 : 1))
 
-#define LIT_FORM_ABC_INSTRUCTION(opcode, a, b, c) (((opcode) & LIT_OPCODE_SIZE) | (((a) & LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | (((b) & LIT_B_ARG_SIZE) << LIT_B_ARG_POSITION) | (((c) & LIT_C_ARG_SIZE) << LIT_C_ARG_POSITION))
+#define LIT_FORM_ABC_INSTRUCTION(opcode, a, b, c) \
+    ( \
+        ((opcode) & LIT_OPCODE_SIZE) | \
+        ((((int64_t)(a)) & LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | \
+        ((((int64_t)(b)) & LIT_B_ARG_SIZE) << LIT_B_ARG_POSITION) | \
+        ((((int64_t)(c)) & LIT_C_ARG_SIZE) << LIT_C_ARG_POSITION) \
+    )
 
-#define LIT_FORM_ABX_INSTRUCTION(opcode, a, bx) (((opcode) & LIT_OPCODE_SIZE) | (((a) & LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | (((bx) & LIT_BX_ARG_SIZE) << LIT_BX_ARG_POSITION))
+#define LIT_FORM_ABX_INSTRUCTION(opcode, a, bx) \
+    ( \
+        ((opcode) & LIT_OPCODE_SIZE) | \
+        ((((int64_t)(a)) & LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | \
+        ((((int64_t)(bx)) & LIT_BX_ARG_SIZE) << LIT_BX_ARG_POSITION) \
+    )
 
-uint64_t LIT_FORM_ASBX_INSTRUCTION(int opcode, uint8_t a, int sbx)
-{
-    return (((opcode)&LIT_OPCODE_SIZE) | (((a)&LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | ((abs((int)(sbx)) & LIT_SBX_ARG_SIZE) << LIT_SBX_ARG_POSITION)) | ((((sbx) < 0 ? 1 : 0) << LIT_SBX_FLAG_POSITION));
-}
+#define LIT_FORM_ASBX_INSTRUCTION(opcode, a, sbx) \
+    ( \
+        ((opcode) & LIT_OPCODE_SIZE) | \
+        (((a) & LIT_A_ARG_SIZE) << LIT_A_ARG_POSITION) | \
+        ((labs((int64_t)(sbx)) & LIT_SBX_ARG_SIZE) << LIT_SBX_ARG_POSITION)) | \
+        (((((int64_t)(sbx)) < 0 ? 1 : 0) << LIT_SBX_FLAG_POSITION) \
+    )
 
 enum LitBit
 {
@@ -713,7 +727,7 @@ struct LitFunction
     LitString* name;
     size_t argcount;
     size_t upvaluecount;
-    uint8_t maxregisters;
+    uint32_t maxregisters;
     bool vararg;
     LitModule* module;
 };
@@ -739,7 +753,7 @@ struct LitClosurePrototype
     LitObject innerobject;
     LitFunction* function;
     bool* local;
-    uint8_t* indexes;
+    uint32_t* indexes;
     size_t upvaluecount;
 };
 
@@ -971,7 +985,7 @@ struct LitLocal
     int depth;
     bool captured;
     bool constant;
-    uint8_t reg;
+    uint32_t reg;
 };
 
 struct LitDynListLoc
@@ -983,7 +997,7 @@ struct LitDynListLoc
 
 struct LitCompilerUpvalue
 {
-    uint8_t index;
+    uint32_t index;
     bool isLocal;
 };
 
@@ -1012,7 +1026,7 @@ struct LitEmitter
     LitDynListUInt continues;
     LitModule* module;
     LitString* class_name;
-    uint8_t class_register;
+    uint32_t class_register;
     bool class_has_super;
     int emit_reference;
 };
@@ -1032,8 +1046,8 @@ struct LitParser
     LitToken previous;
     LitToken current;
     LitCompiler* compiler;
-    uint8_t exprrootcnt;
-    uint8_t stmtrootcnt;
+    uint32_t exprrootcnt;
+    uint32_t stmtrootcnt;
 };
 
 struct LitEmulatedFile
@@ -1128,7 +1142,7 @@ struct LitParameter
 {
     const char* name;
     size_t length;
-    uint8_t reg;
+    uint32_t reg;
     LitExpression* default_value;
 };
 
@@ -1321,6 +1335,26 @@ LitResult lit_result_make(LitStatusCode type, LitValue result)
 /* Bounds check when inserting (pos <= len are valid) */
 #define lit_strbuf_boundscheckinsert(sb, pos) lit_strbufutil_callboundscheckinsert(sb, pos, __FILE__, __LINE__)
 #define lit_strbuf_boundscheckreadrange(sb, start, len) lit_strbufutil_callboundscheckreadrange(sb, start, len, __FILE__, __LINE__)
+
+void* lit_sysmem_malloc(size_t sz)
+{
+    return malloc(sz);
+}
+
+void* lit_sysmem_realloc(void* p, size_t sz)
+{
+    return realloc(p, sz);
+}
+
+void* lit_sysmem_calloc(size_t count, size_t sz)
+{
+    return calloc(count, sz);
+}
+
+void lit_sysmem_free(void* p)
+{
+    free(p);
+}
 
 size_t lit_strbufutil_rndup2pow64(uint64_t x)
 {
@@ -2462,7 +2496,7 @@ int lit_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, v
      */
     if(numchars < 0)
     {
-        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* numchars does not include the null terminating byte */
@@ -2477,7 +2511,7 @@ int lit_strbuf_appendformatposv(LitStrBuffer* sb, size_t pos, const char* fmt, v
         numchars = vsprintf(data + pos, fmt, vacpy);
         if(numchars < 0)
         {
-            fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
+            fprintf(stderr, "warning: lit_strbuf_appendformatv something went wrong..\n");
             abort();
         }
     }
@@ -2540,7 +2574,7 @@ int lit_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt,
     va_end(argptr);
     if(nchars < 0)
     {
-        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* Save overwritten char */
@@ -2551,7 +2585,7 @@ int lit_strbuf_appendformatnoterm(LitStrBuffer* sb, size_t pos, const char* fmt,
     va_end(argptr);
     if(nchars < 0)
     {
-        fprintf(stderr, "Warning: lit_strbuf_appendformatv something went wrong..\n");
+        fprintf(stderr, "warning: lit_strbuf_appendformatv something went wrong..\n");
         abort();
     }
     /* Restore length if shrunk, null terminate if extended */
@@ -2781,13 +2815,6 @@ LitString* lit_iostream_takestring(LitState* state, LitIOStream* pr)
     return os;
 }
 
-LitString* lit_iostream_copystring(LitState* state, LitIOStream* pr)
-{
-    LitString* os;
-    os = lit_string_copylen(state, lit_strbuf_data(&pr->psbuf), lit_strbuf_length(&pr->psbuf));
-    return os;
-}
-
 void lit_iostream_flush(LitIOStream* pr)
 {
     if(pr->shouldflush)
@@ -2967,26 +2994,6 @@ bool lit_is_alpha(char c)
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-void* lit_sysmem_malloc(size_t sz)
-{
-    return malloc(sz);
-}
-
-void* lit_sysmem_realloc(void* p, size_t sz)
-{
-    return realloc(p, sz);
-}
-
-void* lit_sysmem_calloc(size_t count, size_t sz)
-{
-    return calloc(count, sz);
-}
-
-void lit_sysmem_free(void* p)
-{
-    free(p);
-}
-
 void* lit_reallocate(LitState* state, void* pointer, size_t oldsize, size_t newsize)
 {
     state->bytes_allocated += (int64_t)newsize - (int64_t)oldsize;
@@ -3008,8 +3015,8 @@ void* lit_reallocate(LitState* state, void* pointer, size_t oldsize, size_t news
     void* ptr = lit_sysmem_realloc(pointer, newsize);
     if(ptr == NULL)
     {
-        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "Fatal error:\nOut of memory\nProgram terminated");
-        exit(111);
+        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "fatal error: out of memory! aborting now\n");
+        abort();
     }
     return ptr;
 }
@@ -3384,7 +3391,7 @@ void blacken_object(LitState* state, LitObject* object)
         }
         default:
         {
-            lit_vm_raisefatalerror(state, "Unknown object with type %i", object->type);
+            lit_vm_raisefatalerror(state, "unknown object with type %i", object->type);
             break;
         }
     }
@@ -3615,6 +3622,7 @@ int lit_strutil_utfucharoffset(const char* str, int index)
     return offset;
 }
 
+
 bool lit_value_isbool(LitValue v)
 {
     return (v.type == LIT_VALTYP_BOOL);
@@ -3814,6 +3822,318 @@ LitValue lit_value_fromobject_actual(LitObject* obj)
     rt.type = LIT_VALTYP_OBJECT;
     rt.as.obj = obj;
     return rt;
+}
+
+
+LitString* lit_string_makewithstrbuf(LitState* state, LitStrBuffer sb)
+{
+    LitString* string = (LitString*)lit_object_allocobject(state, sizeof(LitString), LIT_OBJ_STRING);
+    string->strbuf = sb;
+    return string;
+}
+
+LitString* lit_string_makeemptystring(LitState* state, size_t length, bool preallocated)
+{
+    LitStrBuffer sb;
+    lit_strbuf_initbasicempty(&sb, length, false, preallocated);
+    return lit_string_makewithstrbuf(state, sb);
+}
+
+void lit_string_register(LitState* state, LitString* string)
+{
+    lit_state_pushroot(state, (LitObject*)string);
+    lit_table_set(&state->vmstate.strings, string, lit_value_makenull());
+    lit_state_poproot(state);
+}
+
+LitString* lit_string_makestringfrom(LitState* state, char* chars, size_t length, uint32_t hash, bool preallocated)
+{
+    LitString* string;
+    string = lit_string_makeemptystring(state, length, preallocated);
+    if(preallocated)
+    {
+        lit_strbuf_setdata(&string->strbuf, chars);
+        lit_strbuf_setlength(&string->strbuf, length);
+    }
+    else
+    {
+        lit_strbuf_appendstrn(&string->strbuf, chars, length);
+    }
+    string->strhash = hash;
+    lit_string_register(state, string);
+    return string;
+}
+
+uint32_t lit_string_hash(const char* key, size_t length)
+{
+    size_t i;
+    uint32_t hash;
+    hash = 2166136261u;
+    for(i = 0; i < length; i++)
+    {
+        hash ^= key[i];
+        hash *= 16777619;
+    }
+    return hash;
+}
+
+LitString* lit_string_take(LitState* state, const char* chars, size_t length)
+{
+    uint32_t hash = lit_string_hash(chars, length);
+    LitString* interned = lit_table_find_string(&state->vmstate.strings, chars, length, hash);
+    if(interned != NULL)
+    {
+        return interned;
+    }
+    return lit_string_makestringfrom(state, (char*)chars, length, hash, true);
+}
+
+#define lit_string_copylen(state, chars, length) \
+    lit_string_copylen_real(state, chars, length, __FILE__, __LINE__)
+
+#define lit_string_copy(state, chars) \
+    lit_string_copy_real(state, chars, __FILE__, __LINE__)
+
+LitString* lit_string_copylen_real(LitState* state, const char* chars, size_t length, const char* srcfilename, int srcline)
+{
+    uint32_t hash;
+    char* heapchars;
+    LitString* res;
+    if(chars == NULL)
+    {
+        fprintf(stderr, "***ERROR at %s:%d: chars are NULL!*****\n", srcfilename, srcline);
+        abort();
+    }
+    hash = lit_string_hash(chars, length);
+    res = lit_table_find_string(&state->vmstate.strings, chars, length, hash);
+    if(res != NULL)
+    {
+        return res;
+    }
+    heapchars = (char*)lit_sysmem_malloc((length + 1) * sizeof(char));
+    memcpy(heapchars, chars, length);
+    heapchars[length] = '\0';
+#ifdef LIT_CONFIG_LOGALLOCATION
+    printf("allocated new string '%s'\n", chars);
+#endif
+    return lit_string_makestringfrom(state, heapchars, length, hash, true);
+}
+
+LitString* lit_string_copy_real(LitState* state, const char* chars, const char* srcfilename, int srcline)
+{
+    return lit_string_copylen_real(state, chars, strlen(chars), srcfilename, srcline);
+}
+
+size_t lit_string_getlength(LitString* string)
+{
+    return string->strbuf.length;
+}
+
+char* lit_string_getdata(LitString* string)
+{
+    return string->strbuf.data;
+}
+
+LitString* lit_string_clone(LitState* state, LitString* string)
+{
+    size_t slen;
+    const char* sdata;
+    slen = string->strbuf.length;
+    sdata = string->strbuf.data;
+    return lit_string_copylen(state, sdata, slen);
+}
+
+size_t lit_string_utflength(LitString* string)
+{
+    size_t i;
+    size_t length;
+    length = 0;
+    for(i=0; i < string->strbuf.length;)
+    {
+        i += lit_strutil_utfgetcountdecode(string->strbuf.data[i]);
+        length++;
+    }
+    return length;
+}
+
+int lit_string_codepointcodeat(LitState* state, LitString* string, uint32_t index)
+{
+    int codepoint;
+    (void)state;
+    if(index >= string->strbuf.length)
+    {
+        return 0;
+    }
+    codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
+    if(codepoint == -1)
+    {
+        return string->strbuf.data[index];
+    }
+    return codepoint;
+}
+
+LitString* lit_string_codepointstringat(LitState* state, LitString* string, uint32_t index)
+{
+    if(index >= string->strbuf.length)
+    {
+        return NULL;
+    }
+    int codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
+    if(codepoint == -1)
+    {
+        char bytes[2];
+        bytes[0] = string->strbuf.data[index];
+        bytes[1] = '\0';
+        return lit_string_copylen(state, bytes, 1);
+    }
+    return lit_string_fromcodepoint(state, codepoint);
+}
+
+
+LitString* lit_string_fromcodepoint(LitState* state, int value)
+{
+    int length;
+    LitString* res;
+    length = lit_strutil_utfgetcountencode(value);
+    res = lit_string_makeemptystring(state, length, false);
+    lit_strutil_utfencode(value, (uint8_t*)res->strbuf.data);
+    res->strbuf.length = length;
+    return res;
+}
+
+LitString* lit_string_fromrange(LitState* state, LitString* source, int start, uint32_t count)
+{
+    int index;
+    int length;
+    int codepoint;
+    uint32_t i;
+    uint8_t* to;
+    uint8_t* from;
+    LitString* res;
+    from = (uint8_t*)source->strbuf.data;
+    length = 0;
+    for(i = 0; i < count; i++)
+    {
+        length += lit_strutil_utfgetcountdecode(from[start + i]);
+    }
+    res = lit_string_makeemptystring(state, length, false);
+    to = (uint8_t*)res->strbuf.data;
+    for(i = 0; i < count; i++)
+    {
+        index = start + i;
+        codepoint = lit_strutil_utfdecode(from + index, source->strbuf.length - index);
+        if(codepoint != -1)
+        {
+            to += lit_strutil_utfencode(codepoint, to);
+        }
+    }
+    res->strbuf.length = length;
+    return res;
+}
+
+void lit_string_appendlen(LitString* dest, const char* str, size_t len)
+{
+    lit_strbuf_appendstrn(&dest->strbuf, str, len);
+}
+
+void lit_string_append(LitString* dest, const char* str)
+{
+    return lit_string_appendlen(dest, str, strlen(str));
+}
+
+void lit_string_appendbyte(LitString* dest, int b)
+{
+    char c;
+    c = b;
+    return lit_string_appendlen(dest, &c, 1);
+}
+
+void lit_string_numbertostream(LitIOStream* pr, double dn)
+{
+    if(isnan(dn))
+    {
+        lit_iostream_writestring(pr, "nan");
+        return;
+    }
+    if(isinf(dn))
+    {
+        if(dn > 0.0)
+        {
+            lit_iostream_writestring(pr, "infinity");
+            return;
+        }
+        else
+        {
+            lit_iostream_writestring(pr, "-infinity");
+            return;
+        }
+    }
+    lit_iostream_printf(pr, "%g", dn);
+}
+
+
+LitValue lit_string_numbertostring(LitState* state, double value)
+{
+    LitIOStream pr;
+    lit_iostream_makestackstring(&pr);
+    lit_string_numbertostream(&pr, value);
+    return lit_value_fromobject(lit_iostream_takestring(state, &pr));
+}
+
+LitValue lit_string_valformat(LitState* state, const char* format, ...)
+{
+    va_list arglist;    
+    bool wasallowed;
+    const char* c;
+    LitString* result;
+    wasallowed = state->allow_gc;
+    state->allow_gc = false;
+    result = lit_string_makeemptystring(state, 10, false);
+    va_start(arglist, format);
+    for(c = format; *c != '\0'; c++)
+    {
+        switch(*c)
+        {
+            case '$':
+            {
+                const char* string = va_arg(arglist, const char*);
+                if(string != NULL)
+                {
+                    size_t length = strlen(string);
+                    lit_string_appendlen(result, string, length);
+                    break;
+                }
+                goto defaultendingcopying;
+            }
+            case '@':
+            {
+                LitString* string = AS_STRING(va_arg(arglist, LitValue));
+                if(string != NULL)
+                {
+                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                    break;
+                }
+                goto defaultendingcopying;
+            }
+            case '#':
+            {
+                LitString* string = AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)));
+                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                break;
+            }
+            default:
+            {
+            defaultendingcopying:
+                lit_string_appendbyte(result, *c);
+                break;
+            }
+        }
+    }
+    va_end(arglist);
+    result->strhash = lit_string_hash(result->strbuf.data, result->strbuf.length);
+    lit_string_register(state, result);
+    state->allow_gc = wasallowed;
+    return lit_value_fromobject(result);
 }
 
 bool lit_is_falsey(LitValue value)
@@ -4322,7 +4642,7 @@ const char* lit_args_checkstring(LitState* state, LitValue* args, size_t argc, s
 {
     if(argc <= id || !IS_STRING(args[id]))
     {
-        lit_vm_raisefatalerror(state, "Expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_get_value_type(args[id]));
+        lit_vm_raisefatalerror(state, "expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_get_value_type(args[id]));
     }
     return AS_STRING(args[id])->strbuf.data;
 }
@@ -4340,7 +4660,7 @@ LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc,
 {
     if(argc <= id || !IS_STRING(args[id]))
     {
-        lit_vm_raisefatalerror(state, "Expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_get_value_type(args[id]));
+        lit_vm_raisefatalerror(state, "expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_get_value_type(args[id]));
     }
     return AS_STRING(args[id]);
 }
@@ -4489,6 +4809,17 @@ bool lit_table_delete(LitTable* table, LitString* key)
 
 LitString* lit_table_find_string(LitTable* table, const char* chars, size_t length, uint32_t hash)
 {
+    size_t entlen;
+    uint32_t enthash;
+    const char* entstr;
+    if(chars == NULL)
+    {
+        return NULL;
+    }
+    if(length == 0)
+    {
+        return NULL;
+    }
     if(table->htcount == 0)
     {
         return NULL;
@@ -4504,9 +4835,15 @@ LitString* lit_table_find_string(LitTable* table, const char* chars, size_t leng
                 return NULL;
             }
         }
-        else if(entry->key->strbuf.length == length && entry->key->strhash == hash && memcmp(entry->key->strbuf.data, chars, length) == 0)
+        else
         {
-            return entry->key;
+            entlen = entry->key->strbuf.length;
+            enthash = entry->key->strhash;
+            entstr = entry->key->strbuf.data;
+            if(entlen == length && /* enthash == hash && */ memcmp(entstr, chars, length) == 0)
+            {
+                return entry->key;
+            }
         }
         index = (index + 1) % table->htcapacity;
     }
@@ -4925,7 +5262,7 @@ void lit_ast_destroyexpression(LitState* state, LitExpression* expression)
         }
         default:
         {
-            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Unknown expression type %d", (int)expression->type);
+            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "unknown expression type %d", (int)expression->type);
             break;
         }
     }
@@ -5191,7 +5528,7 @@ void lit_ast_destroystmt(LitState* state, LitExpression* statement)
         }
         default:
         {
-            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Unknown statement type %d", (int)statement->type);
+            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "unknown statement type %d", (int)statement->type);
             break;
         }
     }
@@ -5498,6 +5835,7 @@ LitToken lit_scanner_scanstring(LitScanner* lex, bool interpolation, bool useesc
 {
     char currch;
     char nextch;
+    const char* cstr;
     LitDynListByte bytes;
     LitTokenType stringtype;
     LitState* state;
@@ -5516,7 +5854,7 @@ LitToken lit_scanner_scanstring(LitScanner* lex, bool interpolation, bool useesc
             if(lex->bracecount >= LIT_INTERPOLATION_NESTING_MAX)
             {
                 lit_bytelist_destroy(&bytes);
-                return lit_scanner_makeerrortoken(lex, "Interpolation nesting is too deep, maximum is %i", LIT_INTERPOLATION_NESTING_MAX);
+                return lit_scanner_makeerrortoken(lex, "interpolation nesting is too deep, maximum is %i", LIT_INTERPOLATION_NESTING_MAX);
             }
             stringtype = LIT_ASTTOKTYP_INTERPOLATION;
             lex->bracevalues[lex->bracecount++] = 1;
@@ -5529,7 +5867,7 @@ LitToken lit_scanner_scanstring(LitScanner* lex, bool interpolation, bool useesc
                 case '\0':
                 {
                     lit_bytelist_destroy(&bytes);
-                    return lit_scanner_makeerrortoken(lex, "Unterminated string");
+                    return lit_scanner_makeerrortoken(lex, "unterminated string");
                 }
                 break;
                 case '\n':
@@ -5592,7 +5930,7 @@ LitToken lit_scanner_scanstring(LitScanner* lex, bool interpolation, bool useesc
                             default:
                             {
                                 lit_bytelist_destroy(&bytes);
-                                return lit_scanner_makeerrortoken(lex, "Invalid escape character '%c'", lex->sourcedatacurrent[-1]);
+                                return lit_scanner_makeerrortoken(lex, "invalid escape character '%c'", lex->sourcedatacurrent[-1]);
                             }
                             break;
                         }
@@ -5612,7 +5950,20 @@ LitToken lit_scanner_scanstring(LitScanner* lex, bool interpolation, bool useesc
         }
     }
     LitToken token = lit_scanner_maketoken(lex, stringtype);
-    token.value = lit_value_fromobject(lit_string_copylen(state, (const char*)bytes.values, bytes.count));
+    /*if(bytes.count == 0)
+    {
+        token.value = lit_value_makenull();
+    }
+    else
+    */
+    {
+        cstr = bytes.values;
+        if(bytes.count == 0)
+        {
+            cstr = "";
+        }
+        token.value = lit_value_fromobject(lit_string_copylen(state, cstr, bytes.count));
+    }
     lit_bytelist_destroy(&bytes);
     return token;
 }
@@ -5666,7 +6017,7 @@ LitToken lit_scanner_makenumbertoken(LitScanner* scanner, bool ishex, bool isbin
     if(errno == ERANGE)
     {
         errno = 0;
-        return lit_scanner_makeerrortoken(scanner, "Number is too big to be represented by a single literal");
+        return lit_scanner_makeerrortoken(scanner, "number is too big to be represented by a single literal");
     }
     LitToken token = lit_scanner_maketoken(scanner, LIT_ASTTOKTYP_NUMBER);
     token.value = value;
@@ -5844,7 +6195,7 @@ LitToken lit_scanner_scantoken(LitScanner* scanner)
             return lit_scanner_scanstring(scanner, false, true, '"');
     }
     fprintf(stderr, "current=%s\n", scanner->sourcedatacurrent);
-    return lit_scanner_makeerrortoken(scanner, "Unexpected character '%c'", c);
+    return lit_scanner_makeerrortoken(scanner, "unexpected character '%c'", c);
 }
 
 static jmp_buf jumpbuffer;
@@ -5984,7 +6335,7 @@ void lit_parser_consume(LitParser* parser, LitTokenType type, const char* error)
         return;
     }
     bool line = parser->previous.type == LIT_ASTTOKTYP_NEW_LINE;
-    lit_parser_failactual(parser, &parser->current, lit_state_errorfmt(parser->pstate, parser->current.line, "Expected %s, got '%.*s'", error, line ? 8 : parser->previous.length, line ? "new line" : parser->previous.start)->strbuf.data);
+    lit_parser_failactual(parser, &parser->current, lit_state_errorfmt(parser->pstate, parser->current.line, "expected %s, got '%.*s'", error, line ? 8 : parser->previous.length, line ? "new line" : parser->previous.start)->strbuf.data);
 }
 
 bool lit_parser_matchlinefeed(LitParser* parser)
@@ -6047,7 +6398,7 @@ LitExpression* lit_parser_parseprec(LitParser* parser, LitPrecedence precedence,
             gotlen = parser->previous.length;
             gotstr = parser->previous.start;
         }
-        lit_parser_failfmt(parser, "Expected expression after '%.*s', got '%.*s'", exlen, exstr, gotlen, gotstr);
+        lit_parser_failfmt(parser, "expected expression after '%.*s', got '%.*s'", exlen, exstr, gotlen, gotstr);
         return NULL;
     }
     bool canassign = precedence <= LIT_ASTPREC_ASSIGNMENT;
@@ -6061,7 +6412,7 @@ LitExpression* lit_parser_parseprec(LitParser* parser, LitPrecedence precedence,
     }
     if(err && canassign && lit_parser_match(parser, LIT_ASTTOKTYP_EQUAL))
     {
-        lit_parser_failfmt(parser, "Invalid assigment target");
+        lit_parser_failfmt(parser, "invalid assigment target");
     }
     return expr;
 }
@@ -6111,7 +6462,7 @@ void lit_parser_parseparams(LitParser* parser, LitDynListParam* parameters)
         }
         else if(haddefault)
         {
-            lit_parser_failfmt(parser, "Default arguments must always be in the end of the argument list.");
+            lit_parser_failfmt(parser, "default arguments must always be in the end of the argument list.");
         }
         lit_paramlist_push(parameters, lit_parser_makeparameter(argname, arglength, 0, default_value));
         if(!lit_parser_match(parser, LIT_ASTTOKTYP_COMMA))
@@ -6172,7 +6523,7 @@ LitExpression* lit_parser_rulegroupingorlambda(LitParser* parser, bool canassign
                     }
                     else if(haddefault)
                     {
-                        lit_parser_failfmt(parser, "Default arguments must always be in the end of the argument list.");
+                        lit_parser_failfmt(parser, "default arguments must always be in the end of the argument list.");
                     }
                     lit_paramlist_push(&lambda->parameters, lit_parser_makeparameter(argname, arglength, 0, default_value));
                     if(stop)
@@ -6228,7 +6579,7 @@ LitExpression* lit_parser_parsecall(LitParser* parser, LitExpression* prev, bool
     }
     if(expression->args.count > 255)
     {
-        lit_parser_failfmt(parser, "Function can't have more than 255 arguments, got %i", (int)expression->args.count);
+        lit_parser_failfmt(parser, "function can't have more than 255 arguments, got %i", (int)expression->args.count);
     }
     lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_PAREN, "')' after arguments");
     return (LitExpression*)expression;
@@ -6378,19 +6729,28 @@ LitExpression* lit_parser_rulestring(LitParser* parser, bool canassign)
 
 LitExpression* lit_parser_ruleinterpolation(LitParser* parser, bool canassign)
 {
+    LitString* str;
     LitInterpolationExpression* expression = lit_ast_makeinterpolationexpr(parser->previous.line);
     do
     {
-        if(AS_STRING(parser->previous.value)->strbuf.length > 0)
+        str = AS_STRING(parser->previous.value);
+        if(str != NULL)
         {
-            lit_exprlist_push(&expression->expressions, (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
+            if(str->strbuf.length > 0)
+            {
+                lit_exprlist_push(&expression->expressions, (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
+            }
         }
         lit_exprlist_push(&expression->expressions, lit_parser_parseexpr(parser));
     } while(lit_parser_match(parser, LIT_ASTTOKTYP_INTERPOLATION));
     lit_parser_consume(parser, LIT_ASTTOKTYP_STRING, "end of interpolation");
-    if(AS_STRING(parser->previous.value)->strbuf.length > 0)
+    str = AS_STRING(parser->previous.value);
+    if(str != NULL)
     {
-        lit_exprlist_push(&expression->expressions, (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
+        if(str->strbuf.length > 0)
+        {
+            lit_exprlist_push(&expression->expressions, (LitExpression*)lit_ast_makeliteralexpr(parser->previous.line, parser->previous.value));
+        }
     }
     if(lit_parser_match(parser, LIT_ASTTOKTYP_LEFT_BRACKET))
     {
@@ -6445,7 +6805,7 @@ LitExpression* lit_parser_parsevarexprbase(LitParser* parser, bool canassign, bo
         }
         else if(!hadargs)
         {
-            lit_parser_failherefmt(parser, "Expected %s, got '%.*s'", "argument list for instance creation", parser->previous.length, parser->previous.start);
+            lit_parser_failherefmt(parser, "expected %s, got '%.*s'", "argument list for instance creation", parser->previous.length, parser->previous.start);
         }
         return (LitExpression*)call;
     }
@@ -6529,10 +6889,12 @@ LitExpression* lit_parser_rulearray(LitParser* parser, bool canassign)
     {
         lit_parser_ignorelinefeeds(parser);
         lit_exprlist_push(&array->values, lit_parser_parseexpr(parser));
+        lit_parser_ignorelinefeeds(parser);
         if(!lit_parser_match(parser, LIT_ASTTOKTYP_COMMA))
         {
             break;
         }
+        lit_parser_ignorelinefeeds(parser);
     }
     lit_parser_ignorelinefeeds(parser);
     lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_BRACKET, "']' after array");
@@ -6687,7 +7049,7 @@ LitExpression* lit_parser_parseif(LitParser* parser)
         /* else */
         if(else_branch != NULL)
         {
-            lit_parser_failfmt(parser, "If-statement can have only one else-branch");
+            lit_parser_failfmt(parser, "if-statement can have only one else-branch");
         }
         else_branch = lit_parser_parsestmt(parser);
     }
@@ -6726,7 +7088,7 @@ LitExpression* lit_parser_parsefor(LitParser* parser)
         condition = lit_parser_parseexpr(parser);
         if(var == NULL)
         {
-            lit_parser_failfmt(parser, "For-loops using in-iteration must declare a new variable");
+            lit_parser_failfmt(parser, "for-loops using in-iteration must declare a new variable");
         }
     }
     if(hadparen)
@@ -6787,7 +7149,7 @@ LitExpression* lit_parser_parsefunction(LitParser* parser)
         lit_parser_parseparams(parser, &lambda->parameters);
         if(lambda->parameters.count > 255)
         {
-            lit_parser_failfmt(parser, "Function can't have more than 255 arguments, got %i", (int)lambda->parameters.count);
+            lit_parser_failfmt(parser, "function can't have more than 255 arguments, got %i", (int)lambda->parameters.count);
         }
         lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_PAREN, "')' after function arguments");
         lambda->body = lit_parser_parsestmt(parser);
@@ -6813,7 +7175,7 @@ LitExpression* lit_parser_parsefunction(LitParser* parser)
     lit_parser_parseparams(parser, &function->parameters);
     if(function->parameters.count > 255)
     {
-        lit_parser_failfmt(parser, "Function can't have more than 255 arguments, got %i", (int)function->parameters.count);
+        lit_parser_failfmt(parser, "function can't have more than 255 arguments, got %i", (int)function->parameters.count);
     }
     lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_PAREN, "')' after function arguments");
     function->body = lit_parser_parsestmt(parser);
@@ -6862,7 +7224,7 @@ LitExpression* lit_parser_parsefield(LitParser* parser, LitString* name, bool is
         }
         if(getter == NULL && setter == NULL)
         {
-            lit_parser_failfmt(parser, "Expected declaration of either getter or setter, got none");
+            lit_parser_failfmt(parser, "expected declaration of either getter or setter, got none");
         }
         lit_parser_ignorelinefeeds(parser);
         lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_BRACE, "'}' after field declaration");
@@ -6889,7 +7251,7 @@ LitExpression* lit_parser_parsemethod(LitParser* parser, bool is_static)
     {
         if(is_static)
         {
-            lit_parser_failfmt(parser, "Operator methods can't be static or defined in static classes");
+            lit_parser_failfmt(parser, "operator methods can't be static or defined in static classes");
         }
         size_t i = 0;
         while(operators[i] != LIT_ASTTOKTYP_EOF)
@@ -6927,7 +7289,7 @@ LitExpression* lit_parser_parsemethod(LitParser* parser, bool is_static)
     lit_parser_parseparams(parser, &method->parameters);
     if(method->parameters.count > 255)
     {
-        lit_parser_failfmt(parser, "Function can't have more than 255 arguments, got %i", (int)method->parameters.count);
+        lit_parser_failfmt(parser, "function can't have more than 255 arguments, got %i", (int)method->parameters.count);
     }
     lit_parser_consume(parser, LIT_ASTTOKTYP_RIGHT_PAREN, "')' after method arguments");
     method->body = lit_parser_parsestmt(parser);
@@ -6957,7 +7319,7 @@ LitExpression* lit_parser_parseclass(LitParser* parser)
         super = lit_string_copylen(parser->pstate, parser->previous.start, parser->previous.length);
         if(super == name)
         {
-            lit_parser_failfmt(parser, "Class can't inherit itself");
+            lit_parser_failfmt(parser, "class cannot inherit itself");
         }
     }
     LitClassStatement* klass = lit_ast_makeclassdefstmt(line, name, super);
@@ -6975,7 +7337,7 @@ LitExpression* lit_parser_parseclass(LitParser* parser)
             {
                 if(finishedparsingfields)
                 {
-                    lit_parser_failfmt(parser, "All static fields must be defined before the methods");
+                    lit_parser_failfmt(parser, "all static fields must be defined before the methods");
                 }
                 LitExpression* var = lit_parser_parsevardecl(parser);
                 if(var != NULL)
@@ -7337,17 +7699,19 @@ void lit_emitter_emitasbx(LitEmitter* emitter, uint16_t line, uint8_t opcode, ui
  * be very careful with the use of this function:
  * always reserve a register just before using it, do not wait around!
  */
-LITREGUINT32 lit_emitter_reserveregister(LitEmitter* emitter)
+uint32_t lit_emitter_reserveregister(LitEmitter* emitter)
 {
     LitCompiler* compiler = emitter->compiler;
     if(compiler->registers_used == LIT_REGISTERS_MAX)
     {
-        lit_emitter_raiseerror(emitter, emitter->last_line, "Too many registers required");
+        lit_emitter_raiseerror(emitter, emitter->last_line, "too many registers required");
         return 0;
     }
-    compiler->function->maxregisters = fmax(compiler->function->maxregisters, ++compiler->registers_used);
+    compiler->function->maxregisters = ((compiler->function->maxregisters) > (compiler->registers_used+1) ? (compiler->function->maxregisters) : (compiler->registers_used+1));
+    ++compiler->registers_used;
     return compiler->registers_used - 1;
 }
+
 
 void lit_emitter_freeregister(LitEmitter* emitter, uint16_t reg)
 {
@@ -7358,7 +7722,7 @@ void lit_emitter_freeregister(LitEmitter* emitter, uint16_t reg)
     LitCompiler* compiler = emitter->compiler;
     if(compiler->registers_used == 0)
     {
-        return lit_emitter_raiseerror(emitter, emitter->last_line, "Invalid register was freed");
+        return lit_emitter_raiseerror(emitter, emitter->last_line, "invalid register was freed");
     }
     compiler->registers_used--;
 }
@@ -7407,7 +7771,7 @@ LitFunction* lit_emitter_compilerend(LitEmitter* emitter, LitString* name)
     lit_emitter_freeregister(emitter, 0);
     if(emitter->compiler->registers_used > 0)
     {
-        lit_emitter_raiseerror(emitter, emitter->last_line, "Not all registers were freed (%i left)", emitter->compiler->registers_used);
+        lit_emitter_raiseerror(emitter, emitter->last_line, "not all registers were freed (%i left)", emitter->compiler->registers_used);
     }
     if(!emitter->compiler->skip_return)
     {
@@ -7453,7 +7817,7 @@ void lit_emitter_scopeend(LitEmitter* emitter)
 {
     if(emitter->compiler->scope_depth == -1)
     {
-        lit_emitter_raiseerror(emitter, emitter->last_line, "Invalid scope ending");
+        lit_emitter_raiseerror(emitter, emitter->last_line, "invalid scope ending");
     }
     emitter->compiler->scope_depth--;
     LitCompiler* compiler = emitter->compiler;
@@ -7475,7 +7839,7 @@ uint16_t lit_emitter_addconst(LitEmitter* emitter, size_t line, LitValue value)
     size_t constant = lit_chunk_addconstant(emitter->pstate, emitter->chunk, value);
     if(constant >= UINT16_MAX)
     {
-        lit_emitter_raiseerror(emitter, line, "Too many constants for one chunk");
+        lit_emitter_raiseerror(emitter, line, "too many constants for one chunk");
     }
     return constant;
 }
@@ -7492,13 +7856,13 @@ int lit_emitter_addprivate(LitEmitter* emitter, const char* name, size_t length,
     privates = &emitter->privlist;
     if(privates->count == UINT16_MAX)
     {
-        lit_emitter_raiseerror(emitter, line, "Too many private locals for one module");
+        lit_emitter_raiseerror(emitter, line, "too many private locals for one module");
     }
     privnames = &emitter->module->privatenames->values;
     key = lit_table_find_string(privnames, name, length, lit_string_hash(name, length));
     if(key != NULL)
     {
-        lit_emitter_raiseerror(emitter, line, "Variable '%.*s' was already declared in this scope", length, name);
+        lit_emitter_raiseerror(emitter, line, "variable '%.*s' was already declared in this scope", length, name);
         if(lit_table_getentry(privnames, key, &vidx))
         {
             return lit_value_asnumber(vidx);
@@ -7529,7 +7893,7 @@ int lit_emitter_resolveprivate(LitEmitter* emitter, const char* name, size_t len
             numberindex = lit_value_asnumber(index);
             if(!emitter->privlist.values[numberindex].initialized)
             {
-                lit_emitter_raiseerror(emitter, line, "Variable '%.*s' can't use itself in its initializer", length, name);
+                lit_emitter_raiseerror(emitter, line, "variable '%.*s' can't use itself in its initializer", length, name);
             }
             return numberindex;
         }
@@ -7544,7 +7908,7 @@ int lit_emitter_addlocal(LitEmitter* emitter, const char* name, size_t length, s
     LitDynListLoc* locals = &compiler->locals;
     if(locals->count == UINT16_MAX)
     {
-        lit_emitter_raiseerror(emitter, line, "Too many local variables for one function");
+        lit_emitter_raiseerror(emitter, line, "too many local variables for one function");
     }
     for(i = (int)locals->count - 1; i >= 0; i--)
     {
@@ -7555,7 +7919,7 @@ int lit_emitter_addlocal(LitEmitter* emitter, const char* name, size_t length, s
         }
         if(length == local->length && memcmp(local->name, name, length) == 0)
         {
-            lit_emitter_raiseerror(emitter, line, "Variable '%.*s' was already declared in this scope", length, name);
+            lit_emitter_raiseerror(emitter, line, "variable '%.*s' was already declared in this scope", length, name);
         }
     }
     lit_loclist_push(locals, lit_emitter_makelocal(name, length, UINT16_MAX, false, constant, reg));
@@ -7573,7 +7937,7 @@ int lit_emitter_resolvelocal(LitEmitter* emitter, LitCompiler* compiler, const c
         {
             if(local->depth == UINT16_MAX)
             {
-                lit_emitter_raiseerror(emitter, line, "Variable '%.*s' can't use itself in its initializer", length, name);
+                lit_emitter_raiseerror(emitter, line, "variable '%.*s' can't use itself in its initializer", length, name);
             }
             return i;
         }
@@ -7581,7 +7945,7 @@ int lit_emitter_resolvelocal(LitEmitter* emitter, LitCompiler* compiler, const c
     return -1;
 }
 
-int lit_emitter_addupvalue(LitEmitter* emitter, LitCompiler* compiler, uint8_t index, size_t line, bool islocal)
+int lit_emitter_addupvalue(LitEmitter* emitter, LitCompiler* compiler, size_t index, size_t line, bool islocal)
 {
     size_t i;
     size_t upvaluecount = compiler->function->upvaluecount;
@@ -7595,7 +7959,7 @@ int lit_emitter_addupvalue(LitEmitter* emitter, LitCompiler* compiler, uint8_t i
     }
     if(upvaluecount == UINT16_COUNT)
     {
-        lit_emitter_raiseerror(emitter, line, "Too many upvalues for one function");
+        lit_emitter_raiseerror(emitter, line, "too many upvalues for one function");
         return 0;
     }
     compiler->upvalues[upvaluecount].isLocal = islocal;
@@ -7613,12 +7977,12 @@ int lit_emitter_resolveupvalue(LitEmitter* emitter, LitCompiler* compiler, const
     if(local != -1)
     {
         ((LitCompiler*)compiler->enclosing)->locals.values[local].captured = true;
-        return lit_emitter_addupvalue(emitter, compiler, (uint8_t)local, line, true);
+        return lit_emitter_addupvalue(emitter, compiler, local, line, true);
     }
     int upvalue = lit_emitter_resolveupvalue(emitter, (LitCompiler*)compiler->enclosing, name, length, line);
     if(upvalue != -1)
     {
-        return lit_emitter_addupvalue(emitter, compiler, (uint8_t)upvalue, line, false);
+        return lit_emitter_addupvalue(emitter, compiler, upvalue, line, false);
     }
     return -1;
 }
@@ -7974,7 +8338,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
                         {
                             if(emitter->privlist.values[index].constant)
                             {
-                                lit_emitter_raiseerror(emitter, expression->line, "Attempt to modify constant '%.*s'", e->length, e->name);
+                                lit_emitter_raiseerror(emitter, expression->line, "attempt to modify constant '%.*s'", e->length, e->name);
                             }
                             if(LIT_BIT_ISSET(r, LIT_BITFLAG_CONSTANT))
                             {
@@ -7998,7 +8362,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
                     LitLocal local = emitter->compiler->locals.values[index];
                     if(local.constant)
                     {
-                        lit_emitter_raiseerror(emitter, expression->line, "Attempt to modify constant '%.*s'", e->length, e->name);
+                        lit_emitter_raiseerror(emitter, expression->line, "attempt to modify constant '%.*s'", e->length, e->name);
                     }
                     lit_emitter_emitexpr(emitter, expr->value, local.reg);
                     if(!ignored && reg != local.reg)
@@ -8041,7 +8405,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
                 lit_emitter_freeregister(emitter, r);
                 break;
             }
-            lit_emitter_raiseerror(emitter, expression->line, "Invalid assigment target");
+            lit_emitter_raiseerror(emitter, expression->line, "invalid assigment target");
             break;
         }
         case LIT_ASTEXPRTYP_CALL:
@@ -8065,21 +8429,21 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             for(i = 0; i < argc; i++)
             {
                 uint16_t supadd;
-                uint16_t arg_reg = lit_emitter_reserveregister(emitter);
+                uint16_t argreg = lit_emitter_reserveregister(emitter);
                 LitExpression* e = expr->args.values[i];
                 supadd = (super ? 2 : 1);
-                if(arg_reg != reg + i + supadd)
+                if(argreg != ((reg + i) + supadd))
                 {
                     /* something went terribly wrong */
-                    LitCallExpression* cl = (LitCallExpression*)expr->excallee;
                     
-                    fprintf(stderr, "callexpression error on line %ld: arg_reg (%d) != (reg (%d) + i (%ld) + supadd (%d)) == %ld\n", expression->line, arg_reg, reg, i, supadd, reg + i + supadd);
+                    fprintf(stderr, "callexpression error on line %ld: argreg (%d) != ((reg (%d) + i (%ld)) + supadd (%d)) == %ld\n", expression->line, argreg, reg, i, supadd, ((reg + i) + supadd));
+                    argreg = (reg + i + supadd) - 0;
 #if 0
                         UNREACHABLE
 #endif
                 }
-                argregs[i] = arg_reg;
-                lit_emitter_emitexpr(emitter, e, arg_reg);
+                argregs[i] = argreg;
+                lit_emitter_emitexpr(emitter, e, argreg);
             }
             if(method)
             {
@@ -8096,7 +8460,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             {
                 assert(tmpreg == reg + 1);
                 LitSuperExpression* e = (LitSuperExpression*)expr->excallee;
-                uint8_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "super", 5, emitter->last_line);
+                size_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "super", 5, emitter->last_line);
                 lit_emitter_emitabx(emitter, expression->line, OP_GET_UPVALUE, tmpreg, index);
                 lit_emitter_emitabc(emitter, expression->line, OP_MOVE, reg, 0, 0);
                 lit_emitter_emitabc(emitter, emitter->last_line, OP_INVOKE_SUPER, reg, argc + 1, lit_emitter_addconst(emitter, emitter->last_line, lit_value_fromobject(e->method)));
@@ -8355,7 +8719,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
                 }
                 else
                 {
-                    uint8_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "this", 4, expression->line);
+                    size_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "this", 4, expression->line);
                     lit_emitter_emitabx(emitter, expression->line, OP_GET_UPVALUE, reg, index);
                 }
             }
@@ -8390,7 +8754,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             LitSuperExpression* expr = (LitSuperExpression*)expression;
             if(!expr->ignore_emit)
             {
-                uint8_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "super", 5, emitter->last_line);
+                size_t index = lit_emitter_resolveupvalue(emitter, emitter->compiler, "super", 5, emitter->last_line);
                 lit_emitter_emitabc(emitter, expression->line, OP_MOVE, reg, 0, 0);
                 uint8_t tmpreg = lit_emitter_reserveregister(emitter);
                 lit_emitter_emitabx(emitter, expression->line, OP_GET_UPVALUE, tmpreg, index);
@@ -8404,7 +8768,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             LitExpression* to = ((LitReferenceExpression*)expression)->to;
             if(to->type != LIT_ASTEXPRTYP_VAR && to->type != LIT_ASTEXPRTYP_GET && to->type != LIT_ASTEXPRTYP_THIS && to->type != LIT_ASTEXPRTYP_SUPER)
             {
-                lit_emitter_raiseerror(emitter, expression->line, "Invalid refence target");
+                lit_emitter_raiseerror(emitter, expression->line, "invalid refence target");
                 break;
             }
             int old = emitter->emit_reference;
@@ -8415,7 +8779,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
         }
         default:
         {
-            lit_emitter_raiseerror(emitter, expression->line, "Unknown expression with id '%i'", (int)expression->type);
+            lit_emitter_raiseerror(emitter, expression->line, "unknown expression with id '%i'", (int)expression->type);
             break;
         }
     }
@@ -8811,7 +9175,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
         {
             if(emitter->compiler->loop_depth == 0)
             {
-                lit_emitter_raiseerror(emitter, statement->line, "Can't use '%s' outside of loops", "break");
+                lit_emitter_raiseerror(emitter, statement->line, "cannot use '%s' outside of loops", "break");
             }
             lit_uintlist_push(&emitter->breaks, lit_emitter_emittmp(emitter));
             break;
@@ -8820,7 +9184,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
         {
             if(emitter->compiler->loop_depth == 0)
             {
-                lit_emitter_raiseerror(emitter, statement->line, "Can't use '%s' outside of loops", "continue");
+                lit_emitter_raiseerror(emitter, statement->line, "cannot use '%s' outside of loops", "continue");
             }
             lit_uintlist_push(&emitter->continues, lit_emitter_emittmp(emitter));
             break;
@@ -8847,7 +9211,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
                 lit_emitter_freeregister(emitter, b);
                 emitter->class_has_super = true;
                 lit_emitter_scopebegin(emitter);
-                uint8_t super = lit_emitter_addlocal(emitter, "super", 5, emitter->last_line, false, lit_emitter_reserveregister(emitter));
+                size_t super = lit_emitter_addlocal(emitter, "super", 5, emitter->last_line, false, lit_emitter_reserveregister(emitter));
                 lit_emitter_marklocalinit(emitter, super);
             }
             for(i = 0; i < stmt->fields.count; i++)
@@ -8884,7 +9248,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
             bool constructor = stmt->name->strbuf.length == 11 && memcmp(stmt->name->strbuf.data, "constructor", 11) == 0;
             if(constructor && stmt->is_static)
             {
-                lit_emitter_raiseerror(emitter, statement->line, "Constructors can't be static (at least for now)");
+                lit_emitter_raiseerror(emitter, statement->line, "constructors cannot be static");
             }
             LitCompiler compiler;
             lit_emitter_compilerinit(emitter, &compiler, constructor ? LIT_FUNCTYPE_CONSTRUCTOR : (stmt->is_static ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD));
@@ -8980,7 +9344,7 @@ bool lit_emitter_emitstmt(LitEmitter* emitter, LitExpression* statement)
         }
         default:
         {
-            lit_emitter_raiseerror(emitter, statement->line, "Unknown statement with id '%i'", (int)statement->type);
+            lit_emitter_raiseerror(emitter, statement->line, "unknown statement with id '%i'", (int)statement->type);
             break;
         }
     }
@@ -9330,7 +9694,7 @@ void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const
                 #undef OPCODE
                 default:
                 {
-                    lit_iostream_printf(pr, "Unknown opcode %d\n", opcode);
+                    lit_iostream_printf(pr, "unknown opcode %d\n", opcode);
                     break;
                 }
             }
@@ -9367,7 +9731,7 @@ LitValue lit_objfndefault_invalidconstructor(LitState* state, LitValue instance,
 {
     (void)argc;
     (void)args;
-    lit_vm_raisefatalerror(state, "Can't create an instance of built-in type", lit_value_asinstance(instance)->klass->name);
+    lit_vm_raisefatalerror(state, "cannot create an instance of built-in type", lit_value_asinstance(instance)->klass->name);
     return lit_value_makenull();
 }
 
@@ -9470,14 +9834,14 @@ LitValue lit_objfnclass_subscript(LitState* state, LitValue instance, size_t arg
     {
         if(!IS_STRING(args[0]))
         {
-            lit_vm_raisefatalerror(state, "Class index must be a string");
+            lit_vm_raisefatalerror(state, "class index must be a string");
         }
         lit_table_set(&klass->static_fields, AS_STRING(args[0]), args[1]);
         return args[1];
     }
     if(!IS_STRING(args[0]))
     {
-        lit_vm_raisefatalerror(state, "Class index must be a string");
+        lit_vm_raisefatalerror(state, "class index must be a string");
     }
     LitValue value;
     if(lit_table_getentry(&klass->static_fields, AS_STRING(args[0]), &value))
@@ -9585,12 +9949,12 @@ LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t ar
     if(!lit_value_isinstance(instance))
     {
         type = OBJECT_TYPE(instance);
-        lit_vm_raisefatalerror(state, "Can't modify built-in types");
+        lit_vm_raisefatalerror(state, "cannot modify built-in types");
     }
     LitInstance* inst = lit_value_asinstance(instance);
     if(!IS_STRING(args[0]))
     {
-        lit_vm_raisefatalerror(state, "Object index must be a string");
+        lit_vm_raisefatalerror(state, "object index must be a string");
     }
     if(argc == 2)
     {
@@ -9833,7 +10197,7 @@ LitValue lit_objfnstring_replace(LitState* state, LitValue instance, size_t argc
     LIT_ENSURE_ARGS(2);
     if(!IS_STRING(args[0]) || !IS_STRING(args[1]))
     {
-        lit_vm_raisefatalerror(state, "Expected 2 string arguments");
+        lit_vm_raisefatalerror(state, "expected 2 string arguments");
     }
     selfstr = AS_STRING(instance);
     what = AS_STRING(args[0]);
@@ -9858,7 +10222,7 @@ LitValue lit_objfnstring_splice(LitState* state, LitString* string, int from, in
     to = fmin(to, length - 1);
     if(from > to)
     {
-        lit_vm_raisefatalerror(state, "String splice from bound is larger that to bound");
+        lit_vm_raisefatalerror(state, "string splice from bound is larger that to bound");
     }
     from = lit_strutil_utfucharoffset(string->strbuf.data, from);
     to = lit_strutil_utfucharoffset(string->strbuf.data, to);
@@ -9881,7 +10245,7 @@ LitValue lit_objfnstring_charcodeat(LitState* state, LitValue instance, size_t a
     index = lit_value_asnumber(args[0]);
     if(argc != 1)
     {
-        lit_vm_raisefatalerror(state, "Can't modify strings with the subscript op");
+        lit_vm_raisefatalerror(state, "cannot modify strings with the subscript op");
     }
     if(index < 0)
     {
@@ -9906,7 +10270,7 @@ LitValue lit_objfnstring_subscript(LitState* state, LitValue instance, size_t ar
     int index = lit_value_asnumber(args[0]);
     if(argc != 1)
     {
-        lit_vm_raisefatalerror(state, "Can't modify strings with the subscript op");
+        lit_vm_raisefatalerror(state, "cannot modify strings with the subscript op");
     }
     if(index < 0)
     {
@@ -10242,7 +10606,7 @@ LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int from, int t
     }
     if(from > to)
     {
-        lit_vm_raisefatalerror(state, "String splice from bound is larger that to bound");
+        lit_vm_raisefatalerror(state, "string splice from bound is larger that to bound");
     }
     from = fmax(from, 0);
     to = fmin(to, (int)length - 1);
@@ -10271,11 +10635,12 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
             lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         }
         LitDynListVal* values = &lit_value_asarray(instance)->values;
-        int index = lit_value_asnumber(args[0]);
+        int64_t index = lit_value_asnumber(args[0]);
         if(index < 0)
         {
             index = fmax(0, values->count + index);
         }
+        //fprintf(stderr, "Array[]: index=%ld\n", index);
         lit_dynlistval_ensuresize(values, index + 1);
         return values->values[index] = args[1];
     }
@@ -10348,7 +10713,7 @@ LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, 
     LIT_ENSURE_ARGS(1);
     if(!IS_ARRAY(args[0]))
     {
-        lit_vm_raisefatalerror(state, "Expected array as the argument");
+        lit_vm_raisefatalerror(state, "expected array as the argument");
     }
     LitArray* array = lit_value_asarray(instance);
     LitArray* toAdd = lit_value_asarray(args[0]);
@@ -10498,7 +10863,7 @@ LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc,
     LitValue callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
-        lit_vm_raisefatalerror(state, "Expected a function as the callback");
+        lit_vm_raisefatalerror(state, "expected a function as the callback");
     }
     LitDynListVal* values = &lit_value_asarray(instance)->values;
     for(i = 0; i < values->count; i++)
@@ -10708,7 +11073,7 @@ LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc,
 {
     if(!IS_STRING(args[0]))
     {
-        lit_vm_raisefatalerror(state, "Map index must be a string");
+        lit_vm_raisefatalerror(state, "map index must be a string");
     }
     LitMap* map = lit_value_asmap(instance);
     LitString* index = AS_STRING(args[0]);
@@ -10731,7 +11096,7 @@ LitValue lit_objfnmap_addall(LitState* state, LitValue instance, size_t argc, Li
     LIT_ENSURE_ARGS(1);
     if(!lit_value_ismap(args[0]))
     {
-        lit_vm_raisefatalerror(state, "Expected map as the argument");
+        lit_vm_raisefatalerror(state, "expected map as the argument");
     }
     lit_map_addall(lit_value_asmap(args[0]), lit_value_asmap(instance));
     return lit_value_makenull();
@@ -10768,7 +11133,7 @@ LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, L
     LitValue callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
-        lit_vm_raisefatalerror(state, "Expected a function as the callback");
+        lit_vm_raisefatalerror(state, "expected a function as the callback");
     }
     LitTable* values = &lit_value_asmap(instance)->values;
     for(i = 0; i < values->htcapacity; i++)
@@ -10988,7 +11353,7 @@ LitValue lit_corefn_openlibrary(LitState* state, LitValue instance, size_t argc,
     else
     */
     {
-        lit_vm_raisefatalerror(state, "Unknown built-in library %s", name);
+        lit_vm_raisefatalerror(state, "unknown built-in library %s", name);
     }
     return lit_value_makenull();
 }
@@ -11083,6 +11448,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "iterator", lit_objfnstring_iterator);
         lit_class_bindmethod(klass, "iteratorValue", lit_objfnstring_itervalue);
         lit_class_bindmethod(klass, "[]", lit_objfnstring_subscript);
+        lit_class_bindmethod(klass, "charAt", lit_objfnstring_subscript);
         lit_class_bindmethod(klass, "charCodeAt", lit_objfnstring_charcodeat);
         lit_class_bindgetsetter(klass, "length", lit_objfnstring_length, NULL);
         state->string_class = klass;
@@ -11513,13 +11879,13 @@ LitModule* lit_load_module(LitState* state, const char* input)
     lit_init_emulated_file(&file, input);
     if(lit_read_euint16_t(&file) != LIT_BYTECODE_MAGIC_NUMBER)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Failed to read compiled code, unknown magic number");
+        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown magic number");
         return NULL;
     }
     uint8_t bytecodeversion = lit_read_euint8_t(&file);
     if(bytecodeversion > LIT_BYTECODE_VERSION)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Failed to read compiled code, unknown bytecode version '%i'", (int)bytecodeversion);
+        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown bytecode version '%i'", (int)bytecodeversion);
         return NULL;
     }
     uint16_t modulecount = lit_read_euint16_t(&file);
@@ -11551,7 +11917,7 @@ LitModule* lit_load_module(LitState* state, const char* input)
 #if 0
     if(lit_read_euint16_t(&file) != LIT_BYTECODE_END_NUMBER)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Failed to read compiled code, unknown end number");
+        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown end number");
         return NULL;
     }
 #endif
@@ -11674,7 +12040,7 @@ LitValue lit_objfnfile_constructor(LitState* state, LitValue instance, size_t ar
     FILE* file = fopen(path, mode);
     if(file == NULL)
     {
-        lit_vm_raisefatalerror(state, "Failed to open file %s with mode %s (C error: %s)", path, mode, strerror(errno));
+        lit_vm_raisefatalerror(state, "failed to open file %s with mode %s (C error: %s)", path, mode, strerror(errno));
     }
     LitFileData* data = (LitFileData*)lit_userdata_insertdata(state, instance, sizeof(LitFileData), cleanup_file);
     data->path = (char*)path;
@@ -11709,7 +12075,7 @@ LitValue lit_objfnfile_create(LitState* state, LitValue instance, size_t argc, L
     FILE* file = fopen(path, "w");
     if(file == NULL)
     {
-        lit_vm_raisefatalerror(state, "Failed to create file %s", path);
+        lit_vm_raisefatalerror(state, "failed to create file %s", path);
     }
     fclose(file);
     return lit_value_makenull();
@@ -12267,7 +12633,7 @@ bool lit_fiber_ensureframes(LitState* state, LitFiber* fiber)
     (void)oldsize;
     if(fiber == NULL)
     {
-        lit_vm_raisefatalerror(state, "No fiber to run on");
+        lit_vm_raisefatalerror(state, "no Fiber to run on");
         return true;
     }
     if(fiber->framecount + 1 > fiber->framecapacity)
@@ -12293,7 +12659,7 @@ LitCallFrame* setup_call(LitState* state, LitFunction* callee, LitValue* argumen
     LitFiber* fiber = state->vmstate.fiber;
     if(callee == NULL)
     {
-        lit_vm_raisefatalerror(state, "Attempt to call a null value");
+        lit_vm_raisefatalerror(state, "attempt to call a null value");
         return NULL;
     }
     if(lit_fiber_ensureframes(state, fiber))
@@ -12305,7 +12671,7 @@ LitCallFrame* setup_call(LitState* state, LitFunction* callee, LitValue* argumen
     LitCallFrame* frame = &fiber->framevals[fiber->framecount++];
     frame->slots = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
 #ifdef LIT_TRACE_NULL_FILL
-    printf("Filling with nulls\n");
+    printf("filling with nulls\n");
 #endif
     for(i = argc + 1; i < callee->maxregisters; i++)
     {
@@ -12321,7 +12687,7 @@ LitCallFrame* setup_call(LitState* state, LitFunction* callee, LitValue* argumen
     if(targetargcount > argc)
     {
 #ifdef LIT_TRACE_NULL_FILL
-        printf("Filling with nulls\n");
+        printf("filling with nulls\n");
 #endif
         for(ti = argc; ti < targetargcount; ti++)
         {
@@ -12420,7 +12786,7 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
         lit_fiber_ensureregisters(fiber, start - fiber->registeritems + 3 + argc);
         LitValue* slot = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
 #ifdef LIT_TRACE_NULL_FILL
-        printf("Filling with nulls\n");
+        printf("filling with nulls\n");
 #endif
         for(i = argc; i < argc + 3; i++)
         {
@@ -12488,11 +12854,11 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
     }
     if(lit_value_isnull(callee))
     {
-        lit_vm_raisefatalerror(state, "Attempt to call a null value");
+        lit_vm_raisefatalerror(state, "attempt to call a null value");
     }
     else
     {
-        lit_vm_raisefatalerror(state, "Can only call functions and classes");
+        lit_vm_raisefatalerror(state, "can only call functions and classes");
     }
     RETURN_RUNTIME_ERROR()
 }
@@ -12513,7 +12879,7 @@ LitResult lit_state_findandcallmethod(LitState* state, LitValue callee, LitStrin
     ok = false;
     if(fiber == NULL)
     {
-        lit_vm_raisefatalerror(state, "No fiber to run on");
+        lit_vm_raisefatalerror(state, "no Fiber to run on");
         RETURN_RUNTIME_ERROR()
     }
     klass = lit_state_getclassfor(state, callee);
@@ -12631,7 +12997,7 @@ LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, si
     LitValue value;
     if(!lit_table_getentry(&state->vmstate.globals->values, lit_string_copy(state, name), &value))
     {
-        lit_vm_raisefatalerror(state, "Failed to create instance of class %s: class not found", name);
+        lit_vm_raisefatalerror(state, "failed to create instance of class %s: class not found", name);
         return lit_value_makenull();
     }
     LitClass* klass = AS_CLASS(value);
@@ -12652,305 +13018,6 @@ bool lit_value_iscallablefunction(LitValue value)
     return false;
 }
 
-LitString* lit_string_makewithstrbuf(LitState* state, LitStrBuffer sb)
-{
-    LitString* string = (LitString*)lit_object_allocobject(state, sizeof(LitString), LIT_OBJ_STRING);
-    string->strbuf = sb;
-    return string;
-}
-
-LitString* lit_string_makeemptystring(LitState* state, size_t length, bool preallocated)
-{
-    LitStrBuffer sb;
-    lit_strbuf_initbasicempty(&sb, length, false, preallocated);
-    return lit_string_makewithstrbuf(state, sb);
-}
-
-void lit_string_register(LitState* state, LitString* string)
-{
-    lit_state_pushroot(state, (LitObject*)string);
-    lit_table_set(&state->vmstate.strings, string, lit_value_makenull());
-    lit_state_poproot(state);
-}
-
-LitString* lit_string_makestringfrom(LitState* state, char* chars, size_t length, uint32_t hash, bool preallocated)
-{
-    LitString* string;
-    string = lit_string_makeemptystring(state, length, preallocated);
-    if(preallocated)
-    {
-        lit_strbuf_setdata(&string->strbuf, chars);
-        lit_strbuf_setlength(&string->strbuf, length);
-    }
-    else
-    {
-        lit_strbuf_appendstrn(&string->strbuf, chars, length);
-    }
-    string->strhash = hash;
-    lit_string_register(state, string);
-    return string;
-}
-
-uint32_t lit_string_hash(const char* key, size_t length)
-{
-    size_t i;
-    uint32_t hash;
-    hash = 2166136261u;
-    for(i = 0; i < length; i++)
-    {
-        hash ^= key[i];
-        hash *= 16777619;
-    }
-    return hash;
-}
-
-LitString* lit_string_take(LitState* state, const char* chars, size_t length)
-{
-    uint32_t hash = lit_string_hash(chars, length);
-    LitString* interned = lit_table_find_string(&state->vmstate.strings, chars, length, hash);
-    if(interned != NULL)
-    {
-        return interned;
-    }
-    return lit_string_makestringfrom(state, (char*)chars, length, hash, true);
-}
-
-LitString* lit_string_copylen(LitState* state, const char* chars, size_t length)
-{
-    uint32_t hash;
-    char* heapchars;
-    LitString* res;
-    hash = lit_string_hash(chars, length);
-    res = lit_table_find_string(&state->vmstate.strings, chars, length, hash);
-    if(res != NULL)
-    {
-        return res;
-    }
-    heapchars = (char*)lit_sysmem_malloc((length + 1) * sizeof(char));
-    memcpy(heapchars, chars, length);
-    heapchars[length] = '\0';
-#ifdef LIT_CONFIG_LOGALLOCATION
-    printf("Allocated new string '%s'\n", chars);
-#endif
-    return lit_string_makestringfrom(state, heapchars, length, hash, true);
-}
-
-LitString* lit_string_copy(LitState* state, const char* chars)
-{
-    return lit_string_copylen(state, chars, strlen(chars));
-}
-
-size_t lit_string_getlength(LitString* string)
-{
-    return string->strbuf.length;
-}
-
-char* lit_string_getdata(LitString* string)
-{
-    return string->strbuf.data;
-}
-
-LitString* lit_string_clone(LitState* state, LitString* string)
-{
-    size_t slen;
-    const char* sdata;
-    slen = string->strbuf.length;
-    sdata = string->strbuf.data;
-    return lit_string_copylen(state, sdata, slen);
-}
-
-size_t lit_string_utflength(LitString* string)
-{
-    size_t i;
-    size_t length;
-    length = 0;
-    for(i=0; i < string->strbuf.length;)
-    {
-        i += lit_strutil_utfgetcountdecode(string->strbuf.data[i]);
-        length++;
-    }
-    return length;
-}
-
-int lit_string_codepointcodeat(LitState* state, LitString* string, uint32_t index)
-{
-    int codepoint;
-    (void)state;
-    if(index >= string->strbuf.length)
-    {
-        return 0;
-    }
-    codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
-    if(codepoint == -1)
-    {
-        return string->strbuf.data[index];
-    }
-    return codepoint;
-}
-
-LitString* lit_string_codepointstringat(LitState* state, LitString* string, uint32_t index)
-{
-    if(index >= string->strbuf.length)
-    {
-        return NULL;
-    }
-    int codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
-    if(codepoint == -1)
-    {
-        char bytes[2];
-        bytes[0] = string->strbuf.data[index];
-        bytes[1] = '\0';
-        return lit_string_copylen(state, bytes, 1);
-    }
-    return lit_string_fromcodepoint(state, codepoint);
-}
-
-
-LitString* lit_string_fromcodepoint(LitState* state, int value)
-{
-    int length;
-    LitString* res;
-    length = lit_strutil_utfgetcountencode(value);
-    res = lit_string_makeemptystring(state, length, false);
-    lit_strutil_utfencode(value, (uint8_t*)res->strbuf.data);
-    res->strbuf.length = length;
-    return res;
-}
-
-LitString* lit_string_fromrange(LitState* state, LitString* source, int start, uint32_t count)
-{
-    int index;
-    int length;
-    int codepoint;
-    uint32_t i;
-    uint8_t* to;
-    uint8_t* from;
-    LitString* res;
-    from = (uint8_t*)source->strbuf.data;
-    length = 0;
-    for(i = 0; i < count; i++)
-    {
-        length += lit_strutil_utfgetcountdecode(from[start + i]);
-    }
-    res = lit_string_makeemptystring(state, length, false);
-    to = (uint8_t*)res->strbuf.data;
-    for(i = 0; i < count; i++)
-    {
-        index = start + i;
-        codepoint = lit_strutil_utfdecode(from + index, source->strbuf.length - index);
-        if(codepoint != -1)
-        {
-            to += lit_strutil_utfencode(codepoint, to);
-        }
-    }
-    res->strbuf.length = length;
-    return res;
-}
-
-void lit_string_appendlen(LitString* dest, const char* str, size_t len)
-{
-    lit_strbuf_appendstrn(&dest->strbuf, str, len);
-}
-
-void lit_string_append(LitString* dest, const char* str)
-{
-    return lit_string_appendlen(dest, str, strlen(str));
-}
-
-void lit_string_appendbyte(LitString* dest, int b)
-{
-    char c;
-    c = b;
-    return lit_string_appendlen(dest, &c, 1);
-}
-
-void lit_string_numbertostream(LitIOStream* pr, double dn)
-{
-    if(isnan(dn))
-    {
-        lit_iostream_writestring(pr, "nan");
-        return;
-    }
-    if(isinf(dn))
-    {
-        if(dn > 0.0)
-        {
-            lit_iostream_writestring(pr, "infinity");
-            return;
-        }
-        else
-        {
-            lit_iostream_writestring(pr, "-infinity");
-            return;
-        }
-    }
-    lit_iostream_printf(pr, "%g", dn);
-}
-
-
-LitValue lit_string_numbertostring(LitState* state, double value)
-{
-    LitIOStream pr;
-    lit_iostream_makestackstring(&pr);
-    lit_string_numbertostream(&pr, value);
-    return lit_value_fromobject(lit_iostream_takestring(state, &pr));
-}
-
-LitValue lit_string_valformat(LitState* state, const char* format, ...)
-{
-    va_list arglist;    
-    bool wasallowed;
-    const char* c;
-    LitString* result;
-    wasallowed = state->allow_gc;
-    state->allow_gc = false;
-    result = lit_string_makeemptystring(state, 10, false);
-    va_start(arglist, format);
-    for(c = format; *c != '\0'; c++)
-    {
-        switch(*c)
-        {
-            case '$':
-            {
-                const char* string = va_arg(arglist, const char*);
-                if(string != NULL)
-                {
-                    size_t length = strlen(string);
-                    lit_string_appendlen(result, string, length);
-                    break;
-                }
-                goto defaultendingcopying;
-            }
-            case '@':
-            {
-                LitString* string = AS_STRING(va_arg(arglist, LitValue));
-                if(string != NULL)
-                {
-                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
-                    break;
-                }
-                goto defaultendingcopying;
-            }
-            case '#':
-            {
-                LitString* string = AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)));
-                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
-                break;
-            }
-            default:
-            {
-            defaultendingcopying:
-                lit_string_appendbyte(result, *c);
-                break;
-            }
-        }
-    }
-    va_end(arglist);
-    result->strhash = lit_string_hash(result->strbuf.data, result->strbuf.length);
-    lit_string_register(state, result);
-    state->allow_gc = wasallowed;
-    return lit_value_fromobject(result);
-}
 
 LitObject* lit_object_allocobject(LitState* state, size_t size, LitObjType type)
 {
@@ -13066,7 +13133,7 @@ LitClosurePrototype* lit_object_makeclosureproto(LitState* state, LitFunction* f
 {
     LitClosurePrototype* closure = (LitClosurePrototype*)lit_object_allocobject(state, sizeof(LitClosurePrototype), LIT_OBJ_CLSPROTOTYPE);
     lit_state_pushroot(state, (LitObject*)closure);
-    closure->indexes = (uint8_t*)lit_sysmem_malloc(function->upvaluecount * sizeof(uint8_t));
+    closure->indexes = (uint32_t*)lit_sysmem_malloc(function->upvaluecount * sizeof(uint32_t));
     closure->local = (bool*)lit_sysmem_malloc(function->upvaluecount * sizeof(bool));
     lit_state_poproot(state);
     closure->function = function;
@@ -13388,7 +13455,7 @@ void* lit_userdata_extractdata(LitValue instance)
     state = ((LitObject*)inst)->pstate;
     if(!lit_table_getentry(&inst->fields, lit_string_copy(state, "_data"), &temp))
     {
-        lit_vm_raisefatalerror(state, "Failed to extract userdata");
+        lit_vm_raisefatalerror(state, "failed to extract userdata");
     }
     return AS_USERDATA(temp)->data;
 }
@@ -13686,7 +13753,7 @@ bool lit_state_compileandsavefile(LitState* state, const char* inputfile, const 
         char* source = lit_read_file(filename);
         if(source == NULL)
         {
-            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Failed to open file '%s'", filename);
+            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to open file '%s'", filename);
             return false;
         }
         filename = lit_util_patchfilename(filename);
@@ -13703,7 +13770,7 @@ bool lit_state_compileandsavefile(LitState* state, const char* inputfile, const 
     FILE* hnd = fopen(outputfile, "w+b");
     if(hnd == NULL)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "Failed to open for writing file '%s'", outputfile);
+        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to open for writing file '%s'", outputfile);
         return false;
     }
     lit_write_uint16_t(hnd, LIT_BYTECODE_MAGIC_NUMBER);
@@ -13722,7 +13789,7 @@ char* lit_util_readsource(LitState* state, const char* filename)
     char* source = lit_read_file(filename);
     if(source == NULL)
     {
-        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "Failed to open file '%s'", filename);
+        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "failed to open file '%s'", filename);
     }
     return source;
 }
@@ -13974,7 +14041,7 @@ bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClos
     if(targetargcount > argc)
     {
 #ifdef LIT_TRACE_NULL_FILL
-        printf("Filling with nulls\n");
+        printf("filling with nulls\n");
 #endif
         for(i = argc; i < targetargcount; i++)
         {
@@ -14085,11 +14152,11 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, uint8_t 
     }
     if(lit_value_isnull(callee))
     {
-        return lit_vm_raiseerror(state, "Attempt to call a null value");
+        return lit_vm_raiseerror(state, "attempt to call a null value");
     }
     else
     {
-        return lit_vm_raiseerror(state, "Can only call functions and classes, got %s", lit_get_value_type(callee));
+        return lit_vm_raiseerror(state, "can only call functions and classes, got %s", lit_get_value_type(callee));
     }
     return true;
 }
@@ -14168,136 +14235,140 @@ void lit_vmmac_readframe(LitState* state, LitFiber** destfiber)
     state->vmstate.upvalues = state->vmstate.frame->closure == NULL ? NULL : state->vmstate.frame->closure->upvalues;
 }
 
-#define lit_vmmac_writeframe() state->vmstate.frame->ip = state->vmstate.ip;
+#define lit_vmmac_writeframe() \
+    state->vmstate.frame->ip = state->vmstate.ip;
 
 #define lit_vmmac_returnerror() \
-    lit_vmexec_popgc(state);    \
+    lit_vmexec_popgc(state); \
     return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
 
-#define lit_vmmac_recoverstate()                                   \
-    lit_vmmac_writeframe();                                        \
-    fiber = state->vmstate.fiber;                                  \
-    if(fiber == NULL)                                              \
-    {                                                              \
+#define lit_vmmac_recoverstate() \
+    lit_vmmac_writeframe(); \
+    fiber = state->vmstate.fiber; \
+    if(fiber == NULL) \
+    { \
         return lit_result_make(LIT_STATUS_OK, lit_value_makenull()); \
-    }                                                              \
-    if(fiber->abort)                                               \
-    {                                                              \
-        lit_vmmac_returnerror();                                   \
-    }                                                              \
-    lit_vmmac_readframe(state, &fiber);                            \
+    } \
+    if(fiber->abort) \
+    { \
+        lit_vmmac_returnerror(); \
+    } \
+    lit_vmmac_readframe(state, &fiber); \
     lit_vmexec_traceframe(state, fiber);
 
-#define lit_vmmac_callvalue(callee, reg, argc)                \
-    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee)) \
-    {                                                         \
-        lit_vmmac_recoverstate();                             \
-    }
-
-#define lit_vmmac_fail(...)                   \
+#define lit_vmmac_fail(...) \
     if(lit_vm_raiseerror(state, __VA_ARGS__)) \
-    {                                         \
-        lit_vmmac_recoverstate();             \
-        lit_vmmac_dispatchnext();             \
-    }                                         \
-    else                                      \
-    {                                         \
-        lit_vmmac_returnerror();              \
+    { \
+        lit_vmmac_recoverstate(); \
+        lit_vmmac_dispatchnext(); \
+    } \
+    else \
+    { \
+        lit_vmmac_returnerror(); \
     }
 
-#define lit_vmmac_getrc(r) (LIT_BIT_ISSET(r, LIT_BITFLAG_CONSTANT) ? state->vmstate.vmconstantvalues[r & 0xff] : state->vmstate.vmregisteritems[r])
+#define lit_vmmac_callvalue(callee, reg, argc) \
+    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee)) \
+    { \
+        lit_vmmac_recoverstate(); \
+    }
 
-#define lit_vmmac_invokemethoddefault(reg, bv, m, argc)                                                                                                                  \
-    lit_vmmac_writeframe() LitClass* klass = lit_state_getclassfor(state, bv);                                                                                           \
-    if(klass == NULL)                                                                                                                                                    \
-    {                                                                                                                                                                    \
-        lit_vmmac_fail("Only instances and classes have methods")                                                                                                        \
-    }                                                                                                                                                                    \
-    LitString* mthname = lit_string_copy(state, m);                                                                                                                      \
-    LitValue method;                                                                                                                                                     \
+
+LitValue lit_vmmac_getrc(LitState* state, int64_t r)
+{
+    if(LIT_BIT_ISSET(r, LIT_BITFLAG_CONSTANT))
+    {
+        return state->vmstate.vmconstantvalues[r & 0xff];
+    }
+    return state->vmstate.vmregisteritems[r];
+}
+
+#define lit_vmmac_invokemethoddefault(reg, bv, m, argc) \
+    lit_vmmac_writeframe(); \
+    LitClass* klass = lit_state_getclassfor(state, bv); \
+    if(klass == NULL) \
+    { \
+        lit_vmmac_fail("use of method '%s' on a null value", m) \
+    } \
+    LitString* mthname = lit_string_copy(state, m); \
+    LitValue method; \
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
-    {                                                                                                                                                                    \
-        lit_vmmac_callvalue(method, reg, argc)                                                                                                                           \
-    }                                                                                                                                                                    \
-    else                                                                                                                                                                 \
-    {                                                                                                                                                                    \
-        lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data)                                   \
-    }                                                                                                                                                                    \
+    { \
+        lit_vmmac_callvalue(method, reg, argc) \
+    } \
+    else \
+    { \
+        lit_vmmac_fail("attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data) \
+    } \
     lit_vmmac_readframe(state, &fiber)
 
-#define lit_vmmac_invokemethodandcontinue(reg, bv, m, argc)                                                                                                              \
-    lit_vmmac_writeframe() LitClass* klass = lit_state_getclassfor(state, bv);                                                                                           \
-    if(klass == NULL)                                                                                                                                                    \
-    {                                                                                                                                                                    \
-        lit_vmmac_fail("Only instances and classes have methods");                                                                                                       \
-    }                                                                                                                                                                    \
-    LitString* mthname = lit_string_copy(state, m);                                                                                                                      \
-    LitValue method;                                                                                                                                                     \
+#define lit_vmmac_invokemethodandcontinue(reg, bv, m, argc) \
+    lit_vmmac_writeframe() LitClass* klass = lit_state_getclassfor(state, bv); \
+    if(klass == NULL) \
+    { \
+        lit_vmmac_fail("only instances and classes have methods"); \
+    } \
+    LitString* mthname = lit_string_copy(state, m); \
+    LitValue method; \
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
-    {                                                                                                                                                                    \
-        lit_vmmac_callvalue(method, reg, argc);                                                                                                                          \
-        lit_vmmac_readframe(state, &fiber);                                                                                                                              \
-        lit_vmmac_dispatchnext();                                                                                                                                        \
+    { \
+        lit_vmmac_callvalue(method, reg, argc); \
+        lit_vmmac_readframe(state, &fiber); \
+        lit_vmmac_dispatchnext(); \
     }
 
-#define BINARY_INSTRUCTION(type, op, opstring)                                                                         \
-    uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);                                                         \
-    uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);                                                        \
-    uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);                                                        \
-    LitValue bv = lit_vmmac_getrc(b);                                                                                  \
-    LitValue cv = lit_vmmac_getrc(c);                                                                                  \
-    if(lit_value_isnumber(bv))                                                                                         \
-    {                                                                                                                  \
-        if(!lit_value_isnumber(cv))                                                                                    \
-        {                                                                                                              \
-            lit_vmmac_fail("Attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
-        }                                                                                                              \
-        state->vmstate.vmregisteritems[a] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv));                    \
-    }                                                                                                                  \
-    else if(lit_value_isnull(bv))                                                                                      \
-    {                                                                                                                  \
-        lit_vmmac_fail("Attempt to use the operator %s on a null value", opstring);                                    \
-    }                                                                                                                  \
-    else                                                                                                               \
-    {                                                                                                                  \
-        state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);                                                        \
-        ;                                                                                                              \
-        LitValue tmpb = state->vmstate.vmregisteritems[a + 1];                                                         \
-        state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);                                                    \
-        ;                                                                                                              \
-        lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], opstring, 1);                              \
-        state->vmstate.vmregisteritems[a + 1] = tmpb;                                                                  \
-        ;                                                                                                              \
+#define BINARY_INSTRUCTION(type, op, opstring) \
+    uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction); \
+    uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction); \
+    uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction); \
+    LitValue bv = lit_vmmac_getrc(state, b); \
+    LitValue cv = lit_vmmac_getrc(state, c); \
+    if(lit_value_isnumber(bv)) \
+    { \
+        if(!lit_value_isnumber(cv)) \
+        { \
+            lit_vmmac_fail("attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
+        } \
+        state->vmstate.vmregisteritems[a] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv)); \
+    } \
+    else \
+    { \
+        if(lit_value_isnull(bv)) \
+        { \
+            lit_vmmac_fail("attempt to use the operator %s on a null value", opstring); \
+        } \
+        state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b); \
+        LitValue tmpb = state->vmstate.vmregisteritems[a + 1]; \
+        state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c); \
+        lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], opstring, 1); \
+        state->vmstate.vmregisteritems[a + 1] = tmpb; \
     }
 
-#define COMPARISON_INSTRUCTION(type, op, opstring)                                                                     \
-    uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);                                                         \
-    uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);                                                        \
-    uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);                                                        \
-    LitValue bv = lit_vmmac_getrc(b);                                                                                  \
-    LitValue cv = lit_vmmac_getrc(c);                                                                                  \
-    if(lit_value_isnumber(bv))                                                                                         \
-    {                                                                                                                  \
-        if(!lit_value_isnumber(cv))                                                                                    \
-        {                                                                                                              \
-            lit_vmmac_fail("Attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
-        }                                                                                                              \
-        state->vmstate.vmregisteritems[a] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv));                    \
-    }                                                                                                                  \
-    else if(lit_value_isnull(bv))                                                                                      \
-    {                                                                                                                  \
-        lit_vmmac_fail("Attempt to use the operator %s on a null value", opstring);                                    \
-    }                                                                                                                  \
-    else                                                                                                               \
-    {                                                                                                                  \
-        state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);                                                        \
-        ;                                                                                                              \
-        LitValue tmpb = state->vmstate.vmregisteritems[a + 1];                                                         \
-        state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);                                                    \
-        ;                                                                                                              \
-        lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], opstring, 1);                              \
-        state->vmstate.vmregisteritems[a + 1] = tmpb;                                                                  \
-        ;                                                                                                              \
+#define COMPARISON_INSTRUCTION(type, op, opstring) \
+    uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction); \
+    uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction); \
+    uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction); \
+    LitValue bv = lit_vmmac_getrc(state, b); \
+    LitValue cv = lit_vmmac_getrc(state, c); \
+    if(lit_value_isnumber(bv)) \
+    { \
+        if(!lit_value_isnumber(cv)) \
+        { \
+            lit_vmmac_fail("attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
+        } \
+        state->vmstate.vmregisteritems[a] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv)); \
+    } \
+    else if(lit_value_isnull(bv)) \
+    { \
+        lit_vmmac_fail("attempt to use the operator %s on a null value", opstring); \
+    } \
+    else \
+    { \
+        state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b); \
+        LitValue tmpb = state->vmstate.vmregisteritems[a + 1]; \
+        state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c); \
+        lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], opstring, 1); \
+        state->vmstate.vmregisteritems[a + 1] = tmpb; \
     }
 
 LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
@@ -14402,7 +14473,7 @@ dispatch:
     {
         CASE_CODE(OP_MOVE)
         {
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
             lit_vmmac_dispatchnext()
         }
         CASE_CODE(OP_LOAD_NULL)
@@ -14423,7 +14494,7 @@ dispatch:
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_fromobject(closure);
             for(i = 0; i < closure->function->upvaluecount; i++)
             {
-                uint8_t index = clsproto->indexes[i];
+                uint32_t index = clsproto->indexes[i];
                 if(clsproto->local[i])
                 {
                     closure->upvalues[i] = lit_vmexec_captureupvalue(state, state->vmstate.vmregisteritems + index);
@@ -14437,9 +14508,22 @@ dispatch:
         }
         CASE_CODE(OP_ARRAY)
         {
+            size_t sz;
             LitArray* array = lit_array_make(state);
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_fromobject(array);
-            lit_dynlistval_ensureactualsize(&array->values, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            sz = LIT_INSTRUCTION_B(state->vmstate.instruction);
+            if(sz > array->values.capacity)
+            {
+                if(array->values.capacity > 0)
+                {
+                    sz = array->values.capacity - 1;
+                }
+                else
+                {
+                    sz = 0;
+                }
+            }
+            lit_dynlistval_ensureactualsize(&array->values, sz);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_OBJECT)
@@ -14452,7 +14536,7 @@ dispatch:
             LITREGUINT8 rxa = LIT_INSTRUCTION_A(state->vmstate.instruction);
             LITREGUINT8 rxb = LIT_INSTRUCTION_B(state->vmstate.instruction);
             LITREGUINT8 rxc = LIT_INSTRUCTION_C(state->vmstate.instruction);
-            state->vmstate.vmregisteritems[rxa] = lit_value_fromobject(lit_object_makerange(state, lit_value_asnumber(lit_vmmac_getrc(rxb)), lit_value_asnumber(lit_vmmac_getrc(rxc))));
+            state->vmstate.vmregisteritems[rxa] = lit_value_fromobject(lit_object_makerange(state, lit_value_asnumber(lit_vmmac_getrc(state, rxb)), lit_value_asnumber(lit_vmmac_getrc(state, rxc))));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_RETURN)
@@ -14518,18 +14602,18 @@ dispatch:
             uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);
             uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);
             uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(b);
-            LitValue cv = lit_vmmac_getrc(c);
+            LitValue bv = lit_vmmac_getrc(state, b);
+            LitValue cv = lit_vmmac_getrc(state, c);
             if(lit_value_isnumber(bv) && lit_value_isnumber(cv))
             {
                 state->vmstate.vmregisteritems[a] = lit_value_makenumber(floor(lit_value_asnumber(bv) / lit_value_asnumber(cv)));
             }
             else
             {
-                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);
+                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b);
                 ;
                 LitValue tmpb = state->vmstate.vmregisteritems[a + 1];
-                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);
+                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c);
                 ;
                 lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], "#", 1);
                 state->vmstate.vmregisteritems[a + 1] = tmpb;
@@ -14542,18 +14626,18 @@ dispatch:
             uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);
             uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);
             uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(b);
-            LitValue cv = lit_vmmac_getrc(c);
+            LitValue bv = lit_vmmac_getrc(state, b);
+            LitValue cv = lit_vmmac_getrc(state, c);
             if(lit_value_isnumber(bv) && lit_value_isnumber(cv))
             {
                 state->vmstate.vmregisteritems[a] = lit_value_makenumber(fmod(lit_value_asnumber(bv), lit_value_asnumber(cv)));
             }
             else
             {
-                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);
+                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b);
                 ;
                 LitValue tmpb = state->vmstate.vmregisteritems[a + 1];
-                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);
+                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c);
                 ;
                 lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], "%", 1);
                 state->vmstate.vmregisteritems[a + 1] = tmpb;
@@ -14566,18 +14650,18 @@ dispatch:
             uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);
             uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);
             uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(b);
-            LitValue cv = lit_vmmac_getrc(c);
+            LitValue bv = lit_vmmac_getrc(state, b);
+            LitValue cv = lit_vmmac_getrc(state, c);
             if(lit_value_isnumber(bv) && lit_value_isnumber(cv))
             {
                 state->vmstate.vmregisteritems[a] = lit_value_makenumber(pow(lit_value_asnumber(bv), lit_value_asnumber(cv)));
             }
             else
             {
-                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);
+                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b);
                 ;
                 LitValue tmpb = state->vmstate.vmregisteritems[a + 1];
-                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);
+                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c);
                 ;
                 lit_vmmac_invokemethoddefault(a, state->vmstate.vmregisteritems[a], "**", 1);
                 state->vmstate.vmregisteritems[a + 1] = tmpb;
@@ -14587,61 +14671,73 @@ dispatch:
         }
         CASE_CODE(OP_LSHIFT)
         {
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction));
+            LitValue res;
+            int64_t ivbv;
+            int64_t ivbc;
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail("Operands of bitwise op %s must be two numbers, got %s and %s", "<<", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail("operands of bitwise op %s must be two numbers, got %s and %s", "<<", lit_get_value_type(bv), lit_get_value_type(cv));
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int)lit_value_asnumber(bv) << (int)lit_value_asnumber(cv)));
-            ;
+            ivbv = (int64_t)lit_value_asnumber(bv);
+            ivbc = (int64_t)lit_value_asnumber(cv);
+            if((ivbv < 0) || (ivbc < 0))
+            {
+                res = lit_value_makenumber(0);
+            }
+            else
+            {
+                res = lit_value_makenumber(ivbv << ivbc);
+            }
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = res;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_RSHIFT)
         {
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction));
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail("Operands of bitwise op %s must be two numbers, got %s and %s", ">>", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail("operands of bitwise op %s must be two numbers, got %s and %s", ">>", lit_get_value_type(bv), lit_get_value_type(cv));
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int)lit_value_asnumber(bv) >> (int)lit_value_asnumber(cv)));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) >> (int64_t)lit_value_asnumber(cv)));
             ;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_BXOR)
         {
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction));
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail("Operands of bitwise op %s must be two numbers, got %s and %s", "^", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail("operands of bitwise op %s must be two numbers, got %s and %s", "^", lit_get_value_type(bv), lit_get_value_type(cv));
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int)lit_value_asnumber(bv) ^ (int)lit_value_asnumber(cv)));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) ^ (int64_t)lit_value_asnumber(cv)));
             ;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_BAND)
         {
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction));
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail("Operands of bitwise op %s must be two numbers, got %s and %s", "&", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail("operands of bitwise op %s must be two numbers, got %s and %s", "&", lit_get_value_type(bv), lit_get_value_type(cv));
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int)lit_value_asnumber(bv) & (int)lit_value_asnumber(cv)));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) & (int64_t)lit_value_asnumber(cv)));
             ;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_BOR)
         {
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction));
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail("Operands of bitwise op %s must be two numbers, got %s and %s", "|", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail("operands of bitwise op %s must be two numbers, got %s and %s", "|", lit_get_value_type(bv), lit_get_value_type(cv));
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int)lit_value_asnumber(bv) | (int)lit_value_asnumber(cv)));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) | (int64_t)lit_value_asnumber(cv)));
             ;
             lit_vmmac_dispatchnext();
         }
@@ -14688,18 +14784,18 @@ dispatch:
             uint8_t a = LIT_INSTRUCTION_A(state->vmstate.instruction);
             uint16_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);
             uint16_t c = LIT_INSTRUCTION_C(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue bv = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
             if(lit_value_isinstance(bv))
             {
-                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(b);
+                state->vmstate.vmregisteritems[a] = lit_vmmac_getrc(state, b);
                 ;
                 LitValue tmpb = state->vmstate.vmregisteritems[a + 1];
-                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(c);
+                state->vmstate.vmregisteritems[a + 1] = lit_vmmac_getrc(state, c);
                 ;
                 lit_vmmac_invokemethodandcontinue(a, state->vmstate.vmregisteritems[a], "==", 1);
                 state->vmstate.vmregisteritems[a + 1] = tmpb;
             }
-            ptmp = lit_vmmac_getrc(c);
+            ptmp = lit_vmmac_getrc(state, c);
             state->vmstate.vmregisteritems[a] = lit_value_makebool(lit_value_compare(state, bv, ptmp));
             lit_vmmac_dispatchnext();
         }
@@ -14725,10 +14821,10 @@ dispatch:
         }
         CASE_CODE(OP_NEGATE)
         {
-            LitValue value = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue value = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
             if(!lit_value_isnumber(value))
             {
-                lit_vmmac_fail("Operand must be a number");
+                lit_vmmac_fail("operand must be a number");
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_makenumber(-lit_value_asnumber(value));
             lit_vmmac_dispatchnext();
@@ -14736,7 +14832,7 @@ dispatch:
         CASE_CODE(OP_NOT)
         {
             uint8_t b = LIT_INSTRUCTION_B(state->vmstate.instruction);
-            LitValue value = lit_vmmac_getrc(b);
+            LitValue value = lit_vmmac_getrc(state, b);
             if(lit_value_isinstance(value))
             {
                 lit_vmmac_invokemethodandcontinue(b, value, "!", 0);
@@ -14746,17 +14842,17 @@ dispatch:
         }
         CASE_CODE(OP_BNOT)
         {
-            LitValue value = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue value = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
             if(!lit_value_isnumber(value))
             {
-                lit_vmmac_fail("Operand must be a number");
+                lit_vmmac_fail("operand must be a number");
             }
-            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_makenumber(~((int)lit_value_asnumber(value)));
+            state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_makenumber(~((int64_t)lit_value_asnumber(value)));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_SET_GLOBAL)
         {
-            lit_table_set(globals, AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_A(state->vmstate.instruction)]), lit_vmmac_getrc(LIT_INSTRUCTION_BX(state->vmstate.instruction)));
+            lit_table_set(globals, AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_A(state->vmstate.instruction)]), lit_vmmac_getrc(state, LIT_INSTRUCTION_BX(state->vmstate.instruction)));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_GET_GLOBAL)
@@ -14770,7 +14866,7 @@ dispatch:
         }
         CASE_CODE(OP_SET_UPVALUE)
         {
-            *state->vmstate.frame->closure->upvalues[LIT_INSTRUCTION_A(state->vmstate.instruction)]->location = lit_vmmac_getrc(LIT_INSTRUCTION_BX(state->vmstate.instruction));
+            *state->vmstate.frame->closure->upvalues[LIT_INSTRUCTION_A(state->vmstate.instruction)]->location = lit_vmmac_getrc(state, LIT_INSTRUCTION_BX(state->vmstate.instruction));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_GET_UPVALUE)
@@ -14823,7 +14919,7 @@ dispatch:
                 LitValue super = state->vmstate.vmregisteritems[--b];
                 if(!IS_CLASS(super))
                 {
-                    lit_vmmac_fail("Superclass must be a class");
+                    lit_vmmac_fail("superclass must be a class");
                 }
                 LitClass* superklass = AS_CLASS(super);
                 klass->super = superklass;
@@ -14835,7 +14931,7 @@ dispatch:
         }
         CASE_CODE(OP_STATIC_FIELD)
         {
-            lit_table_set(&AS_CLASS(state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)])->static_fields, AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_B(state->vmstate.instruction)]), lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction)));
+            lit_table_set(&AS_CLASS(state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)])->static_fields, AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_B(state->vmstate.instruction)]), lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction)));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_METHOD)
@@ -14844,9 +14940,9 @@ dispatch:
             LitString* name = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_B(state->vmstate.instruction)]);
             if((klass->init_method == NULL || (klass->super != NULL && klass->init_method == ((LitClass*)klass->super)->init_method)) && name->strbuf.length == 11 && memcmp(name->strbuf.data, "constructor", 11) == 0)
             {
-                klass->init_method = lit_value_asobject(lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction)));
+                klass->init_method = lit_value_asobject(lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction)));
             }
-            lit_table_set(&klass->methods, name, lit_vmmac_getrc(LIT_INSTRUCTION_C(state->vmstate.instruction)));
+            lit_table_set(&klass->methods, name, lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction)));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_GET_FIELD)
@@ -14854,7 +14950,7 @@ dispatch:
             LitValue object = state->vmstate.vmregisteritems[LIT_INSTRUCTION_B(state->vmstate.instruction)];
             if(lit_value_isnull(object))
             {
-                lit_vmmac_fail("Attempt to index a null value");
+                lit_vmmac_fail("attempt to index a null value");
             }
             LitValue value;
             LitString* name = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_C(state->vmstate.instruction)]);
@@ -14871,7 +14967,7 @@ dispatch:
                             LitField* field = AS_FIELD(value);
                             if(field->getter == NULL)
                             {
-                                lit_vmmac_fail("Class %s does not have a getter for the field %s", instance->klass->name->strbuf.data, name->strbuf.data);
+                                lit_vmmac_fail("class %s does not have a getter for the field %s", instance->klass->name->strbuf.data, name->strbuf.data);
                             }
                             lit_vmmac_writeframe();
                             lit_vmmac_callvalue(lit_value_fromobject(AS_FIELD(value)->getter), resultreg, 0);
@@ -14903,7 +14999,7 @@ dispatch:
                         LitField* field = AS_FIELD(value);
                         if(field->getter == NULL)
                         {
-                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
+                            lit_vmmac_fail("class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe();
                         lit_vmmac_callvalue(lit_value_fromobject(field->getter), resultreg, 0);
@@ -14921,7 +15017,7 @@ dispatch:
                 LitClass* klass = lit_state_getclassfor(state, object);
                 if(klass == NULL)
                 {
-                    lit_vmmac_fail("Only instances and classes have fields");
+                    lit_vmmac_fail("only instances and classes have fields");
                 }
                 if(lit_table_getentry(&klass->methods, name, &value))
                 {
@@ -14930,7 +15026,7 @@ dispatch:
                         LitField* field = AS_FIELD(value);
                         if(field->getter == NULL)
                         {
-                            lit_vmmac_fail("Class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
+                            lit_vmmac_fail("class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe();
                         lit_vmmac_callvalue(lit_value_fromobject(AS_FIELD(value)->getter), resultreg, 0);
@@ -14973,7 +15069,7 @@ dispatch:
             LitValue instance = state->vmstate.vmregisteritems[resultreg];
             if(lit_value_isnull(instance))
             {
-                lit_vmmac_fail("Attempt to index a null value");
+                lit_vmmac_fail("attempt to index a null value");
             }
             LitValue value = state->vmstate.vmregisteritems[LIT_INSTRUCTION_C(state->vmstate.instruction)];
             LitString* fieldname = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_B(state->vmstate.instruction)]);
@@ -14986,7 +15082,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
+                        lit_vmmac_fail("class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -15011,7 +15107,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", inst->klass->name->strbuf.data, fieldname->strbuf.data);
+                        lit_vmmac_fail("class %s does not have a setter for the field %s", inst->klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -15032,7 +15128,7 @@ dispatch:
                 LitClass* klass = lit_state_getclassfor(state, instance);
                 if(klass == NULL)
                 {
-                    lit_vmmac_fail("Only instances and classes have fields");
+                    lit_vmmac_fail("only instances and classes have fields");
                 }
                 LitValue setter;
                 if(lit_table_getentry(&klass->methods, fieldname, &setter) && IS_FIELD(setter))
@@ -15040,7 +15136,7 @@ dispatch:
                     LitField* field = AS_FIELD(setter);
                     if(field->setter == NULL)
                     {
-                        lit_vmmac_fail("Class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
+                        lit_vmmac_fail("class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe();
                     lit_vmmac_callvalue(lit_value_fromobject(field->setter), resultreg, 1);
@@ -15049,7 +15145,7 @@ dispatch:
                 }
                 else
                 {
-                    lit_vmmac_fail("Class %s does not contain field %s", klass->name->strbuf.data, fieldname->strbuf.data);
+                    lit_vmmac_fail("class %s does not contain field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                 }
             }
             state->vmstate.vmregisteritems[resultreg] = value;
@@ -15058,7 +15154,7 @@ dispatch:
         CASE_CODE(OP_IS)
         {
             uint8_t resultreg = LIT_INSTRUCTION_A(state->vmstate.instruction);
-            LitValue instance = lit_vmmac_getrc(LIT_INSTRUCTION_B(state->vmstate.instruction));
+            LitValue instance = lit_vmmac_getrc(state, LIT_INSTRUCTION_B(state->vmstate.instruction));
             if(lit_value_isnull(instance))
             {
                 state->vmstate.vmregisteritems[resultreg] = lit_value_makebool(false);
@@ -15073,7 +15169,7 @@ dispatch:
             }
             if(instanceklass == NULL || !IS_CLASS(klass))
             {
-                lit_vmmac_fail("Operands must be an instance and a class");
+                lit_vmmac_fail("operands must be an instance and a class");
             }
             LitClass* type = AS_CLASS(klass);
             bool found = false;
@@ -15096,12 +15192,12 @@ dispatch:
             LitValue instance = state->vmstate.vmregisteritems[resultreg];
             if(lit_value_isnull(instance))
             {
-                lit_vmmac_fail("Attempt to index a null value");
+                lit_vmmac_fail("attempt to index a null value");
             }
             LitClass* klass = IS_CLASS(instance) ? AS_CLASS(instance) : lit_state_getclassfor(state, instance);
             if(klass == NULL)
             {
-                lit_vmmac_fail("Only instances and classes have methods");
+                lit_vmmac_fail("only instances and classes have methods");
             }
             LitString* mthname = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_C(state->vmstate.instruction)]);
             int argc = LIT_INSTRUCTION_B(state->vmstate.instruction) - 1;
@@ -15120,7 +15216,7 @@ dispatch:
             }
             else
             {
-                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
+                lit_vmmac_fail("attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
             }
             lit_vmmac_readframe(state, &fiber);
             lit_vmmac_dispatchnext();
@@ -15133,12 +15229,12 @@ dispatch:
             LitValue instance = state->vmstate.vmregisteritems[resultreg + 1];
             if(lit_value_isnull(instance))
             {
-                lit_vmmac_fail("Attempt to index a null value");
+                lit_vmmac_fail("attempt to index a null value");
             }
             LitClass* klass = AS_CLASS(instance);
             if(klass == NULL)
             {
-                lit_vmmac_fail("Only instances and classes have methods");
+                lit_vmmac_fail("only instances and classes have methods");
             }
             LitString* mthname = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_C(state->vmstate.instruction)]);
             int argc = LIT_INSTRUCTION_B(state->vmstate.instruction) - 1;
@@ -15153,7 +15249,7 @@ dispatch:
             }
             else
             {
-                lit_vmmac_fail("Attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
+                lit_vmmac_fail("attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data);
             }
             lit_vmmac_readframe(state, &fiber);
             lit_vmmac_dispatchnext();
@@ -15161,21 +15257,21 @@ dispatch:
         CASE_CODE(OP_SUBSCRIPT_GET)
         {
             uint8_t resultreg = LIT_INSTRUCTION_A(state->vmstate.instruction);
-            LitValue instance = lit_vmmac_getrc(resultreg);
+            LitValue instance = lit_vmmac_getrc(state, resultreg);
             lit_vmmac_invokemethoddefault(resultreg, instance, "[]", 1);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_SUBSCRIPT_SET)
         {
             uint8_t resultreg = LIT_INSTRUCTION_A(state->vmstate.instruction);
-            LitValue instance = lit_vmmac_getrc(resultreg);
+            LitValue instance = lit_vmmac_getrc(state, resultreg);
             lit_vmmac_invokemethoddefault(resultreg, instance, "[]", 2);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_PUSH_ARRAY_ELEMENT)
         {
             LitDynListVal* array = &lit_value_asarray(state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)])->values;
-            array->values[array->count++] = lit_vmmac_getrc(LIT_INSTRUCTION_BX(state->vmstate.instruction));
+            lit_vallist_push(array, lit_vmmac_getrc(state, LIT_INSTRUCTION_BX(state->vmstate.instruction)));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_PUSH_OBJECT_ELEMENT)
@@ -15207,7 +15303,7 @@ dispatch:
             }
             else
             {
-                lit_vmmac_fail("Attempt to reference a null value");
+                lit_vmmac_fail("attempt to reference a null value");
             }
             lit_vmmac_dispatchnext();
         }
@@ -15231,7 +15327,7 @@ dispatch:
             LitValue object = state->vmstate.vmregisteritems[LIT_INSTRUCTION_B(state->vmstate.instruction)];
             if(lit_value_isnull(object))
             {
-                lit_vmmac_fail("Attempt to index a null value");
+                lit_vmmac_fail("attempt to index a null value");
             }
             LitValue* value;
             LitString* name = AS_STRING(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_C(state->vmstate.instruction)]);
@@ -15239,12 +15335,12 @@ dispatch:
             {
                 if(!lit_table_getslot(&lit_value_asinstance(object)->fields, name, &value))
                 {
-                    lit_vmmac_fail("Attempt to reference a null value");
+                    lit_vmmac_fail("attempt to reference a null value");
                 }
             }
             else
             {
-                lit_vmmac_fail("You can only reference fields of real instances");
+                lit_vmmac_fail("can only reference fields of real instances");
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_fromobject(lit_object_makereference(state, value));
             lit_vmmac_dispatchnext();
@@ -15254,7 +15350,7 @@ dispatch:
             LitValue reference = state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)];
             if(!IS_REFERENCE(reference))
             {
-                lit_vmmac_fail("Provided value is not a reference");
+                lit_vmmac_fail("provided value is not a reference");
             }
             *AS_REFERENCE(reference)->slot = state->vmstate.vmregisteritems[LIT_INSTRUCTION_B(state->vmstate.instruction)];
             lit_vmmac_dispatchnext();
@@ -15263,7 +15359,7 @@ dispatch:
         default:
 #endif
         {
-            lit_vmmac_fail("Unknown op %i", state->vmstate.instruction);
+            lit_vmmac_fail("unknown op %i", state->vmstate.instruction);
             lit_vmmac_returnerror();
         }
     }
@@ -15451,7 +15547,7 @@ static void lit_cli_showusage(char* argv[], optlongflags_t* flags, bool fail)
 {
     FILE* out;
     out = fail ? stderr : stdout;
-    fprintf(out, "Usage: %s [<options>] [<filename> | -e <code>]\n", argv[0]);
+    fprintf(out, "usage: %s [<options>] [<filename> | -e <code>]\n", argv[0]);
     optprs_fprintusage(out, flags);
 }
 

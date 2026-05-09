@@ -64,7 +64,19 @@ EXTRAFLAGS =
 ### WARNING: can be quite verbose! prints unused sections, giving a better clue which functions can be removed.
 #EXTRAFLAGS += -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--print-gc-sections
 
+usesanitizer = 0
 CFLAGS =
+CFLAGS += -ftrapv
+ifeq (1, $(usesanitizer))
+CFLAGS += -fsanitize=undefined
+#CFLAGS += -fsanitize=address
+#CFLAGS += -fsanitize=shift -fsanitize=shift-base -fsanitize=shift-exponent
+CFLAGS += -fsanitize=unreachable -fsanitize=null
+#CFLAGS += -fsanitize=signed-integer-overflow
+CFLAGS += -fsanitize=enum
+CFLAGS += -fsanitize=pointer-overflow
+endif
+
 #CFLAGS += $(INCFLAGS) -Ofast -march=native -flto -ffast-math -funroll-loops
 CFLAGS += $(INCFLAGS) $(OPTFLAGS) -g3 -ggdb3
 #CFLAGS += -DNEON_INLINE="__attribute__((hot, optimize(5)))"
@@ -76,7 +88,11 @@ CC = gcc $(WFLAGS) $(EXTRAFLAGS)
 #CC = tcc $(WFLAGS) $(EXTRAFLAGS)
 DEPCC = gcc
 
-LDFLAGS = -ldl -lm
+LDFLAGS =
+ifeq (1, $(usesanitizer))
+LDFLAGS += -lasan -lubsan
+endif
+LDFLAGS += -ldl -lm 
 target = run
 
 srcfiles_all = $(wildcard *.c)
