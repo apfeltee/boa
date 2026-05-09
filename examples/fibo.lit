@@ -9,7 +9,7 @@ function fib(n) {
 var start = time()
 
 for (var i in 1 .. 5) {
-	println(fib(28))
+	println(fib(12))
 }
 
 println("elapsed: " + (time() - start))

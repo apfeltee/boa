@@ -21,7 +21,7 @@ class Tree {
 }
 
 var minDepth = 4
-var maxDepth = 12
+var maxDepth = minDepth*2
 var stretchDepth = maxDepth + 1
 
 var start = time()
