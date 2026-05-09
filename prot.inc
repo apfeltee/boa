@@ -411,7 +411,6 @@ LitValue lit_objfnnumber_chr(LitState *state, LitValue instance, size_t argc, Li
 LitValue lit_objfnbool_tostring(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_chr(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_plus(LitState *state, LitValue instance, size_t argc, LitValue *args);
-LitValue lit_objfnstring_compare(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_less(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_greater(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_tostring(LitState *state, LitValue instance, size_t argc, LitValue *args);

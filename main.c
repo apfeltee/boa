@@ -9700,35 +9700,6 @@ LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, L
     return lit_value_fromobject(result);
 }
 
-LitValue lit_objfnstring_compare(LitState* state, LitValue instance, size_t argc, LitValue* args)
-{
-    LitString* self;
-    LitString* other;
-    (void)state;
-    (void)argc;
-    self = AS_STRING(instance);
-    if(IS_STRING(args[0]))
-    {
-        other = AS_STRING(args[0]);
-        if(self->strbuf.length == other->strbuf.length)
-        {
-            if(memcmp(self->strbuf.data, other->strbuf.data, self->strbuf.length) == 0)
-            {
-                return lit_value_makebool(true);
-            }
-        }
-        return lit_value_makebool(false);
-    }
-    else if(lit_value_isnull(args[0]))
-    {
-        if((self == NULL) || lit_value_isnull(instance))
-        {
-            return lit_value_makebool(true);
-        }
-        return lit_value_makebool(false);
-    }
-    return lit_value_makebool(false);
-}
 
 LitValue lit_objfnstring_less(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
@@ -11100,7 +11071,6 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "<", lit_objfnstring_less);
         lit_class_bindmethod(klass, ">", lit_objfnstring_greater);
         */
-        lit_class_bindmethod(klass, "==", lit_objfnstring_compare);
         lit_class_bindmethod(klass, "toString", lit_objfnstring_tostring);
         lit_class_bindmethod(klass, "toNumber", lit_objfnstring_tonumber);
         lit_class_bindmethod(klass, "toUpperCase", lit_objfnstring_touppercase);
