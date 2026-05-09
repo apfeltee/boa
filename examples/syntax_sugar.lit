@@ -6,7 +6,7 @@ var a = 32
  */
 
 a = a + 4
-print(a) // Expected: 36
+println(a) // Expected: 36
 
 /*
  * Of course, this works, but it's kind-of long and bulky.
@@ -14,10 +14,10 @@ print(a) // Expected: 36
  */
 
 a += 6
-print(a) // Expected: 42
+println(a) // Expected: 42
 
 a++
-print(a) // Expected: 43
+println(a) // Expected: 43
 
 /*
  * This stands true for most operators.
@@ -26,4 +26,4 @@ print(a) // Expected: 43
  * (so 2 ** 3 == 8)
  */
 
-print(a -= 4) // Expected: 39
+println(a -= 4) // Expected: 39

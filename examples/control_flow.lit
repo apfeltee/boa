@@ -3,21 +3,21 @@
  */
 
 if (10 > 4) {
-	print("Math works out just fine")
+	println("Math works out just fine")
 } else {
-	print("Excuse me")
+	println("Excuse me")
 } // Expected: Math works out just fine
 
 var food = "orange"
 
 if (food == "muffin") {
-	print("Yesss")
+	println("Yesss")
 } else if (food == "tomato") {
-	print("Yummy")
+	println("Yummy")
 } else if (food == "orange") {
-	print("My favorite juice flavor!")
+	println("My favorite juice flavor!")
 } else {
-	print("I don't know this food!")
+	println("I don't know this food!")
 } // Expected: My favorite juice flavor!
 
 var array = []
@@ -26,7 +26,7 @@ for (var i = 0; i < 3; i++) {
 	array.add("banana")
 }
 
-print(array) // Expected: [ "banana", "banana", "banana" ]
+println(array) // Expected: [ "banana", "banana", "banana" ]
 
 var sum = 0
 
@@ -35,7 +35,7 @@ for (var i in 1 .. 3) {
 	sum += i
 }
 
-print(sum) // Expected: 6
+println(sum) // Expected: 6
 
 var iterations = 0
 
@@ -44,7 +44,7 @@ while (sum > 0) {
 	iterations++
 }
 
-print(iterations) // Expected: 3
+println(iterations) // Expected: 3
 
 /*
  * Nothing new? Well, almost, there are a few things.
@@ -53,18 +53,18 @@ print(iterations) // Expected: 3
  */
 
 if true {
-	print("Yes")
+	println("Yes")
 } // Expected: Yes
 
 // And also, instead of doing this:
 var condition = false
 
 if (!(condition || false)) {
-	print("Orange")
+	println("Orange")
 } // Expected: Orange
 
 // You can do this:
 
 if !(condition || false) {
-	print("Banana")
+	println("Banana")
 } // Expected: Banana

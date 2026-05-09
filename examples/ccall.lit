@@ -1,7 +1,7 @@
 var start = time()
 
-for (var i in 0 .. 999999) {
+for (var i in 0 .. 999) {
 	time()
 }
 
-print("elapsed: " + (time() - start))
+println("elapsed: " + (time() - start))

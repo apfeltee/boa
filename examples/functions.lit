@@ -4,13 +4,13 @@
  */
 
 function welcome() {
-	print("Hello, World!")
+	println("Hello, World!")
 }
 
 welcome() // Expected: Hello, World!
 var result = welcome() // Expected: Hello, World!
 
-print(result) // Expected: null
+println(result) // Expected: null
 
 /*
  * This function takes two arguments, a and b. If you provide more than that,
@@ -21,11 +21,11 @@ function sum(a, b) {
 	return a + b
 }
 
-print(sum(10, 20)) // Expected: 30
+println(sum(10, 20)) // Expected: 30
 
 // Functions are variables too, and you can use that to your advantage!
 var totallyNotSumFunction = sum
-print(totallyNotSumFunction(1, 2)) // Expected: 3
+println(totallyNotSumFunction(1, 2)) // Expected: 3
 
 // You can even pass functions to other functions!
 function caller(callback) {
@@ -33,23 +33,23 @@ function caller(callback) {
 }
 
 function tester(arg) {
-	print(arg)
+	println(arg)
 }
 
 caller(tester) // Expected: test
 
 // For cases like this, you can use lambdas - functions, without names:
 
-caller((arg) => print(arg)) // Expected: test
+caller((arg) => println(arg)) // Expected: test
 
 caller((arg) => {
-	print("Whatever")
+	println("Whatever")
 	return 3
 }) // Expected: Whatever
 
 // Functions can also specify default values for arguments, in case user doesn't provide them:
 function rain(where, what = "chocolate") {
-	print($"It's raining {what} in the {where}!")
+	println(`It's raining {what} in the {where}!`)
 }
 
 rain("town") // Expected: It's raining chocolate in the town!
@@ -70,19 +70,19 @@ rain("city", "lemonade") // Expected: It's raining lemonade in the city!
  */
 
 function check(...) {
-	print(...[0] == "coffee")
+	println(...[0] == "coffee")
 }
 
 // Note, that the vararg must be the last one in the parameters list.
 function shout(a, ...) {
-	print(a) // Expected: tea
+	println(a) // Expected: tea
 
 	var b = ...
-	print(b) // Expected: [ "coffee", "sugar" ]
+	println(b) // Expected: [ "coffee", "sugar" ]
 	
 	// You can treat ... as a regular variable:
 	for var arg in ... {
-		print(arg) // Expected: coffee
+		println(arg) // Expected: coffee
 		// Expected: sugar
 	}
 
@@ -94,7 +94,7 @@ shout("tea", "coffee", "sugar")
 // Warning: we are entering advaned territory here: upvalues!
 function makePrinter(text) {
 	return () => {
-		print($"Printer goes brr and prints {text}")
+		println(`Printer goes brr and prints {text}`)
 	}
 }
 

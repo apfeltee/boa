@@ -314,6 +314,8 @@ function main()
     src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
     var bfr = new BFRunner()
     println("src=", src)
+
+    println("bfr=", bfr)
     if(!bfr.compile(src, src.length))
     {
         println("failed to compile program");

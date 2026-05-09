@@ -26,7 +26,7 @@ var stretchDepth = maxDepth + 1
 
 var start = time()
 
-print($"stretch tree of depth {stretchDepth} check: {new Tree(0, stretchDepth).check()}")
+println(`stretch tree of depth {stretchDepth} check: {new Tree(0, stretchDepth).check()}`)
 
 var longLivedTree = new Tree(0, maxDepth)
 var iterations = 1
@@ -44,10 +44,10 @@ while (depth < stretchDepth) {
 		check = check + new Tree(i, depth).check() + new Tree(-i, depth).check()
 	}
 
-	print($"{iterations * 2} trees of depth {depth} check: {check}")
+	println(`{iterations * 2} trees of depth {depth} check: {check}`)
 	iterations = iterations / 4
 	depth = depth + 2
 }
 
-print($"long lived tree of depth {maxDepth} check: {longLivedTree.check()}")
-print($"elapsed: {time() - start}")
+println(`long lived tree of depth {maxDepth} check: {longLivedTree.check()}`)
+println(`elapsed: {time() - start}`)

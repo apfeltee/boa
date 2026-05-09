@@ -4,12 +4,12 @@
  */
 
 var walker = new Fiber(() => {
-	print("Walking...")
+	println("Walking...")
 
 	// Pause the execution of the fiber and go back to whoever called it
 	Fiber.yield()
 
-	print("And walking...")
+	println("And walking...")
 
 	// You can even return values with it
 	Fiber.yield("I'm tired")
@@ -17,15 +17,15 @@ var walker = new Fiber(() => {
 })
 
 walker.run() // Expected: Walking...
-print("Fiber returned control") // Expected: Fiber returned control
+println("Fiber returned control") // Expected: Fiber returned control
 
 var result = walker.run() // Expected: And walking...
-print(result) // Expected: I'm tired
+println(result) // Expected: I'm tired
 
 walker.run()
 
 // You can check, if the fiber ended execution yet
-print(walker.done) // Expected: true
+println(walker.done) // Expected: true
 
 /*
  * Fibers also double up as exception handles.
@@ -38,5 +38,5 @@ var errorMaker = new Fiber(() => {
 })
 
 // In order to catch the error, you have to call errorMaker.try() and not errorMaker.run()
-print(errorMaker.try()) // Expected: Attempt to call a null value
-print(errorMaker.error) // Expected: Attempt to call a null value
+println(errorMaker.try()) // Expected: Attempt to call a null value
+println(errorMaker.error) // Expected: Attempt to call a null value

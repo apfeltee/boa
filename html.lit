@@ -129,8 +129,7 @@ class App
                 gh.tag("h1", {}, "files: ")
                 gh.tag("ul", {}, function()
                 {
-                    var items = Directory.read(".")
-                    //var items = ["foo.exe", "stuff.mov", "source.f90", "runme.vbs", "twitter.php", "facebook.java"]
+                    var items = ["foo.exe", "stuff.mov", "source.f90", "runme.vbs", "twitter.php", "facebook.java"]
                     var len = items.length;
                     for(var i=0; i<items.length; i++)
                     {

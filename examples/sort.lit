@@ -1,9 +1,11 @@
 var a = []
 
-for (var i in 0 .. 999999) {
-	a.add(Random.int(-10000, 10000))
+for (var i in 0 .. 50) {
+	a.add(random())
 }
 
 var start = time()
+println("before sort: ", a)
 a.sort()
-print("elapsed: " + (time() - start))
+println("after sort: ", a)
+println("elapsed: " + (time() - start))

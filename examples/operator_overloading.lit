@@ -5,7 +5,7 @@ class Vector {
 	}
 
 	toString() {
-		return $"({this.x}, {this.y})"
+		return `({this.x}, {this.y})`
 	}
 
 	operator + (v) {
@@ -42,14 +42,14 @@ class Vector {
 }
 
 var a = new Vector(2, 3)
-print(a) // Expected: (2, 3)
-print(a[0]) // Expected: 2
-print(a[1]) // Expected: 3
+println(a) // Expected: (2, 3)
+println(a[0]) // Expected: 2
+println(a[1]) // Expected: 3
 
 var b = new Vector(4, 4)
 
-print(b) // Expected: (4, 4)
-print(a + b) // Expected: (6, 7)
+println(b) // Expected: (4, 4)
+println(a + b) // Expected: (6, 7)
 
 a[0] = 1
-print(a[0]) // Expected: 1
+println(a[0]) // Expected: 1
