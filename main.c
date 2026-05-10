@@ -14298,50 +14298,95 @@ bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, siz
         } \
     }
 
-#define lit_vmmac_invokemethoddefault(reg, bv, m, argc) \
-    LitResult invmtmpres;\
-    lit_vmmac_writeframe(state); \
-    LitClass* klass = lit_state_getclassfor(state, bv); \
-    if(klass == NULL) \
-    { \
-        lit_vmmac_fail(state, "use of method '%s' on a null value", m) \
-    } \
-    LitString* mthname = lit_string_copy(state, m); \
-    LitValue method; \
-    if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
-    { \
-        if(!lit_vmmac_callvalue(state, &fiber, method, reg, argc, &invmtmpres)) \
-        { \
-            return invmtmpres; \
-        } \
-    } \
-    else \
-    { \
-        lit_vmmac_fail(state, "attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data) \
-    } \
-    lit_vmmac_readframe(state, &fiber)
-
-#define lit_vmmac_invokemethodandcontinue(reg, bv, m, argc) \
-    LitResult invmcres; \
-    lit_vmmac_writeframe(state); \
-    LitClass* klass = lit_state_getclassfor(state, bv); \
-    if(klass == NULL) \
-    { \
-        lit_vmmac_fail(state, "only instances and classes have methods"); \
-    } \
-    LitString* mthname = lit_string_copy(state, m); \
-    LitValue method; \
-    if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
-    { \
-        if(!lit_vmmac_callvalue(state, &fiber, method, reg, argc, &invmcres)) \
-        { \
-           return invmcres; \
-        } \
-        lit_vmmac_readframe(state, &fiber); \
-        lit_vmmac_dispatchnext(); \
+LitResult lit_vmmac_invokemethoddefault(LitState* state, LitFiber** fiber, size_t reg, LitValue bv, const char* m, size_t argc)
+{
+    LitValue method;
+    LitResult tmpres;
+    LitString* mthname;
+    LitClass* klass;
+    lit_vmmac_writeframe(state);
+    klass = lit_state_getclassfor(state, bv);
+    if(klass == NULL)
+    {
+        if(lit_vm_raiseerror(state, "use of method '%s' on a null value", m))
+        {
+            if(!lit_vmmac_recoverstate(state, fiber, &tmpres))
+            {
+                return tmpres;
+            }
+            return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
+        }
+        else
+        {
+            lit_vmexec_popgc(state);
+            return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
+        }
     }
+    mthname = lit_string_copy(state, m);
+    if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method))
+    {
+        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &tmpres))
+        {
+            return tmpres;
+        }
+    }
+    else
+    {
+        if(lit_vm_raiseerror(state, "attempt to call method '%s', that is not defined in class %s", mthname->strbuf.data, klass->name->strbuf.data))
+        {
+            if(!lit_vmmac_recoverstate(state, fiber, &tmpres))
+            {
+                return tmpres;
+            }
+            return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
+        }
+        else
+        {
+            lit_vmexec_popgc(state);
+            return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
+        }
+    }
+    lit_vmmac_readframe(state, fiber);
+    return lit_result_make(LIT_STATUS_OK, lit_value_makenull());
+}
 
-#define BINARY_INSTRUCTION(type, op, opstring) \
+LitResult lit_vmmac_invokemethodandcontinue(LitState* state, LitFiber** fiber, size_t reg, LitValue bv, const char* m, size_t argc)
+{
+    LitResult tmpres;
+    LitResult invmcres;
+    lit_vmmac_writeframe(state);
+    LitClass* klass = lit_state_getclassfor(state, bv);
+    if(klass == NULL)
+    {
+        if(lit_vm_raiseerror(state, "only instances and classes have methods"))
+        {
+            if(!lit_vmmac_recoverstate(state, fiber, &tmpres))
+            {
+                return tmpres;
+            }
+            return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
+        }
+        else
+        {
+            lit_vmexec_popgc(state);
+            return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
+        }
+    }
+    LitString* mthname = lit_string_copy(state, m);
+    LitValue method;
+    if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method))
+    {
+        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &invmcres))
+        {
+           return invmcres;
+        }
+        lit_vmmac_readframe(state, fiber);
+        return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
+    }
+    return lit_result_make(LIT_STATUS_OK, lit_value_makenull());
+}
+
+#define BINARY_INSTRUCTION(type_fn, rawoperator, opstring) \
     uint64_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction); \
     uint64_t rb = LIT_INSTRUCTION_B(state->vmstate.instruction); \
     uint64_t rc = LIT_INSTRUCTION_C(state->vmstate.instruction); \
@@ -14353,7 +14398,7 @@ bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, siz
         { \
             lit_vmmac_fail(state, "attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
         } \
-        state->vmstate.vmregisteritems[ra] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv)); \
+        state->vmstate.vmregisteritems[ra] = type_fn(lit_value_asnumber(bv) rawoperator lit_value_asnumber(cv)); \
     } \
     else \
     { \
@@ -14364,11 +14409,19 @@ bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, siz
         state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb); \
         LitValue tmpb = state->vmstate.vmregisteritems[ra + 1]; \
         state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc); \
-        lit_vmmac_invokemethoddefault(ra, state->vmstate.vmregisteritems[ra], opstring, 1); \
+        LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], opstring, 1); \
+        if(invres.type != LIT_STATUS_OK) \
+        { \
+            if(invres.type == LIT_STATUS_INVALID) \
+            { \
+                lit_vmmac_dispatchnext(); \
+            } \
+            return invres; \
+        } \
         state->vmstate.vmregisteritems[ra + 1] = tmpb; \
     }
 
-#define COMPARISON_INSTRUCTION(type, op, opstring) \
+#define COMPARISON_INSTRUCTION(type_fn, rawoperator, opstring) \
     uint64_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction); \
     uint64_t rb = LIT_INSTRUCTION_B(state->vmstate.instruction); \
     uint64_t rc = LIT_INSTRUCTION_C(state->vmstate.instruction); \
@@ -14380,7 +14433,7 @@ bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, siz
         { \
             lit_vmmac_fail(state, "attempt to use the operator %s with a number and a %s", opstring, lit_get_value_type(cv)); \
         } \
-        state->vmstate.vmregisteritems[ra] = type(lit_value_asnumber(bv) op lit_value_asnumber(cv)); \
+        state->vmstate.vmregisteritems[ra] = type_fn(lit_value_asnumber(bv) rawoperator lit_value_asnumber(cv)); \
     } \
     else if(lit_value_isnull(bv)) \
     { \
@@ -14391,7 +14444,15 @@ bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, siz
         state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb); \
         LitValue tmpb = state->vmstate.vmregisteritems[ra + 1]; \
         state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc); \
-        lit_vmmac_invokemethoddefault(ra, state->vmstate.vmregisteritems[ra], opstring, 1); \
+        LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], opstring, 1); \
+        if(invres.type != LIT_STATUS_OK) \
+        { \
+            if(invres.type == LIT_STATUS_INVALID) \
+            { \
+                lit_vmmac_dispatchnext(); \
+            } \
+            return invres; \
+        } \
         state->vmstate.vmregisteritems[ra + 1] = tmpb; \
     }
 
@@ -14669,7 +14730,17 @@ dispatch:
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
                 LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
-                lit_vmmac_invokemethoddefault(ra, state->vmstate.vmregisteritems[ra], "#", 1);
+                {
+                    LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "#", 1);
+                    if(invres.type != LIT_STATUS_OK)
+                    {
+                        if(invres.type == LIT_STATUS_INVALID)
+                        {
+                            lit_vmmac_dispatchnext();
+                        }
+                        return invres;
+                    }
+                }
                 state->vmstate.vmregisteritems[ra + 1] = tmpb;
             }
             lit_vmmac_dispatchnext();
@@ -14690,7 +14761,17 @@ dispatch:
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
                 LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
-                lit_vmmac_invokemethoddefault(ra, state->vmstate.vmregisteritems[ra], "%", 1);
+                {
+                    LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "%", 1);
+                    if(invres.type != LIT_STATUS_OK)
+                    {
+                        if(invres.type == LIT_STATUS_INVALID)
+                        {
+                            lit_vmmac_dispatchnext();
+                        }
+                        return invres;
+                    }
+                }
                 state->vmstate.vmregisteritems[ra + 1] = tmpb;
             }
             lit_vmmac_dispatchnext();
@@ -14711,7 +14792,17 @@ dispatch:
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
                 LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
-                lit_vmmac_invokemethoddefault(ra, state->vmstate.vmregisteritems[ra], "**", 1);
+                {
+                    LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "**", 1);
+                    if(invres.type != LIT_STATUS_OK)
+                    {
+                        if(invres.type == LIT_STATUS_INVALID)
+                        {
+                            lit_vmmac_dispatchnext();
+                        }
+                        return invres;
+                    }
+                }
                 state->vmstate.vmregisteritems[ra + 1] = tmpb;
             }
             lit_vmmac_dispatchnext();
@@ -14725,7 +14816,7 @@ dispatch:
             LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail(state, "operands of bitwise op %s must be two numbers, got %s and %s", "<<", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", "<<", lit_get_value_type(bv), lit_get_value_type(cv));
             }
             ivbv = (int64_t)lit_value_asnumber(bv);
             ivbc = (int64_t)lit_value_asnumber(cv);
@@ -14746,7 +14837,7 @@ dispatch:
             LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail(state, "operands of bitwise op %s must be two numbers, got %s and %s", ">>", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", ">>", lit_get_value_type(bv), lit_get_value_type(cv));
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) >> (int64_t)lit_value_asnumber(cv)));
             lit_vmmac_dispatchnext();
@@ -14757,7 +14848,7 @@ dispatch:
             LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail(state, "operands of bitwise op %s must be two numbers, got %s and %s", "^", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", "^", lit_get_value_type(bv), lit_get_value_type(cv));
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) ^ (int64_t)lit_value_asnumber(cv)));
             lit_vmmac_dispatchnext();
@@ -14768,7 +14859,7 @@ dispatch:
             LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail(state, "operands of bitwise op %s must be two numbers, got %s and %s", "&", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", "&", lit_get_value_type(bv), lit_get_value_type(cv));
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) & (int64_t)lit_value_asnumber(cv)));
             lit_vmmac_dispatchnext();
@@ -14779,7 +14870,7 @@ dispatch:
             LitValue cv = lit_vmmac_getrc(state, LIT_INSTRUCTION_C(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
-                lit_vmmac_fail(state, "operands of bitwise op %s must be two numbers, got %s and %s", "|", lit_get_value_type(bv), lit_get_value_type(cv));
+                lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", "|", lit_get_value_type(bv), lit_get_value_type(cv));
             }
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = (lit_value_makenumber((int64_t)lit_value_asnumber(bv) | (int64_t)lit_value_asnumber(cv)));
             lit_vmmac_dispatchnext();
@@ -14842,7 +14933,17 @@ dispatch:
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
                 tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
-                lit_vmmac_invokemethodandcontinue(ra, state->vmstate.vmregisteritems[ra], "==", 1);
+                {
+                    LitResult invres = lit_vmmac_invokemethodandcontinue(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "==", 1);
+                    if(invres.type != LIT_STATUS_OK)
+                    {
+                        if(invres.type == LIT_STATUS_INVALID)
+                        {
+                            lit_vmmac_dispatchnext();
+                        }
+                        return invres;
+                    }
+                }
                 state->vmstate.vmregisteritems[ra + 1] = tmpb;
             }
             ptmp = lit_vmmac_getrc(state, rc);
@@ -14893,7 +14994,15 @@ dispatch:
             value = lit_vmmac_getrc(state, rb);
             if(lit_value_isinstance(value))
             {
-                lit_vmmac_invokemethodandcontinue(rb, value, "!", 0);
+                LitResult invres = lit_vmmac_invokemethodandcontinue(state, &fiber, rb, value, "!", 0);
+                if(invres.type != LIT_STATUS_OK)
+                {
+                    if(invres.type == LIT_STATUS_INVALID)
+                    {
+                        lit_vmmac_dispatchnext();
+                    }
+                    return invres;
+                }
             }
             state->vmstate.vmregisteritems[ra] = lit_value_makebool(lit_is_falsey(value));
             lit_vmmac_dispatchnext();
@@ -15373,7 +15482,17 @@ dispatch:
         {
             uint8_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             LitValue instance = lit_vmmac_getrc(state, ra);
-            lit_vmmac_invokemethoddefault(ra, instance, "[]", 1);
+            {
+                LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, instance, "[]", 1);
+                if(invres.type != LIT_STATUS_OK)
+                {
+                    if(invres.type == LIT_STATUS_INVALID)
+                    {
+                        lit_vmmac_dispatchnext();
+                    }
+                    return invres;
+                }
+            }
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_SUBSCRIPTSET)
@@ -15382,7 +15501,17 @@ dispatch:
             LitValue instance;
             ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             instance = lit_vmmac_getrc(state, ra);
-            lit_vmmac_invokemethoddefault(ra, instance, "[]", 2);
+            {
+                LitResult invres = lit_vmmac_invokemethoddefault(state, &fiber, ra, instance, "[]", 2);
+                if(invres.type != LIT_STATUS_OK)
+                {
+                    if(invres.type == LIT_STATUS_INVALID)
+                    {
+                        lit_vmmac_dispatchnext();
+                    }
+                    return invres;
+                }
+            }
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_ARRAYPUSH)
@@ -15481,7 +15610,7 @@ dispatch:
         default:
 #endif
         {
-            lit_vmmac_fail(state, "unknown op %i", state->vmstate.instruction);
+            lit_vmmac_fail(state, "unknown opcode %i", state->vmstate.instruction);
             lit_vmexec_popgc(state);
             return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());            
         }
