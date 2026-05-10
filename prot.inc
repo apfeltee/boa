@@ -693,6 +693,7 @@ void lit_vmmac_readframe(LitState *state, LitFiber **destfiber);
 void lit_vmmac_writeframe(LitState *state);
 bool lit_vmmac_recoverstate(LitState *state, LitFiber **fiber, LitResult *result);
 LitValue lit_vmmac_getrc(LitState *state, int64_t r);
+bool lit_vmmac_callvalue(LitState *state, LitFiber **fiber, LitValue callee, size_t reg, size_t argc, LitResult *res);
 LitResult lit_state_execfiber(LitState *state, LitFiber *fiber);
 void lit_native_exit_jump(void);
 void lit_cli_interupthandler(int signalid);

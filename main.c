@@ -446,9 +446,9 @@ enum LitOpCode
     OP_LOADNULL, /* R(A) := null */
     OP_LOADBOOL, /* R(A) := (bool) B */
     OP_CLOSURE, /* R(A) := PrC[Bx] */
-    OP_ARRAY, /* R(A) := new Array(Bx) */
-    OP_OBJECT, /* R(A) = new Object() */
-    OP_RANGE, /* R(A) = new Range(RC(B), RC(C)) */
+    OP_MAKEARRAY, /* R(A) := new Array(Bx) */
+    OP_MAKEOBJECT, /* R(A) = new Object() */
+    OP_MAKERANGE, /* R(A) = new Range(RC(B), RC(C)) */
     OP_RETURN, /* return R(A) */
     OP_ADD, /* R(A) := RC(B) + RC(C) */
     OP_SUBTRACT, /* R(A) := RC(B) - RC(C) */
@@ -8598,7 +8598,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             size_t i;
             LitArrayExpression* expr = (LitArrayExpression*)expression;
             uint8_t r = lit_emitter_reserveregister(emitter);
-            lit_emitter_emitabx(emitter, expression->line, OP_ARRAY, reg, expr->values.count);
+            lit_emitter_emitabx(emitter, expression->line, OP_MAKEARRAY, reg, expr->values.count);
             for(i = 0; i < expr->values.count; i++)
             {
                 lit_emitter_emitexpr(emitter, expr->values.values[i], r);
@@ -8612,7 +8612,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             size_t i;
             LitObjectExpression* expr = (LitObjectExpression*)expression;
             uint8_t r = lit_emitter_reserveregister(emitter);
-            lit_emitter_emitabc(emitter, expression->line, OP_OBJECT, reg, 0, 0);
+            lit_emitter_emitabc(emitter, expression->line, OP_MAKEOBJECT, reg, 0, 0);
             for(i = 0; i < expr->values.count; i++)
             {
                 lit_emitter_emitexpr(emitter, expr->values.values[i], r);
@@ -8688,7 +8688,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
             lit_emitter_emitexpr(emitter, expr->to, reg);
             uint8_t regb = lit_emitter_reserveregister(emitter);
             lit_emitter_emitexpr(emitter, expr->from, regb);
-            lit_emitter_emitabc(emitter, expression->line, OP_RANGE, reg, regb, reg);
+            lit_emitter_emitabc(emitter, expression->line, OP_MAKERANGE, reg, regb, reg);
             lit_emitter_freeregister(emitter, regb);
             break;
         }
@@ -8696,7 +8696,7 @@ void lit_emitter_emitexprfull(LitEmitter* emitter, LitExpression* expression, ui
         {
             size_t i;
             LitInterpolationExpression* expr = (LitInterpolationExpression*)expression;
-            lit_emitter_emitabx(emitter, expression->line, OP_ARRAY, reg, expr->expressions.count);
+            lit_emitter_emitabx(emitter, expression->line, OP_MAKEARRAY, reg, expr->expressions.count);
             uint8_t r = lit_emitter_reserveregister(emitter);
             for(i = 0; i < expr->expressions.count; i++)
             {
@@ -9642,9 +9642,9 @@ void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const
                 OPCODE(OP_LOADNULL, "LOAD_NULL", LIT_INSTYP_ABC) /* R(A) := null */
                 OPCODE(OP_LOADBOOL, "LOAD_BOOL", LIT_INSTYP_ABC) /* R(A) := (bool) B */
                 OPCODE(OP_CLOSURE, "CLOSURE", LIT_INSTYP_ABX) /* R(A) := PrC[Bx] */
-                OPCODE(OP_ARRAY, "ARRAY", LIT_INSTYP_ABX) /* R(A) := new Array(Bx) */
-                OPCODE(OP_OBJECT, "OBJECT", LIT_INSTYP_ABC) /* R(A) = new Object() */
-                OPCODE(OP_RANGE, "RANGE", LIT_INSTYP_ABC) /* R(A) = new Range(RC(B), RC(C)) */
+                OPCODE(OP_MAKEARRAY, "ARRAY", LIT_INSTYP_ABX) /* R(A) := new Array(Bx) */
+                OPCODE(OP_MAKEOBJECT, "OBJECT", LIT_INSTYP_ABC) /* R(A) = new Object() */
+                OPCODE(OP_MAKERANGE, "RANGE", LIT_INSTYP_ABC) /* R(A) = new Range(RC(B), RC(C)) */
                 OPCODE(OP_RETURN, "RETURN", LIT_INSTYP_ABC) /* return R(A) */
                 OPCODE(OP_ADD, "ADD", LIT_INSTYP_ABC) /* R(A) := RC(B) + RC(C) */
                 OPCODE(OP_SUBTRACT, "SUBTRACT", LIT_INSTYP_ABC) /* R(A) := RC(B) - RC(C) */
@@ -14246,17 +14246,17 @@ bool lit_vmmac_recoverstate(LitState* state, LitFiber** fiber, LitResult* result
     if((*fiber) == NULL)
     {
         *result = lit_result_make(LIT_STATUS_OK, lit_value_makenull());
-        return true;
+        return false;
     }
     if((*fiber)->abort)
     {
         lit_vmexec_popgc(state);
         *result = lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
-        return true;
+        return false;
     }
     lit_vmmac_readframe(state, fiber);
     lit_vmexec_traceframe(state, *fiber);
-    return false;
+    return true;
 }
 
 LitValue lit_vmmac_getrc(LitState* state, int64_t r)
@@ -14268,15 +14268,26 @@ LitValue lit_vmmac_getrc(LitState* state, int64_t r)
     return state->vmstate.vmregisteritems[r];
 }
 
+bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, size_t reg, size_t argc, LitResult* res)
+{
+    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee))
+    {
+        if(!lit_vmmac_recoverstate(state, fiber, res))
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 #define lit_vmmac_fail(state, ...) \
     { \
-        LitResult tmpres; \
+        LitResult tmprecoverres; \
         if(lit_vm_raiseerror(state, __VA_ARGS__)) \
         { \
-            if(lit_vmmac_recoverstate(state, &fiber, &tmpres)) \
+            if(!lit_vmmac_recoverstate(state, &fiber, &tmprecoverres)) \
             { \
-                return tmpres; \
+                return tmprecoverres; \
             } \
             lit_vmmac_dispatchnext(); \
         } \
@@ -14287,18 +14298,8 @@ LitValue lit_vmmac_getrc(LitState* state, int64_t r)
         } \
     }
 
-#define lit_vmmac_callvalue(state, callee, reg, argc) \
-    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee)) \
-    { \
-        LitResult tmpres; \
-        if(lit_vmmac_recoverstate(state, &fiber, &tmpres)) \
-        { \
-            return tmpres; \
-        } \
-    }
-
-
 #define lit_vmmac_invokemethoddefault(reg, bv, m, argc) \
+    LitResult invmtmpres;\
     lit_vmmac_writeframe(state); \
     LitClass* klass = lit_state_getclassfor(state, bv); \
     if(klass == NULL) \
@@ -14309,7 +14310,10 @@ LitValue lit_vmmac_getrc(LitState* state, int64_t r)
     LitValue method; \
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
     { \
-        lit_vmmac_callvalue(state, method, reg, argc) \
+        if(!lit_vmmac_callvalue(state, &fiber, method, reg, argc, &invmtmpres)) \
+        { \
+            return invmtmpres; \
+        } \
     } \
     else \
     { \
@@ -14318,6 +14322,7 @@ LitValue lit_vmmac_getrc(LitState* state, int64_t r)
     lit_vmmac_readframe(state, &fiber)
 
 #define lit_vmmac_invokemethodandcontinue(reg, bv, m, argc) \
+    LitResult invmcres; \
     lit_vmmac_writeframe(state); \
     LitClass* klass = lit_state_getclassfor(state, bv); \
     if(klass == NULL) \
@@ -14328,7 +14333,10 @@ LitValue lit_vmmac_getrc(LitState* state, int64_t r)
     LitValue method; \
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->methods, mthname, &method)) \
     { \
-        lit_vmmac_callvalue(state, method, reg, argc); \
+        if(!lit_vmmac_callvalue(state, &fiber, method, reg, argc, &invmcres)) \
+        { \
+           return invmcres; \
+        } \
         lit_vmmac_readframe(state, &fiber); \
         lit_vmmac_dispatchnext(); \
     }
@@ -14398,9 +14406,9 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
         &&LABELNAME(OP_LOADNULL),
         &&LABELNAME(OP_LOADBOOL),
         &&LABELNAME(OP_CLOSURE),
-        &&LABELNAME(OP_ARRAY),
-        &&LABELNAME(OP_OBJECT),
-        &&LABELNAME(OP_RANGE),
+        &&LABELNAME(OP_MAKEARRAY),
+        &&LABELNAME(OP_MAKEOBJECT),
+        &&LABELNAME(OP_MAKERANGE),
         &&LABELNAME(OP_RETURN),
         &&LABELNAME(OP_ADD),
         &&LABELNAME(OP_SUBTRACT),
@@ -14539,7 +14547,7 @@ dispatch:
             }
             lit_vmmac_dispatchnext();
         }
-        CASE_CODE(OP_ARRAY)
+        CASE_CODE(OP_MAKEARRAY)
         {
             size_t sz;
             uint64_t ra;
@@ -14564,14 +14572,14 @@ dispatch:
             lit_dynlistval_ensureactualsize(&array->values, sz);
             lit_vmmac_dispatchnext();
         }
-        CASE_CODE(OP_OBJECT)
+        CASE_CODE(OP_MAKEOBJECT)
         {
             uint64_t ra;
             ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             state->vmstate.vmregisteritems[ra] = lit_value_fromobject(lit_object_makeinstance(state, state->object_class));
             lit_vmmac_dispatchnext();
         }
-        CASE_CODE(OP_RANGE)
+        CASE_CODE(OP_MAKERANGE)
         {
             uint64_t ra;
             uint64_t rb;
@@ -15020,6 +15028,7 @@ dispatch:
         }
         CASE_CODE(OP_FIELDGET)
         {
+            LitResult tmpres;
             LitValue object = state->vmstate.vmregisteritems[LIT_INSTRUCTION_B(state->vmstate.instruction)];
             if(lit_value_isnull(object))
             {
@@ -15043,7 +15052,10 @@ dispatch:
                                 lit_vmmac_fail(state, "class %s does not have a getter for the field %s", instance->klass->name->strbuf.data, name->strbuf.data);
                             }
                             lit_vmmac_writeframe(state);
-                            lit_vmmac_callvalue(state, lit_value_fromobject(AS_FIELD(value)->getter), ra, 0);
+                            if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(AS_FIELD(value)->getter), ra, 0, &tmpres))
+                            {
+                                return tmpres;
+                            }
                             lit_vmmac_readframe(state, &fiber);
                             lit_vmmac_dispatchnext();
                         }
@@ -15075,7 +15087,10 @@ dispatch:
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe(state);
-                        lit_vmmac_callvalue(state, lit_value_fromobject(field->getter), ra, 0);
+                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->getter), ra, 0, &tmpres))
+                        {
+                            return tmpres;
+                        }
                         lit_vmmac_readframe(state, &fiber);
                         lit_vmmac_dispatchnext();
                     }
@@ -15102,7 +15117,10 @@ dispatch:
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
                         }
                         lit_vmmac_writeframe(state);
-                        lit_vmmac_callvalue(state, lit_value_fromobject(AS_FIELD(value)->getter), ra, 0);
+                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(AS_FIELD(value)->getter), ra, 0, &tmpres))
+                        {
+                            return tmpres;
+                        }
                         lit_vmmac_readframe(state, &fiber);
                         lit_vmmac_dispatchnext();
                     }
@@ -15138,6 +15156,7 @@ dispatch:
         }
         CASE_CODE(OP_FIELDSET)
         {
+            LitResult tmpres;
             uint8_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             LitValue instance = state->vmstate.vmregisteritems[ra];
             if(lit_value_isnull(instance))
@@ -15158,7 +15177,10 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe(state);
-                    lit_vmmac_callvalue(state, lit_value_fromobject(field->setter), ra, 1);
+                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    {
+                        return tmpres;
+                    }
                     lit_vmmac_readframe(state, &fiber);
                     lit_vmmac_dispatchnext();
                 }
@@ -15183,7 +15205,10 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", inst->klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe(state);
-                    lit_vmmac_callvalue(state, lit_value_fromobject(field->setter), ra, 1);
+                    if(!lit_vmmac_callvalue(state, &fiber,lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    {
+                        return tmpres;
+                    }
                     lit_vmmac_readframe(state, &fiber);
                     lit_vmmac_dispatchnext();
                 }
@@ -15212,7 +15237,10 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
                     }
                     lit_vmmac_writeframe(state);
-                    lit_vmmac_callvalue(state, lit_value_fromobject(field->setter), ra, 1);
+                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    {
+                        return tmpres;
+                    }
                     lit_vmmac_readframe(state, &fiber);
                     lit_vmmac_dispatchnext();
                 }
@@ -15260,6 +15288,7 @@ dispatch:
         }
         CASE_CODE(OP_INVOKE)
         {
+            LitResult tmpres;
             lit_vmmac_writeframe(state);
             uint8_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             LitValue instance = state->vmstate.vmregisteritems[ra];
@@ -15277,15 +15306,24 @@ dispatch:
             LitValue method;
             if(lit_value_isinstance(instance) && (lit_table_getentry(&lit_value_asinstance(instance)->fields, mthname, &method)))
             {
-                lit_vmmac_callvalue(state, method, ra, argc);
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                {
+                    return tmpres;
+                }
             }
             else if(IS_CLASS(instance) && lit_table_getentry(&klass->static_fields, mthname, &method))
             {
-                lit_vmmac_callvalue(state, method, ra, argc);
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                {
+                    return tmpres;
+                }
             }
             else if(lit_table_getentry(&klass->methods, mthname, &method))
             {
-                lit_vmmac_callvalue(state, method, ra, argc);
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                {
+                    return tmpres;
+                }
             }
             else
             {
@@ -15297,6 +15335,7 @@ dispatch:
         CASE_CODE(OP_INVOKESUPER)
         {
             size_t i;
+            LitResult tmpres;
             lit_vmmac_writeframe(state);
             uint8_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
             LitValue instance = state->vmstate.vmregisteritems[ra + 1];
@@ -15318,7 +15357,10 @@ dispatch:
                 {
                     state->vmstate.vmregisteritems[i] = state->vmstate.vmregisteritems[i + 1];
                 }
-                lit_vmmac_callvalue(state, method, ra, argc);
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                {
+                    return tmpres;
+                }
             }
             else
             {
@@ -15336,15 +15378,22 @@ dispatch:
         }
         CASE_CODE(OP_SUBSCRIPTSET)
         {
-            uint8_t ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
-            LitValue instance = lit_vmmac_getrc(state, ra);
+            uint8_t ra;
+            LitValue instance;
+            ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
+            instance = lit_vmmac_getrc(state, ra);
             lit_vmmac_invokemethoddefault(ra, instance, "[]", 2);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_ARRAYPUSH)
         {
-            LitDynListVal* array = &lit_value_asarray(state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)])->values;
-            lit_vallist_push(array, lit_vmmac_getrc(state, LIT_INSTRUCTION_BX(state->vmstate.instruction)));
+            uint64_t ra;
+            LitValue pval;
+            LitArray* array;
+            ra = LIT_INSTRUCTION_A(state->vmstate.instruction);
+            array = lit_value_asarray(state->vmstate.vmregisteritems[ra]);
+            pval = lit_vmmac_getrc(state, LIT_INSTRUCTION_BX(state->vmstate.instruction));
+            lit_array_push(array, pval);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_OBJECTPUSH)
