@@ -4,6 +4,6 @@ println(-(-20)) // Expected: 20
 println(!true) // Expected: false
 println(!false) // Expected: true
 println(!null) // Expected: true
-//println(!!null) // Expected: false
+println(!!null) // Expected: false
 println(!0) // Expected: true
 println(!1) // Expected: false
