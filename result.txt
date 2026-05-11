@@ -53,6 +53,9 @@ main.c:18:0: information: Include file: <sys/stat.h> not found. Please note: Cpp
 main.c:19:0: information: Include file: <memory.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
 #include <memory.h>
 ^
+main.c:20:0: information: Include file: <fcntl.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <fcntl.h>
+^
 allocator.h:28:0: information: Include file: <stdbool.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
 #include <stdbool.h>
 ^
@@ -71,161 +74,227 @@ allocator.h:78:0: information: Include file: <errno.h> not found. Please note: C
 allocator.h:79:0: information: Include file: <sys/mman.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
     #include <sys/mman.h>
 ^
-main.c:25:0: information: Include file: <dirent.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+optparse.h:47:0: information: Include file: <stdbool.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdbool.h>
+^
+oslib.h:5:0: information: Include file: <stdbool.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdbool.h>
+^
+oslib.h:6:0: information: Include file: <time.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <time.h>
+^
+lino.h:110:0: information: Include file: <stdint.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdint.h>
+^
+lino.h:111:0: information: Include file: <stddef.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stddef.h>
+^
+lino.h:112:0: information: Include file: <stdlib.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+^
+lino.h:113:0: information: Include file: <stdio.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdio.h>
+^
+lino.h:114:0: information: Include file: <errno.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <errno.h>
+^
+lino.h:115:0: information: Include file: <string.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <string.h>
+^
+lino.h:116:0: information: Include file: <stdlib.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <stdlib.h>
+^
+lino.h:117:0: information: Include file: <ctype.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <ctype.h>
+^
+lino.h:118:0: information: Include file: <sys/stat.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <sys/stat.h>
+^
+lino.h:119:0: information: Include file: <sys/types.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <sys/types.h>
+^
+lino.h:120:0: information: Include file: <fcntl.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <fcntl.h>
+^
+lino.h:121:0: information: Include file: <assert.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+#include <assert.h>
+^
+main.c:33:0: information: Include file: <dirent.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
     #include <dirent.h>
 ^
-main.c:30:0: information: Include file: <readline/readline.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
-    #include <readline/readline.h>
-^
-main.c:31:0: information: Include file: <readline/history.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
-    #include <readline/history.h>
-^
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1...
-main.c:2816:9: warning: Assignment of function parameter has no effect outside the function. Did you forget dereferencing it? [uselessAssignmentPtrArg]
+main.c:2815:9: warning: Assignment of function parameter has no effect outside the function. Did you forget dereferencing it? [uselessAssignmentPtrArg]
         pr = NULL;
         ^
-main.c:1980:26: style: Condition 'findmelen>0' is always true [knownConditionTrueFalse]
+lino.h:1647:55: style: Condition 'lino_context_enablerawmode(ctx,fileno(stdin))==-1' is always true [knownConditionTrueFalse]
+    if(lino_context_enablerawmode(ctx, fileno(stdin)) == -1)
+                                                      ^
+lino.h:1647:34: note: Calling function 'lino_context_enablerawmode' returns -1
+    if(lino_context_enablerawmode(ctx, fileno(stdin)) == -1)
+                                 ^
+lino.h:1647:55: note: Condition 'lino_context_enablerawmode(ctx,fileno(stdin))==-1' is always true
+    if(lino_context_enablerawmode(ctx, fileno(stdin)) == -1)
+                                                      ^
+main.c:1984:26: style: Condition 'findmelen>0' is always true [knownConditionTrueFalse]
             if(findmelen > 0)
                          ^
-main.c:1972:80: note: Assuming that condition 'findmelen==0' is not redundant
+main.c:1976:80: note: Assuming that condition 'findmelen==0' is not redundant
     if((from->length == 0 && findmelen == 0) || from->length == 0 || findmelen == 0)
                                                                                ^
-main.c:1980:26: note: Condition 'findmelen>0' is always true
+main.c:1984:26: note: Condition 'findmelen>0' is always true
             if(findmelen > 0)
                          ^
-main.c:9327:36: style: Condition 'prevline' is always true [knownConditionTrueFalse]
+main.c:8312:26: style: Condition 'index==-1' is always false [knownConditionTrueFalse]
+                if(index == -1)
+                         ^
+main.c:8316:30: style: Condition 'index==-1' is always false [knownConditionTrueFalse]
+                    if(index == -1)
+                             ^
+main.c:8319:34: style: Condition 'index==-1' is always false [knownConditionTrueFalse]
+                        if(index == -1)
+                                 ^
+main.c:9548:36: style: Condition 'prevline' is always true [knownConditionTrueFalse]
                 char* outputline = prevline ? prevline : nextline;
                                    ^
-main.c:9645:18: style: Condition 'entry==NULL' is always false [knownConditionTrueFalse]
+main.c:9865:18: style: Condition 'entry==NULL' is always false [knownConditionTrueFalse]
         if(entry == NULL)
                  ^
-main.c:8173:21: portability: %d in format string (no. 3) requires 'int' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-                    fprintf(stderr, "callexpression error: arg_reg (%d) != reg (%d) + i (%d) + supadd (%d)\n", arg_reg, reg, i, supadd);
+main.c:10445:32: style: Condition 'varargcount>0' is always true [knownConditionTrueFalse]
+                if(varargcount > 0)
+                               ^
+main.c:10444:62: note: Assignment 'varargcount=argc-functionargcount+1', assigned value is greater than 0
+                size_t varargcount = argc - functionargcount + 1;
+                                                             ^
+main.c:10445:32: note: Condition 'varargcount>0' is always true
+                if(varargcount > 0)
+                               ^
+main.c:8426:21: portability: %ld in format string (no. 1) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
+                    fprintf(stderr, "callexpression error on line %ld: argreg (%d) != ((reg (%d) + i (%ld)) + supadd (%d)) == %ld\n", expression->line, argreg, reg, i, supadd, ((reg + i) + supadd));
                     ^
-main.c:10132:5: portability: %d in format string (no. 1) requires 'int' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-    printf("Fiber.constructor:argc=%d\n", argc);
+main.c:8426:21: portability: %ld in format string (no. 4) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
+                    fprintf(stderr, "callexpression error on line %ld: argreg (%d) != ((reg (%d) + i (%ld)) + supadd (%d)) == %ld\n", expression->line, argreg, reg, i, supadd, ((reg + i) + supadd));
+                    ^
+main.c:8426:21: portability: %ld in format string (no. 6) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
+                    fprintf(stderr, "callexpression error on line %ld: argreg (%d) != ((reg (%d) + i (%ld)) + supadd (%d)) == %ld\n", expression->line, argreg, reg, i, supadd, ((reg + i) + supadd));
+                    ^
+main.c:10346:5: portability: %ld in format string (no. 1) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
+    printf("Fiber.constructor:argc=%ld\n", argc);
     ^
-main.c:14037:5: portability: %ld in format string (no. 1) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-    fprintf(stderr, "-> f%ld %s{\n", framecount, prefix);
-    ^
-main.c:14040:9: portability: %ld in format string (no. 1) requires 'long' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-        fprintf(stderr, "  [%ld]: ", i);
-        ^
-main.c:1905:25: error: Null pointer dereference: tmpbuf [nullPointer]
+main.c:1912:25: error: Null pointer dereference: tmpbuf [nullPointer]
             memcpy(ptr, tmpbuf, sb->length);
                         ^
-main.c:1881:14: note: Assignment 'tmpbuf=NULL', assigned value is 0
+main.c:1888:14: note: Assignment 'tmpbuf=NULL', assigned value is 0
     tmpbuf = NULL;
              ^
-main.c:1897:16: note: Assuming condition is false
+main.c:1904:16: note: Assuming condition is false
         if(ptr == NULL)
                ^
-main.c:1905:25: note: Null pointer dereference
+main.c:1912:25: note: Null pointer dereference
             memcpy(ptr, tmpbuf, sb->length);
                         ^
-main.c:7482:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7732:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->type = type;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7482:5: note: Null pointer dereference
+main.c:7732:5: note: Null pointer dereference
     compiler->type = type;
     ^
-main.c:7483:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7733:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->scope_depth = -1;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7483:5: note: Null pointer dereference
+main.c:7733:5: note: Null pointer dereference
     compiler->scope_depth = -1;
     ^
-main.c:7484:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7734:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->enclosing = (struct LitCompiler*)emitter->compiler;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7484:5: note: Null pointer dereference
+main.c:7734:5: note: Null pointer dereference
     compiler->enclosing = (struct LitCompiler*)emitter->compiler;
     ^
-main.c:7485:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7735:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->skip_return = false;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7485:5: note: Null pointer dereference
+main.c:7735:5: note: Null pointer dereference
     compiler->skip_return = false;
     ^
-main.c:7486:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7736:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->function = lit_object_makefunction(emitter->pstate, emitter->module);
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7486:5: note: Null pointer dereference
+main.c:7736:5: note: Null pointer dereference
     compiler->function = lit_object_makefunction(emitter->pstate, emitter->module);
     ^
-main.c:7487:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7737:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->loop_depth = 0;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7487:5: note: Null pointer dereference
+main.c:7737:5: note: Null pointer dereference
     compiler->loop_depth = 0;
     ^
-main.c:7488:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7738:5: warning: Either the condition 'emitter->compiler==NULL' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->registers_used = 0;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==NULL' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7488:5: note: Null pointer dereference
+main.c:7738:5: note: Null pointer dereference
     compiler->registers_used = 0;
     ^
-main.c:9329:29: warning: Either the condition 'nextline' is redundant or there is possible null pointer dereference: outputline. [nullPointerRedundantCheck]
+main.c:9550:29: warning: Either the condition 'nextline' is redundant or there is possible null pointer dereference: outputline. [nullPointerRedundantCheck]
                 while((c = *outputline) && (c == '\t' || c == ' '))
                             ^
-main.c:9333:74: note: Assuming that condition 'nextline' is not redundant
+main.c:9554:74: note: Assuming that condition 'nextline' is not redundant
                 lit_iostream_printf(pr, "%s        %.*s%s\n", COLOR_RED, nextline ? (int)(nextline - outputline) : (int)strlen(prevline), outputline, COLOR_RESET);
                                                                          ^
-main.c:9327:45: note: Assignment 'outputline=prevline?prevline:nextline', assigned value is 0
+main.c:9548:45: note: Assignment 'outputline=prevline?prevline:nextline', assigned value is 0
                 char* outputline = prevline ? prevline : nextline;
                                             ^
-main.c:9329:29: note: Null pointer dereference
+main.c:9550:29: note: Null pointer dereference
                 while((c = *outputline) && (c == '\t' || c == ' '))
                             ^
-main.c:11911:12: warning: Either the condition 'file==NULL' is redundant or there is possible null pointer dereference: file. [nullPointerRedundantCheck]
+main.c:12065:12: warning: Either the condition 'file==NULL' is redundant or there is possible null pointer dereference: file. [nullPointerRedundantCheck]
     fclose(file);
            ^
-main.c:11907:13: note: Assuming that condition 'file==NULL' is not redundant
+main.c:12061:13: note: Assuming that condition 'file==NULL' is not redundant
     if(file == NULL)
             ^
-main.c:11911:12: note: Null pointer dereference
+main.c:12065:12: note: Null pointer dereference
     fclose(file);
            ^
 allocator.h:332:32: error: Pointer addition with NULL pointer. [nullPointerArithmetic]
@@ -237,7 +306,7 @@ allocator.h:725:61: note: Calling function 'mempool_util_chunk2mem', 1st argumen
 allocator.h:332:32: note: Null pointer addition
     return ((void*)((char*)(p) + MEMPOOL_CONST_TWOSIZETSIZES));
                                ^
-main.c:1905:25: error: Null pointer dereference [nullPointer]
+main.c:1912:25: error: Null pointer dereference [nullPointer]
             memcpy(ptr, tmpbuf, sb->length);
                         ^
 main.c:2699:16: style: Variable 'pr->wrmode' is reassigned a value before the old one has been used. [redundantAssignment]
@@ -249,22 +318,31 @@ main.c:2691:16: note: pr->wrmode is assigned
 main.c:2699:16: note: pr->wrmode is overwritten
     pr->wrmode = mode;
                ^
-main.c:8817:37: style: Variable 'emitter->loop_start' is reassigned a value before the old one has been used. [redundantAssignment]
+main.c:9068:37: style: Variable 'emitter->loop_start' is reassigned a value before the old one has been used. [redundantAssignment]
                 emitter->loop_start = start;
                                     ^
-main.c:8815:37: note: emitter->loop_start is assigned
+main.c:9066:37: note: emitter->loop_start is assigned
                 emitter->loop_start = start;
                                     ^
-main.c:8817:37: note: emitter->loop_start is overwritten
+main.c:9068:37: note: emitter->loop_start is overwritten
                 emitter->loop_start = start;
                                     ^
+main.c:15777:19: style: Variable 'value' is reassigned a value before the old one has been used. [redundantAssignment]
+            value = state->vmstate.frame->slots[1];
+                  ^
+main.c:15776:19: note: value is assigned
+            value = result.result;
+                  ^
+main.c:15777:19: note: value is overwritten
+            value = state->vmstate.frame->slots[1];
+                  ^
 allocator.h:676:7: style: Opposite expression on both sides of '&='. [oppositeExpression]
     x &= -x;
       ^
-main.c:5771:13: style: 'continue' is redundant since it is the last statement in a loop. [redundantContinue]
+main.c:6022:13: style: 'continue' is redundant since it is the last statement in a loop. [redundantContinue]
             continue;
             ^
-main.c:5779:13: style: 'continue' is redundant since it is the last statement in a loop. [redundantContinue]
+main.c:6030:13: style: 'continue' is redundant since it is the last statement in a loop. [redundantContinue]
             continue;
             ^
 allocator.h:1572:36: style: The scope of the variable 'r' can be reduced. [variableScope]
@@ -315,16 +393,94 @@ allocator.h:1759:11: style: The scope of the variable 'newmem' can be reduced. [
 allocator.h:1762:24: style: The scope of the variable 'next' can be reduced. [variableScope]
     MempoolPlainChunk* next;
                        ^
-main.c:1426:10: style: The scope of the variable 'tmp' can be reduced. [variableScope]
-    char tmp;
-         ^
-main.c:1513:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+optparse.h:244:9: style: The scope of the variable 'i' can be reduced. [variableScope]
+    int i;
+        ^
+optparse.h:410:17: style: The scope of the variable 'name' can be reduced. [variableScope]
+    const char* name;
+                ^
+lino.h:434:12: style: The scope of the variable 'len' can be reduced. [variableScope]
+    size_t len;
+           ^
+lino.h:450:9: style: The scope of the variable 'dif' can be reduced. [variableScope]
+    int dif;
+        ^
+lino.h:453:12: style: The scope of the variable 'len' can be reduced. [variableScope]
+    size_t len;
+           ^
+lino.h:721:9: style: The scope of the variable 'nwritten' can be reduced. [variableScope]
+    int nwritten;
+        ^
+lino.h:722:12: style: The scope of the variable 'i' can be reduced. [variableScope]
     size_t i;
            ^
-main.c:2049:11: style: The scope of the variable 'data' can be reduced. [variableScope]
+lino.h:723:12: style: The scope of the variable 'stop' can be reduced. [variableScope]
+    size_t stop;
+           ^
+lino.h:724:21: style: The scope of the variable 'saved' can be reduced. [variableScope]
+    linoeditstate_t saved;
+                    ^
+lino.h:884:9: style: The scope of the variable 'hintlen' can be reduced. [variableScope]
+    int hintlen;
+        ^
+lino.h:885:9: style: The scope of the variable 'hintmaxlen' can be reduced. [variableScope]
+    int hintmaxlen;
+        ^
+lino.h:887:11: style: The scope of the variable 'hint' can be reduced. [variableScope]
+    char* hint;
+          ^
+lino.h:888:10: style: The scope of the variable 'seq' can be reduced. [variableScope]
+    char seq[64];
+         ^
+lino.h:934:12: style: The scope of the variable 'off' can be reduced. [variableScope]
+    size_t off;
+           ^
+lino.h:996:9: style: The scope of the variable 'chlen' can be reduced. [variableScope]
+    int chlen;
+        ^
+lino.h:1066:18: style: The scope of the variable 'i' can be reduced. [variableScope]
+    unsigned int i;
+                 ^
+lino.h:1272:9: style: The scope of the variable 'ipos' can be reduced. [variableScope]
+    int ipos;
+        ^
+lino.h:1302:9: style: The scope of the variable 'chlen' can be reduced. [variableScope]
+    int chlen;
+        ^
+lino.h:1316:9: style: The scope of the variable 'chlen' can be reduced. [variableScope]
+    int chlen;
+        ^
+lino.h:1361:9: style: The scope of the variable 'nread' can be reduced. [variableScope]
+    int nread;
+        ^
+lino.h:1639:9: style: The scope of the variable 'nread' can be reduced. [variableScope]
+    int nread;
+        ^
+lino.h:1701:9: style: The scope of the variable 'ch' can be reduced. [variableScope]
+    int ch;
+        ^
+lino.h:1813:9: style: The scope of the variable 'j' can be reduced. [variableScope]
+    int j;
+        ^
+lino.h:1892:9: style: The scope of the variable 'j' can be reduced. [variableScope]
+    int j;
+        ^
+lino.h:1893:9: style: The scope of the variable 'tocopy' can be reduced. [variableScope]
+    int tocopy;
+        ^
+lino.h:1963:11: style: The scope of the variable 'p' can be reduced. [variableScope]
+    char* p;
+          ^
+main.c:1437:10: style: The scope of the variable 'tmp' can be reduced. [variableScope]
+    char tmp;
+         ^
+main.c:1524:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:2052:11: style: The scope of the variable 'data' can be reduced. [variableScope]
     char* data;
           ^
-main.c:2145:12: style: The scope of the variable 'v' can be reduced. [variableScope]
+main.c:2147:12: style: The scope of the variable 'v' can be reduced. [variableScope]
     size_t v;
            ^
 main.c:2405:12: style: The scope of the variable 'len' can be reduced. [variableScope]
@@ -336,123 +492,144 @@ main.c:2407:11: style: The scope of the variable 'tgt' can be reduced. [variable
 main.c:2408:11: style: The scope of the variable 'end' can be reduced. [variableScope]
     char* end;
           ^
-main.c:3370:20: style: The scope of the variable 'i' can be reduced. [variableScope]
+main.c:3328:20: style: The scope of the variable 'i' can be reduced. [variableScope]
             size_t i;
                    ^
-main.c:3987:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:3988:12: style: The scope of the variable 'index' can be reduced. [variableScope]
-    size_t index;
-           ^
-main.c:3991:14: style: The scope of the variable 'field' can be reduced. [variableScope]
-    LitValue field;
-             ^
-main.c:4044:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:4046:14: style: The scope of the variable 'field' can be reduced. [variableScope]
-    LitValue field;
-             ^
-main.c:4256:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:4603:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
-    LitTabEntry* entry;
-                 ^
-main.c:4618:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
-    LitTabEntry* entry;
-                 ^
-main.c:4633:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
-    LitTabEntry* entry;
-                 ^
-main.c:4652:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
-    LitTabEntry* entry;
-                 ^
-main.c:5588:10: style: The scope of the variable 'currch' can be reduced. [variableScope]
-    char currch;
-         ^
-main.c:5842:12: style: The scope of the variable 'kwlen' can be reduced. [variableScope]
-    size_t kwlen;
-           ^
-main.c:5843:12: style: The scope of the variable 'ofs' can be reduced. [variableScope]
-    size_t ofs;
-           ^
-main.c:5844:17: style: The scope of the variable 'kwtext' can be reduced. [variableScope]
-    const char* kwtext;
-                ^
-main.c:7616:9: style: The scope of the variable 'numberindex' can be reduced. [variableScope]
-    int numberindex;
-        ^
-main.c:8351:20: style: The scope of the variable 'i' can be reduced. [variableScope]
-            size_t i;
-                   ^
-main.c:8654:20: style: The scope of the variable 'i' can be reduced. [variableScope]
-            size_t i;
-                   ^
-main.c:9210:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:9640:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
-    LitTabEntry* entry;
-                 ^
-main.c:9835:16: style: The scope of the variable 'other' can be reduced. [variableScope]
-    LitString* other;
-               ^
-main.c:10190:9: style: The scope of the variable 'i' can be reduced. [variableScope]
-    int i;
-        ^
-main.c:10191:13: style: The scope of the variable 'ai' can be reduced. [variableScope]
-    uint8_t ai;
-            ^
-main.c:10380:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:10381:12: style: The scope of the variable 'count' can be reduced. [variableScope]
-    size_t count;
-           ^
-main.c:10382:14: style: The scope of the variable 'fill' can be reduced. [variableScope]
-    LitValue fill;
-             ^
-main.c:10493:9: style: The scope of the variable 'i' can be reduced. [variableScope]
-    int i;
-        ^
-main.c:10538:15: style: The scope of the variable 'ptr' can be reduced. [variableScope]
-    LitValue* ptr;
-              ^
-main.c:10559:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:11666:12: style: The scope of the variable 'i' can be reduced. [variableScope]
-    size_t i;
-           ^
-main.c:12038:10: style: The scope of the variable 'ch' can be reduced. [variableScope]
-    char ch;
-         ^
-main.c:12099:12: style: The scope of the variable 'fnlen' can be reduced. [variableScope]
-    size_t fnlen;
-           ^
-main.c:12104:17: style: The scope of the variable 'fname' can be reduced. [variableScope]
-    const char* fname;
-                ^
-main.c:12339:15: style: The scope of the variable 'klass' can be reduced. [variableScope]
-    LitClass* klass;
-              ^
-main.c:12475:12: style: The scope of the variable 'incsize' can be reduced. [variableScope]
-    size_t incsize;
-           ^
-main.c:12477:12: style: The scope of the variable 'inccap' can be reduced. [variableScope]
-    size_t inccap;
-           ^
-main.c:13036:9: style: The scope of the variable 'index' can be reduced. [variableScope]
+main.c:4015:9: style: The scope of the variable 'index' can be reduced. [variableScope]
     int index;
         ^
-main.c:13038:9: style: The scope of the variable 'codepoint' can be reduced. [variableScope]
+main.c:4017:9: style: The scope of the variable 'codepoint' can be reduced. [variableScope]
     int codepoint;
         ^
-main.c:13479:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+main.c:4286:10: style: The scope of the variable 'didprint' can be reduced. [variableScope]
+    bool didprint;
+         ^
+main.c:4287:12: style: The scope of the variable 'i' can be reduced. [variableScope]
     size_t i;
            ^
+main.c:4288:12: style: The scope of the variable 'index' can be reduced. [variableScope]
+    size_t index;
+           ^
+main.c:4290:14: style: The scope of the variable 'field' can be reduced. [variableScope]
+    LitValue field;
+             ^
+main.c:4343:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:4345:14: style: The scope of the variable 'field' can be reduced. [variableScope]
+    LitValue field;
+             ^
+main.c:4543:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:4844:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
+    LitTabEntry* entry;
+                 ^
+main.c:4859:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
+    LitTabEntry* entry;
+                 ^
+main.c:4874:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
+    LitTabEntry* entry;
+                 ^
+main.c:4893:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
+    LitTabEntry* entry;
+                 ^
+main.c:5825:10: style: The scope of the variable 'currch' can be reduced. [variableScope]
+    char currch;
+         ^
+main.c:6061:12: style: The scope of the variable 'kwlen' can be reduced. [variableScope]
+    size_t kwlen;
+           ^
+main.c:6062:12: style: The scope of the variable 'ofs' can be reduced. [variableScope]
+    size_t ofs;
+           ^
+main.c:6063:17: style: The scope of the variable 'kwtext' can be reduced. [variableScope]
+    const char* kwtext;
+                ^
+main.c:7870:9: style: The scope of the variable 'numberindex' can be reduced. [variableScope]
+    int numberindex;
+        ^
+main.c:8605:20: style: The scope of the variable 'i' can be reduced. [variableScope]
+            size_t i;
+                   ^
+main.c:8906:20: style: The scope of the variable 'i' can be reduced. [variableScope]
+            size_t i;
+                   ^
+main.c:9344:16: style: The scope of the variable 'priv' can be reduced. [variableScope]
+    LitPrivate priv;
+               ^
+main.c:9434:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:9860:18: style: The scope of the variable 'entry' can be reduced. [variableScope]
+    LitTabEntry* entry;
+                 ^
+main.c:10404:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:10405:12: style: The scope of the variable 'ai' can be reduced. [variableScope]
+    size_t ai;
+           ^
+main.c:10558:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:10559:12: style: The scope of the variable 'count' can be reduced. [variableScope]
+    size_t count;
+           ^
+main.c:10560:14: style: The scope of the variable 'fill' can be reduced. [variableScope]
+    LitValue fill;
+             ^
+main.c:10672:9: style: The scope of the variable 'i' can be reduced. [variableScope]
+    int i;
+        ^
+main.c:10717:15: style: The scope of the variable 'ptr' can be reduced. [variableScope]
+    LitValue* ptr;
+              ^
+main.c:10738:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:11838:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:12191:10: style: The scope of the variable 'ch' can be reduced. [variableScope]
+    char ch;
+         ^
+main.c:12247:12: style: The scope of the variable 'fnlen' can be reduced. [variableScope]
+    size_t fnlen;
+           ^
+main.c:12252:17: style: The scope of the variable 'fname' can be reduced. [variableScope]
+    const char* fname;
+                ^
+main.c:12480:15: style: The scope of the variable 'klass' can be reduced. [variableScope]
+    LitClass* klass;
+              ^
+main.c:12612:12: style: The scope of the variable 'incsize' can be reduced. [variableScope]
+    size_t incsize;
+           ^
+main.c:12614:12: style: The scope of the variable 'inccap' can be reduced. [variableScope]
+    size_t inccap;
+           ^
+main.c:13309:12: style: The scope of the variable 'i' can be reduced. [variableScope]
+    size_t i;
+           ^
+main.c:15802:9: style: The scope of the variable 'len' can be reduced. [variableScope]
+    int len;
+        ^
+main.c:15803:9: style: The scope of the variable 'pos' can be reduced. [variableScope]
+    int pos;
+        ^
+main.c:15864:10: style: The scope of the variable 'needval' can be reduced. [variableScope]
+    bool needval;
+         ^
+main.c:15865:10: style: The scope of the variable 'maybeval' can be reduced. [variableScope]
+    bool maybeval;
+         ^
+main.c:15866:10: style: The scope of the variable 'hadshort' can be reduced. [variableScope]
+    bool hadshort;
+         ^
+lino.h:675:1: style: Label 'failed' is not used. There is #if in function body so the label might be used in code that is removed by the preprocessor. [unusedLabelConfiguration]
+failed:
+^
 allocator.h:416:62: style: Parameter 'p' can be declared as pointer to const [constParameterPointer]
 MEMPOOL_INLINE bool mempool_util_isdirect(MempoolPlainChunk* p)
                                                              ^
@@ -480,19 +657,22 @@ allocator.h:1175:21: style: Variable 'oldsp' can be declared as pointer to const
 allocator.h:1762:24: style: Variable 'next' can be declared as pointer to const [constVariablePointer]
     MempoolPlainChunk* next;
                        ^
-main.c:1581:57: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
+lino.h:514:11: style: Variable 'term' can be declared as pointer to const [constVariablePointer]
+    char* term;
+          ^
+main.c:1592:57: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
 void lit_strbufutil_callboundscheckinsert(LitStrBuffer* sb, size_t pos, const char* file, int line)
                                                         ^
-main.c:1879:11: style: Variable 'tmpbuf' can be declared as pointer to const [constVariablePointer]
+main.c:1886:11: style: Variable 'tmpbuf' can be declared as pointer to const [constVariablePointer]
     char* tmpbuf;
           ^
-main.c:1934:40: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
+main.c:1941:40: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
 size_t lit_strbuf_length(LitStrBuffer* sb)
                                        ^
-main.c:1939:43: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
+main.c:1946:43: style: Parameter 'sb' can be declared as pointer to const [constParameterPointer]
 const char* lit_strbuf_data(LitStrBuffer* sb)
                                           ^
-main.c:1969:43: style: Parameter 'from' can be declared as pointer to const [constParameterPointer]
+main.c:1973:43: style: Parameter 'from' can be declared as pointer to const [constParameterPointer]
 bool lit_strbuf_fullreplace(LitStrBuffer* from, LitStrBuffer* dest, const char* findmestr, size_t findmelen, const char* repwithstr, size_t repwithlen)
                                           ^
 main.c:2277:11: style: Variable 'data' can be declared as pointer to const [constVariablePointer]
@@ -507,580 +687,568 @@ main.c:2303:11: style: Variable 'end' can be declared as pointer to const [const
 main.c:2408:11: style: Variable 'end' can be declared as pointer to const [constVariablePointer]
     char* end;
           ^
-main.c:3278:49: style: Parameter 'array' can be declared as pointer to const [constParameterPointer]
-void mark_array(LitState* state, LitDynListVal* array)
-                                                ^
-main.c:3411:29: style: Variable 'boundmethod' can be declared as pointer to const [constVariablePointer]
+main.c:3238:58: style: Parameter 'array' can be declared as pointer to const [constParameterPointer]
+void lit_gcmem_markarray(LitState* state, LitDynListVal* array)
+                                                         ^
+main.c:3369:29: style: Variable 'boundmethod' can be declared as pointer to const [constVariablePointer]
             LitBoundMethod* boundmethod = (LitBoundMethod*)object;
                             ^
-main.c:4080:28: style: Variable 'str' can be declared as pointer to const [constVariablePointer]
-                LitString* str;
-                           ^
-main.c:4139:29: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-                LitUpvalue* upvalue = AS_UPVALUE(value);
-                            ^
-main.c:4201:27: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
-                LitValue* slot = AS_REFERENCE(value)->slot;
-                          ^
-main.c:4352:81: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-double lit_args_checknumber(LitState* state, const char* sourcefname, LitValue* args, size_t argc, size_t id)
-                                                                                ^
-main.c:4361:37: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-double lit_args_getnumber(LitValue* args, size_t argc, size_t id, double def)
-                                    ^
-main.c:4370:52: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-bool lit_args_checkbool(LitState* state, LitValue* args, size_t argc, size_t id)
-                                                   ^
-main.c:4379:33: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-bool lit_args_getbool(LitValue* args, size_t argc, size_t id, bool def)
-                                ^
-main.c:4388:61: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-const char* lit_args_checkstring(LitState* state, LitValue* args, size_t argc, size_t id)
-                                                            ^
-main.c:4397:42: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-const char* lit_args_getstring(LitValue* args, size_t argc, size_t id, const char* def)
-                                         ^
-main.c:4406:63: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc, size_t id)
-                                                              ^
-main.c:4415:64: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-LitInstance* lit_args_checkinstance(LitState* state, LitValue* args, size_t argc, size_t id)
-                                                               ^
-main.c:4424:58: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-LitValue* lit_check_reference(LitState* state, LitValue* args, size_t argc, size_t id)
-                                                         ^
-main.c:4455:72: style: Parameter 'key' can be declared as pointer to const [constParameterPointer]
-LitTabEntry* find_entry(LitTabEntry* entries, int capacity, LitString* key)
-                                                                       ^
-main.c:4535:18: style: Variable 'entry' can be declared as pointer to const [constVariablePointer]
-    LitTabEntry* entry = find_entry(table->htentries, table->htcapacity, key);
-                 ^
-main.c:4632:16: style: Variable 'obj' can be declared as pointer to const [constVariablePointer]
-    LitObject* obj;
-               ^
-main.c:5454:44: style: Parameter 'scanner' can be declared as pointer to const [constParameterPointer]
-LitToken lit_scanner_maketoken(LitScanner* scanner, LitTokenType type)
-                                           ^
-main.c:5800:51: style: Parameter 'scanner' can be declared as pointer to const [constParameterPointer]
-LitTokenType lit_scanner_checkkeyword(LitScanner* scanner, int start, int length, const char* rest, LitTokenType type)
-                                                  ^
-main.c:5809:52: style: Parameter 'lex' can be declared as pointer to const [constParameterPointer]
-LitTokenType lit_scanner_scanidenttype(LitScanner* lex)
-                                                   ^
-main.c:6193:49: style: Parameter 'parser' can be declared as pointer to const. However it seems that 'lit_parser_rulenumber' is a callback function, if 'parser' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitExpression* lit_parser_rulenumber(LitParser* parser, bool canassign)
-                                                ^
-main.c:7271:51: note: You might need to cast the function pointer here
-    rules[LIT_ASTTOKTYP_NUMBER] = (LitParseRule){ lit_parser_rulenumber, NULL, LIT_ASTPREC_NONE };
-                                                  ^
-main.c:6193:49: note: Parameter 'parser' can be declared as pointer to const
-LitExpression* lit_parser_rulenumber(LitParser* parser, bool canassign)
-                                                ^
-main.c:6334:31: style: Variable 'ee' can be declared as pointer to const [constVariablePointer]
-            LitVarExpression* ee = (LitVarExpression*)e;
-                              ^
-main.c:6369:19: style: Variable 'rule' can be declared as pointer to const [constVariablePointer]
-    LitParseRule* rule = lit_parser_getrule(op);
-                  ^
-main.c:6442:19: style: Variable 'rule' can be declared as pointer to const [constVariablePointer]
-    LitParseRule* rule = lit_parser_getrule(op);
-                  ^
-main.c:7563:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
-        LitLocal* local = &locals->values[locals->count - 1];
-                  ^
-main.c:7648:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
-        LitLocal* local = &locals->values[i];
-                  ^
-main.c:7668:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
-        LitLocal* local = &locals->values[i];
-                  ^
-main.c:7687:29: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-        LitCompilerUpvalue* upvalue = &compiler->upvalues[i];
-                            ^
-main.c:7743:30: style: Variable 'stmt' can be declared as pointer to const [constVariablePointer]
-            LitVarStatement* stmt = (LitVarStatement*)statement;
-                             ^
-main.c:7749:35: style: Variable 'stmt' can be declared as pointer to const [constVariablePointer]
-            LitFunctionStatement* stmt = (LitFunctionStatement*)statement;
-                                  ^
-main.c:7841:27: style: Variable 'expr' can be declared as pointer to const [constVariablePointer]
-        LitVarExpression* expr = ((LitVarExpression*)expression);
-                          ^
-main.c:7874:31: style: Variable 'e' can be declared as pointer to const [constVariablePointer]
-            LitVarExpression* e = (LitVarExpression*)expr->right;
-                              ^
-main.c:7990:31: style: Variable 'expr' can be declared as pointer to const [constVariablePointer]
-            LitVarExpression* expr = (LitVarExpression*)expression;
-                              ^
-main.c:8188:35: style: Variable 'e' can be declared as pointer to const [constVariablePointer]
-                LitGetExpression* e = (LitGetExpression*)expr->callee;
-                                  ^
-main.c:8392:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
-                                        ^
-main.c:8701:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
-                                        ^
-main.c:8874:34: style: Variable 'var' can be declared as pointer to const [constVariablePointer]
-                LitVarStatement* var = (LitVarStatement*)stmt->var;
-                                 ^
-main.c:9017:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
-                                        ^
-main.c:9262:57: style: Parameter 'chunk' can be declared as pointer to const [constParameterPointer]
-void lit_debug_printconstarg(LitIOStream* pr, LitChunk* chunk, uint16_t arg, bool indent)
-                                                        ^
-main.c:9656:85: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnobject_keys' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnobject_keys(LitState* state, LitValue thisval, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:11198:51: note: You might need to cast the function pointer here
-        lit_class_bindstaticmethod(klass, "keys", objfnobject_keys);
-                                                  ^
-main.c:9656:85: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnobject_keys(LitState* state, LitValue thisval, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:9747:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnobject_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnobject_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11202:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "iterator", objfnobject_iterator);
-                                                ^
-main.c:9747:90: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnobject_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:9807:16: style: Variable 'self' can be declared as pointer to const [constVariablePointer]
-    LitString* self;
-               ^
-main.c:9803:86: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnstring_plus' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:11220:42: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "+", objfnstring_plus);
-                                         ^
-main.c:9803:86: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:9808:16: style: Variable 'strval' can be declared as pointer to const [constVariablePointer]
-    LitString* strval;
-               ^
-main.c:9834:16: style: Variable 'self' can be declared as pointer to const [constVariablePointer]
-    LitString* self;
-               ^
-main.c:9832:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnstring_compare' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnstring_compare(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11225:43: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "==", objfnstring_compare);
-                                          ^
-main.c:9832:89: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnstring_compare(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:9835:16: style: Variable 'other' can be declared as pointer to const [constVariablePointer]
-    LitString* other;
-               ^
-main.c:9931:16: style: Variable 'sub' can be declared as pointer to const [constVariablePointer]
-    LitString* sub = LIT_CHECK_OBJECT_STRING(0);
-               ^
-main.c:9942:16: style: Variable 'selfstr' can be declared as pointer to const [constVariablePointer]
-    LitString* selfstr = AS_STRING(instance);
-               ^
-main.c:9943:16: style: Variable 'sub' can be declared as pointer to const [constVariablePointer]
-    LitString* sub = LIT_CHECK_OBJECT_STRING(0);
-               ^
-main.c:9986:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnstring_replace' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnstring_replace(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11233:48: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "replace", objfnstring_replace);
-                                               ^
-main.c:9986:89: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnstring_replace(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:9989:16: style: Variable 'what' can be declared as pointer to const [constVariablePointer]
-    LitString* what;
-               ^
-main.c:9988:16: style: Variable 'with' can be declared as pointer to const [constVariablePointer]
-    LitString* with;
-               ^
-main.c:10034:91: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnstring_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnstring_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                          ^
-main.c:11238:51: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "charCodeAt", objfnstring_subscript);
-                                                  ^
-main.c:10034:91: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnstring_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                          ^
-main.c:10038:19: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
-        LitRange* range = AS_RANGE(args[0]);
-                  ^
-main.c:10070:16: style: Variable 'selfstr' can be declared as pointer to const [constVariablePointer]
-    LitString* selfstr = AS_STRING(instance);
-               ^
-main.c:10128:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnfiber_constructor' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnfiber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                           ^
-main.c:11260:42: note: You might need to cast the function pointer here
-        lit_class_bindconstructor(klass, objfnfiber_constructor);
-                                         ^
-main.c:10128:92: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnfiber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                           ^
-main.c:10159:41: style: Parameter 'fiber' can be declared as pointer to const [constParameterPointer]
-bool lit_coreutil_isfiberdone(LitFiber* fiber)
-                                        ^
-main.c:10204:19: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
-        LitValue* start = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters :
-                  ^
-main.c:10188:72: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
-void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, size_t argc, bool catcher)
-                                                                       ^
-main.c:10291:82: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnfiber_abort' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-bool objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                 ^
-main.c:11267:55: note: You might need to cast the function pointer here
-        lit_class_bindstaticprimitive(klass, "abort", objfnfiber_abort);
-                                                      ^
-main.c:10291:82: note: Parameter 'args' can be declared as pointer to const
-bool objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                 ^
-main.c:10438:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11287:43: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "[]", objfnarray_subscript);
-                                          ^
-main.c:10438:90: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:10459:23: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
-            LitRange* range = AS_RANGE(args[0]);
-                      ^
-main.c:10478:85: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_push' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:11289:45: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "push", objfnarray_push);
-                                            ^
-main.c:10478:85: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:10518:87: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_addall' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:11292:47: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "addAll", objfnarray_addall);
-                                              ^
-main.c:10518:87: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:10527:15: style: Variable 'toAdd' can be declared as pointer to const [constVariablePointer]
-    LitArray* toAdd = lit_value_asarray(args[0]);
-              ^
-main.c:10538:15: style: Variable 'ptr' can be declared as pointer to const [constVariablePointer]
-    LitValue* ptr;
-              ^
-main.c:10550:88: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_indexof' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_indexof(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:11296:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "indexxOf", objfnarray_indexof);
-                                                ^
-main.c:10550:88: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_indexof(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:10583:87: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_remove' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_remove(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:11294:47: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "remove", objfnarray_remove);
-                                              ^
-main.c:10583:87: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_remove(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:10624:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_contains' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_contains(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11297:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "contains", objfnarray_contains);
-                                                ^
-main.c:10624:89: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_contains(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:10639:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11299:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "iterator", objfnarray_iterator);
-                                                ^
-main.c:10639:89: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:10667:88: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_foreach' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:11301:48: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "forEach", objfnarray_foreach);
-                                               ^
-main.c:10667:88: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:10691:20: style: Variable 'values' can be declared as pointer to const [constVariablePointer]
-    LitDynListVal* values;
-                   ^
-main.c:10798:85: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnarray_sort' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnarray_sort(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:11303:45: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "sort", objfnarray_sort);
-                                            ^
-main.c:10798:85: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnarray_sort(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:10817:20: style: Variable 'values' can be declared as pointer to const [constVariablePointer]
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
-                   ^
-main.c:10875:88: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnmap_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnmap_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:11313:43: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "[]", objfnmap_subscript);
-                                          ^
-main.c:10875:88: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnmap_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:10905:85: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnmap_addall' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnmap_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:11314:47: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "addAll", objfnmap_addall);
-                                              ^
-main.c:10905:85: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnmap_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                    ^
-main.c:10925:87: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnmap_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnmap_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:11316:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "iterator", objfnmap_iterator);
-                                                ^
-main.c:10925:87: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnmap_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                      ^
-main.c:10939:86: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnmap_foreach' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnmap_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:11318:48: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "forEach", objfnmap_foreach);
-                                               ^
-main.c:10939:86: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnmap_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:11000:15: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
-    LitRange* range = AS_RANGE(instance);
-              ^
-main.c:10997:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnrange_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnrange_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11328:49: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "iterator", objfnrange_iterator);
-                                                ^
-main.c:10997:89: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnrange_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                        ^
-main.c:11014:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnrange_itervalue' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnrange_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11329:54: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "iteratorValue", objfnrange_itervalue);
-                                                     ^
-main.c:11014:90: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnrange_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11037:88: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnrange_setfrom' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnrange_setfrom(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:11331:65: note: You might need to cast the function pointer here
-        lit_class_bindgetsetter(klass, "from", objfnrange_from, objfnrange_setfrom);
-                                                                ^
-main.c:11037:88: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnrange_setfrom(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                       ^
-main.c:11053:86: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnrange_setto' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnrange_setto(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:11332:61: note: You might need to cast the function pointer here
-        lit_class_bindgetsetter(klass, "to", objfnrange_to, objfnrange_setto);
-                                                            ^
-main.c:11053:86: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnrange_setto(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                     ^
-main.c:11066:15: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
-    LitRange* range = AS_RANGE(instance);
-              ^
-main.c:11092:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_corefn_printvalues' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue lit_corefn_printvalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                           ^
-main.c:11339:41: note: You might need to cast the function pointer here
-    lit_state_defnative(state, "print", lit_corefn_printvalues);
-                                        ^
-main.c:11092:92: note: Parameter 'args' can be declared as pointer to const
-LitValue lit_corefn_printvalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                           ^
-main.c:11107:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_corefn_printchar' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue lit_corefn_printchar(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11340:45: note: You might need to cast the function pointer here
-    lit_state_defnative(state, "printchar", lit_corefn_printchar);
-                                            ^
-main.c:11107:90: note: Parameter 'args' can be declared as pointer to const
-LitValue lit_corefn_printchar(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                         ^
-main.c:11159:82: style: Parameter 'source' can be declared as pointer to const [constParameterPointer]
-bool lit_coreutil_compileandinterpret(LitState* state, LitString* modname, char* source)
-                                                                                 ^
-main.c:11895:11: style: Variable 'fname' can be declared as pointer to const [constVariablePointer]
-    char* fname;
-          ^
-main.c:11920:91: style: Parameter 'args' can be declared as pointer to const. However it seems that 'objfnfile_writevalues' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfnfile_writevalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                          ^
-main.c:12152:46: note: You might need to cast the function pointer here
-        lit_class_bindmethod(klass, "write", objfnfile_writevalues);
-                                             ^
-main.c:11920:91: note: Parameter 'args' can be declared as pointer to const
-LitValue objfnfile_writevalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                                                                          ^
-main.c:12167:39: style: Parameter 'state' can be declared as pointer to const. However it seems that 'objfngc_memoryused' is a callback function, if 'state' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfngc_memoryused(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                      ^
-main.c:12199:53: note: You might need to cast the function pointer here
-    lit_class_bindstaticgetter(klass, "memoryUsed", objfngc_memoryused);
-                                                    ^
-main.c:12167:39: note: Parameter 'state' can be declared as pointer to const
-LitValue objfngc_memoryused(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                      ^
-main.c:12175:38: style: Parameter 'state' can be declared as pointer to const. However it seems that 'objfngc_nextround' is a callback function, if 'state' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
-LitValue objfngc_nextround(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                     ^
-main.c:12200:52: note: You might need to cast the function pointer here
-    lit_class_bindstaticgetter(klass, "nextRound", objfngc_nextround);
-                                                   ^
-main.c:12175:38: note: Parameter 'state' can be declared as pointer to const
-LitValue objfngc_nextround(LitState* state, LitValue instance, size_t argc, LitValue* args)
-                                     ^
-main.c:12514:15: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
-    LitValue* start
-              ^
-main.c:12499:74: style: Parameter 'arguments' can be declared as pointer to const [constParameterPointer]
-LitCallFrame* setup_call(LitState* state, LitFunction* callee, LitValue* arguments, uint8_t argc)
-                                                                         ^
-main.c:12576:55: style: Parameter 'frame' can be declared as pointer to const [constParameterPointer]
-LitResult execute_call(LitState* state, LitCallFrame* frame)
-                                                      ^
-main.c:12629:19: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
-        LitValue* start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters :
-                  ^
-main.c:12736:15: style: Variable 'fiber' can be declared as pointer to const [constVariablePointer]
-    LitFiber* fiber;
-              ^
-main.c:12795:19: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
-        LitValue* slot = AS_REFERENCE(object)->slot;
-                  ^
-main.c:12772:15: style: Variable 'tmptr' can be declared as pointer to const [constVariablePointer]
-    LitValue* tmptr;
-              ^
-main.c:12995:37: style: Parameter 'string' can be declared as pointer to const [constParameterPointer]
-int lit_string_utflength(LitString* string)
-                                    ^
-main.c:13041:14: style: Variable 'from' can be declared as pointer to const [constVariablePointer]
+main.c:3955:40: style: Parameter 'string' can be declared as pointer to const [constParameterPointer]
+size_t lit_string_utflength(LitString* string)
+                                       ^
+main.c:4020:14: style: Variable 'from' can be declared as pointer to const [constVariablePointer]
     uint8_t* from;
              ^
-main.c:13127:28: style: Variable 'string' can be declared as pointer to const [constVariablePointer]
-                LitString* string = AS_STRING(va_arg(arglist, LitValue));
+main.c:4119:28: style: Variable 'string' can be declared as pointer to const [constVariablePointer]
+                LitString* string = lit_value_asstring(va_arg(arglist, LitValue));
                            ^
-main.c:13137:28: style: Variable 'string' can be declared as pointer to const [constVariablePointer]
-                LitString* string = AS_STRING(lit_string_numbertostring(state, va_arg(arglist, double)));
+main.c:4129:28: style: Variable 'string' can be declared as pointer to const [constVariablePointer]
+                LitString* string = lit_value_asstring(lit_string_numbertostring(state, va_arg(arglist, double)));
                            ^
-main.c:13377:15: style: Variable 'oldregisters' can be declared as pointer to const [constVariablePointer]
-    LitValue* oldregisters = fiber->registeritems;
+main.c:4292:18: style: Variable 'entry' can be declared as pointer to const [constVariablePointer]
+    LitTabEntry* entry;
+                 ^
+main.c:4284:56: style: Parameter 'self' can be declared as pointer to const [constParameterPointer]
+void lit_value_printobjmap(LitIOStream* pr, LitObject* self, LitTable* tab)
+                                                       ^
+main.c:4378:24: style: Variable 'str' can be declared as pointer to const [constVariablePointer]
+            LitString* str;
+                       ^
+main.c:4427:25: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+            LitUpvalue* upvalue = lit_value_asupvalue(value);
+                        ^
+main.c:4489:23: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
+            LitValue* slot = lit_value_asreference(value)->slot;
+                      ^
+main.c:4620:81: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
+double lit_args_checknumber(LitState* state, const char* sourcefname, LitValue* args, size_t argc, size_t id)
+                                                                                ^
+main.c:4629:61: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
+const char* lit_args_checkstring(LitState* state, LitValue* args, size_t argc, size_t id)
+                                                            ^
+main.c:4638:42: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
+const char* lit_args_getstring(LitValue* args, size_t argc, size_t id, const char* def)
+                                         ^
+main.c:4647:63: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
+LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc, size_t id)
+                                                              ^
+main.c:4678:81: style: Parameter 'key' can be declared as pointer to const [constParameterPointer]
+LitTabEntry* lit_table_findentry(LitTabEntry* entries, int capacity, LitString* key)
+                                                                                ^
+main.c:4758:18: style: Variable 'entry' can be declared as pointer to const [constVariablePointer]
+    LitTabEntry* entry = lit_table_findentry(table->htentries, table->htcapacity, key);
+                 ^
+main.c:4873:16: style: Variable 'obj' can be declared as pointer to const [constVariablePointer]
+    LitObject* obj;
+               ^
+main.c:5692:44: style: Parameter 'scanner' can be declared as pointer to const [constParameterPointer]
+LitToken lit_scanner_maketoken(LitScanner* scanner, LitTokenType type)
+                                           ^
+main.c:6051:52: style: Parameter 'lex' can be declared as pointer to const [constParameterPointer]
+LitTokenType lit_scanner_scanidenttype(LitScanner* lex)
+                                                   ^
+main.c:6409:49: style: Parameter 'parser' can be declared as pointer to const. However it seems that 'lit_parser_rulenumber' is a callback function, if 'parser' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitExpression* lit_parser_rulenumber(LitParser* parser, bool canassign)
+                                                ^
+main.c:7509:55: note: You might need to cast the function pointer here
+    rules[LIT_ASTTOKTYP_NUMBER] = lit_parser_makerule(lit_parser_rulenumber, NULL, LIT_ASTPREC_NONE);
+                                                      ^
+main.c:6409:49: note: Parameter 'parser' can be declared as pointer to const
+LitExpression* lit_parser_rulenumber(LitParser* parser, bool canassign)
+                                                ^
+main.c:6561:31: style: Variable 'ee' can be declared as pointer to const [constVariablePointer]
+            LitVarExpression* ee = (LitVarExpression*)e;
+                              ^
+main.c:6596:19: style: Variable 'rule' can be declared as pointer to const [constVariablePointer]
+    LitParseRule* rule = lit_parser_getrule(op);
+                  ^
+main.c:6669:19: style: Variable 'rule' can be declared as pointer to const [constVariablePointer]
+    LitParseRule* rule = lit_parser_getrule(op);
+                  ^
+main.c:6721:16: style: Variable 'str' can be declared as pointer to const [constVariablePointer]
+    LitString* str;
+               ^
+main.c:7814:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
+        LitLocal* local = &locals->values[locals->count - 1];
+                  ^
+main.c:7902:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
+        LitLocal* local = &locals->values[i];
+                  ^
+main.c:7922:19: style: Variable 'local' can be declared as pointer to const [constVariablePointer]
+        LitLocal* local = &locals->values[i];
+                  ^
+main.c:7941:29: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+        LitCompilerUpvalue* upvalue = &compiler->upvalues[i];
+                            ^
+main.c:7997:30: style: Variable 'stmt' can be declared as pointer to const [constVariablePointer]
+            LitVarStatement* stmt = (LitVarStatement*)statement;
+                             ^
+main.c:8003:35: style: Variable 'stmt' can be declared as pointer to const [constVariablePointer]
+            LitFunctionStatement* stmt = (LitFunctionStatement*)statement;
+                                  ^
+main.c:8095:27: style: Variable 'expr' can be declared as pointer to const [constVariablePointer]
+        LitVarExpression* expr = ((LitVarExpression*)expression);
+                          ^
+main.c:8126:31: style: Variable 'e' can be declared as pointer to const [constVariablePointer]
+            LitVarExpression* e = (LitVarExpression*)expr->right;
+                              ^
+main.c:8242:31: style: Variable 'expr' can be declared as pointer to const [constVariablePointer]
+            LitVarExpression* expr = (LitVarExpression*)expression;
+                              ^
+main.c:8442:35: style: Variable 'e' can be declared as pointer to const [constVariablePointer]
+                LitGetExpression* e = (LitGetExpression*)expr->excallee;
+                                  ^
+main.c:8645:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
+                                        ^
+main.c:8952:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
+                                        ^
+main.c:9124:34: style: Variable 'var' can be declared as pointer to const [constVariablePointer]
+                LitVarStatement* var = (LitVarStatement*)stmt->var;
+                                 ^
+main.c:9266:41: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+                    LitCompilerUpvalue* upvalue = &compiler.upvalues[i];
+                                        ^
+main.c:9483:57: style: Parameter 'chunk' can be declared as pointer to const [constParameterPointer]
+void lit_debug_printconstarg(LitIOStream* pr, LitChunk* chunk, uint16_t arg, bool indent)
+                                                        ^
+main.c:9876:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnobject_keys' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11396:51: note: You might need to cast the function pointer here
+        lit_class_bindstaticmethod(klass, "keys", lit_objfnobject_keys);
+                                                  ^
+main.c:9876:89: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:9967:94: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnobject_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnobject_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:11400:49: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "iterator", lit_objfnobject_iterator);
+                                                ^
+main.c:9967:94: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnobject_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:10023:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnstring_chr' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11418:50: note: You might need to cast the function pointer here
+        lit_class_bindstaticmethod(klass, "chr", lit_objfnstring_chr);
+                                                 ^
+main.c:10023:89: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:10032:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnstring_plus' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11419:42: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "+", lit_objfnstring_plus);
+                                         ^
+main.c:10032:90: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:10123:16: style: Variable 'sub' can be declared as pointer to const [constVariablePointer]
+    LitString* sub = LIT_CHECK_GETSTRINGOBJECT(0);
+               ^
+main.c:10134:16: style: Variable 'selfstr' can be declared as pointer to const [constVariablePointer]
+    LitString* selfstr = lit_value_asstring(instance);
+               ^
+main.c:10135:16: style: Variable 'sub' can be declared as pointer to const [constVariablePointer]
+    LitString* sub = LIT_CHECK_GETSTRINGOBJECT(0);
+               ^
+main.c:10178:93: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnstring_replace' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnstring_replace(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:11431:48: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "replace", lit_objfnstring_replace);
+                                               ^
+main.c:10178:93: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnstring_replace(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:10181:16: style: Variable 'what' can be declared as pointer to const [constVariablePointer]
+    LitString* what;
+               ^
+main.c:10180:16: style: Variable 'with' can be declared as pointer to const [constVariablePointer]
+    LitString* with;
+               ^
+main.c:10227:96: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnstring_charcodeat' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnstring_charcodeat(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                               ^
+main.c:11437:51: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "charCodeAt", lit_objfnstring_charcodeat);
+                                                  ^
+main.c:10227:96: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnstring_charcodeat(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                               ^
+main.c:10249:95: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnstring_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnstring_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                              ^
+main.c:11436:47: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "charAt", lit_objfnstring_subscript);
+                                              ^
+main.c:10249:95: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnstring_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                              ^
+main.c:10253:19: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
+        LitRange* range = lit_value_asrange(args[0]);
+                  ^
+main.c:10284:16: style: Variable 'selfstr' can be declared as pointer to const [constVariablePointer]
+    LitString* selfstr = lit_value_asstring(instance);
+               ^
+main.c:10342:96: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnfiber_constructor' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                               ^
+main.c:11459:42: note: You might need to cast the function pointer here
+        lit_class_bindconstructor(klass, lit_objfnfiber_constructor);
+                                         ^
+main.c:10342:96: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                               ^
+main.c:10373:41: style: Parameter 'fiber' can be declared as pointer to const [constParameterPointer]
+bool lit_coreutil_isfiberdone(LitFiber* fiber)
+                                        ^
+main.c:10418:19: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
+        LitValue* start = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
+                  ^
+main.c:10402:72: style: Parameter 'args' can be declared as pointer to const [constParameterPointer]
+void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, size_t argc, bool catcher)
+                                                                       ^
+main.c:10503:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnfiber_abort' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11466:52: note: You might need to cast the function pointer here
+        lit_class_bindstaticmethod(klass, "abort", lit_objfnfiber_abort);
+                                                   ^
+main.c:10503:90: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:10616:94: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:11486:43: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "[]", lit_objfnarray_subscript);
+                                          ^
+main.c:10616:94: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:10638:23: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
+            LitRange* range = lit_value_asrange(args[0]);
+                      ^
+main.c:10657:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_push' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11488:45: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "push", lit_objfnarray_push);
+                                            ^
+main.c:10657:89: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:10697:91: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_addall' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:11491:47: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "addAll", lit_objfnarray_addall);
+                                              ^
+main.c:10697:91: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:10706:15: style: Variable 'toAdd' can be declared as pointer to const [constVariablePointer]
+    LitArray* toAdd = lit_value_asarray(args[0]);
               ^
-main.c:13390:23: style: Variable 'oldslots' can be declared as pointer to const [constVariablePointer]
+main.c:10717:15: style: Variable 'ptr' can be declared as pointer to const [constVariablePointer]
+    LitValue* ptr;
+              ^
+main.c:10729:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_indexof' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_indexof(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11495:48: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "indexOf", lit_objfnarray_indexof);
+                                               ^
+main.c:10729:92: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_indexof(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:10762:91: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_remove' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_remove(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:11493:47: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "remove", lit_objfnarray_remove);
+                                              ^
+main.c:10762:91: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_remove(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:10803:93: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_contains' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_contains(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:11496:49: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "contains", lit_objfnarray_contains);
+                                                ^
+main.c:10803:93: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_contains(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:10818:93: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:11498:49: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "iterator", lit_objfnarray_iterator);
+                                                ^
+main.c:10818:93: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:10846:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_foreach' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11500:48: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "forEach", lit_objfnarray_foreach);
+                                               ^
+main.c:10846:92: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:10870:20: style: Variable 'values' can be declared as pointer to const [constVariablePointer]
+    LitDynListVal* values;
+                   ^
+main.c:10982:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnarray_sort' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnarray_sort(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11502:45: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "sort", lit_objfnarray_sort);
+                                            ^
+main.c:10982:89: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnarray_sort(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11001:20: style: Variable 'values' can be declared as pointer to const [constVariablePointer]
+    LitDynListVal* values = &lit_value_asarray(instance)->values;
+                   ^
+main.c:11059:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnmap_subscript' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11512:43: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "[]", lit_objfnmap_subscript);
+                                          ^
+main.c:11059:92: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11081:89: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnmap_addall' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnmap_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11513:47: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "addAll", lit_objfnmap_addall);
+                                              ^
+main.c:11081:89: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnmap_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                        ^
+main.c:11101:91: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnmap_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnmap_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:11515:49: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "iterator", lit_objfnmap_iterator);
+                                                ^
+main.c:11101:91: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnmap_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                          ^
+main.c:11115:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnmap_foreach' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11517:48: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "forEach", lit_objfnmap_foreach);
+                                               ^
+main.c:11115:90: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11177:15: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
+    LitRange* range = lit_value_asrange(instance);
+              ^
+main.c:11174:93: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnrange_iterator' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnrange_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:11527:49: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "iterator", lit_objfnrange_iterator);
+                                                ^
+main.c:11174:93: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnrange_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                            ^
+main.c:11191:94: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnrange_itervalue' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnrange_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:11528:54: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "iteratorValue", lit_objfnrange_itervalue);
+                                                     ^
+main.c:11191:94: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnrange_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                             ^
+main.c:11214:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnrange_setfrom' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnrange_setfrom(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11530:69: note: You might need to cast the function pointer here
+        lit_class_bindgetsetter(klass, "from", lit_objfnrange_from, lit_objfnrange_setfrom);
+                                                                    ^
+main.c:11214:92: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnrange_setfrom(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11230:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnrange_setto' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnrange_setto(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11531:65: note: You might need to cast the function pointer here
+        lit_class_bindgetsetter(klass, "to", lit_objfnrange_to, lit_objfnrange_setto);
+                                                                ^
+main.c:11230:90: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnrange_setto(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11243:15: style: Variable 'range' can be declared as pointer to const [constVariablePointer]
+    LitRange* range = lit_value_asrange(instance);
+              ^
+main.c:11290:92: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_corefn_printvalues' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_corefn_printvalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11540:41: note: You might need to cast the function pointer here
+    lit_state_defnative(state, "print", lit_corefn_printvalues);
+                                        ^
+main.c:11290:92: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_corefn_printvalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                           ^
+main.c:11305:90: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_corefn_printchar' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_corefn_printchar(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11541:45: note: You might need to cast the function pointer here
+    lit_state_defnative(state, "printchar", lit_corefn_printchar);
+                                            ^
+main.c:11305:90: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_corefn_printchar(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                         ^
+main.c:11357:82: style: Parameter 'source' can be declared as pointer to const [constParameterPointer]
+bool lit_coreutil_compileandinterpret(LitState* state, LitString* modname, char* source)
+                                                                                 ^
+main.c:11371:11: style: Variable 'code' can be declared as pointer to const [constVariablePointer]
+    char* code = (char*)LIT_CHECK_GETSTRINGDATA(0);
+          ^
+main.c:12049:11: style: Variable 'fname' can be declared as pointer to const [constVariablePointer]
+    char* fname;
+          ^
+main.c:12074:95: style: Parameter 'args' can be declared as pointer to const. However it seems that 'lit_objfnfile_writevalues' is a callback function, if 'args' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfnfile_writevalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                              ^
+main.c:12298:46: note: You might need to cast the function pointer here
+        lit_class_bindmethod(klass, "write", lit_objfnfile_writevalues);
+                                             ^
+main.c:12074:95: note: Parameter 'args' can be declared as pointer to const
+LitValue lit_objfnfile_writevalues(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                                                                              ^
+main.c:12311:43: style: Parameter 'state' can be declared as pointer to const. However it seems that 'lit_objfngc_memoryused' is a callback function, if 'state' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfngc_memoryused(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                          ^
+main.c:12342:53: note: You might need to cast the function pointer here
+    lit_class_bindstaticgetter(klass, "memoryUsed", lit_objfngc_memoryused);
+                                                    ^
+main.c:12311:43: note: Parameter 'state' can be declared as pointer to const
+LitValue lit_objfngc_memoryused(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                          ^
+main.c:12319:42: style: Parameter 'state' can be declared as pointer to const. However it seems that 'lit_objfngc_nextround' is a callback function, if 'state' is declared with const you might also need to cast function pointer(s). [constParameterCallback]
+LitValue lit_objfngc_nextround(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                         ^
+main.c:12343:52: note: You might need to cast the function pointer here
+    lit_class_bindstaticgetter(klass, "nextRound", lit_objfngc_nextround);
+                                                   ^
+main.c:12319:42: note: Parameter 'state' can be declared as pointer to const
+LitValue lit_objfngc_nextround(LitState* state, LitValue instance, size_t argc, LitValue* args)
+                                         ^
+main.c:12651:15: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
+    LitValue* start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
+              ^
+main.c:12636:90: style: Parameter 'arguments' can be declared as pointer to const [constParameterPointer]
+LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, LitValue* arguments, size_t argc)
+                                                                                         ^
+main.c:12712:68: style: Parameter 'frame' can be declared as pointer to const [constParameterPointer]
+LitResult lit_state_execcallonframe(LitState* state, LitCallFrame* frame)
+                                                                   ^
+main.c:12767:19: style: Variable 'start' can be declared as pointer to const [constVariablePointer]
+        LitValue* start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
+                  ^
+main.c:12857:15: style: Variable 'fiber' can be declared as pointer to const [constVariablePointer]
+    LitFiber* fiber;
+              ^
+main.c:12916:19: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
+        LitValue* slot = lit_value_asreference(object)->slot;
+                  ^
+main.c:12893:15: style: Variable 'tmptr' can be declared as pointer to const [constVariablePointer]
+    LitValue* tmptr;
+              ^
+main.c:13201:15: style: Variable 'oldregisters' can be declared as pointer to const [constVariablePointer]
+    LitValue* oldregisters;
+              ^
+main.c:13220:23: style: Variable 'oldslots' can be declared as pointer to const [constVariablePointer]
             LitValue* oldslots = frame->slots;
                       ^
-main.c:13766:29: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
-                LitUpvalue* upvalue = AS_UPVALUE(value);
+main.c:13601:29: style: Variable 'upvalue' can be declared as pointer to const [constVariablePointer]
+                LitUpvalue* upvalue = lit_value_asupvalue(value);
                             ^
-main.c:13786:27: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
-                LitValue* slot = AS_REFERENCE(value)->slot;
+main.c:13621:27: style: Variable 'slot' can be declared as pointer to const [constVariablePointer]
+                LitValue* slot = lit_value_asreference(value)->slot;
                           ^
-main.c:14166:19: style: Variable 'previousframe' can be declared as pointer to const [constVariablePointer]
+main.c:13999:19: style: Variable 'previousframe' can be declared as pointer to const [constVariablePointer]
     LitCallFrame* previousframe = &fiber->framevals[fiber->framecount - 2];
                   ^
-main.c:14254:27: style: Variable 'fiber' can be declared as pointer to const [constVariablePointer]
+main.c:14080:27: style: Variable 'fiber' can be declared as pointer to const [constVariablePointer]
                 LitFiber* fiber = state->vmstate.fiber;
                           ^
-main.c:14602:19: style: Variable 'previousframe' can be declared as pointer to const [constVariablePointer]
+main.c:14586:19: style: Variable 'previousframe' can be declared as pointer to const [constVariablePointer]
     LitCallFrame* previousframe;
                   ^
-main.c:15047:39: style: Variable 'field' can be declared as pointer to const [constVariablePointer]
-                            LitField* field = AS_FIELD(value);
+main.c:15249:39: style: Variable 'field' can be declared as pointer to const [constVariablePointer]
+                            LitField* field = lit_value_asfield(value);
                                       ^
-main.c:15106:35: style: Variable 'field' can be declared as pointer to const [constVariablePointer]
-                        LitField* field = AS_FIELD(value);
+main.c:15314:35: style: Variable 'field' can be declared as pointer to const [constVariablePointer]
+                        LitField* field = lit_value_asfield(value);
                                   ^
-main.c:15254:23: style: Variable 'type' can be declared as pointer to const [constVariablePointer]
-            LitClass* type = AS_CLASS(klass);
+main.c:15475:23: style: Variable 'type' can be declared as pointer to const [constVariablePointer]
+            LitClass* type = lit_value_asclass(klass);
                       ^
-main.c:15560:11: style: Variable 'bytecodefile' can be declared as pointer to const [constVariablePointer]
-    char* bytecodefile = NULL;
+main.c:15805:11: style: Variable 'valbuf' can be declared as pointer to const [constVariablePointer]
+    char* valbuf;
           ^
-main.c:15655:23: style: Variable 'file' can be declared as pointer to const [constVariablePointer]
-                char* file = scriptargv[i];
-                      ^
-main.c:12048:12: warning: Storing fgetc() return value in char variable and then comparing with EOF. [checkCastIntToCharAndBack]
+main.c:15867:21: style: Variable 'flag' can be declared as pointer to const [constVariablePointer]
+    optlongflags_t* flag;
+                    ^
+main.c:15901:37: style: Parameter 'argv' can be declared as const array [constParameter]
+static void lit_cli_showusage(char* argv[], optlongflags_t* flags, bool fail)
+                                    ^
+main.c:15920:11: style: Variable 'source' can be declared as pointer to const [constVariablePointer]
+    char* source;
+          ^
+main.c:12201:12: warning: Storing fgetc() return value in char variable and then comparing with EOF. [checkCastIntToCharAndBack]
         if(ch == EOF)
            ^
-main.c:9254:12: warning: Expression '((instruction>>14)&0x1)==1?-1:1' can have a negative value. That is converted to an unsigned value and used in an unsigned calculation. [signConversion]
-           LIT_INSTRUCTION_SBX(instruction));
-           ^
-main.c:5461:12: error: Uninitialized variable: token.value [uninitvar]
+main.c:5699:12: error: Uninitialized variable: token.value [uninitvar]
     return token;
            ^
-main.c:5476:12: error: Uninitialized variable: token.value [uninitvar]
+main.c:5714:12: error: Uninitialized variable: token.value [uninitvar]
     return token;
            ^
-main.c:2950:9: style: Variable 'bch' is assigned a value that is never used. [unreadVariable]
+main.c:2942:9: style: Variable 'bch' is assigned a value that is never used. [unreadVariable]
     bch = 0;
         ^
-main.c:4776:21: style: Variable 'oldcapacity' is assigned a value that is never used. [unreadVariable]
+main.c:4830:21: style: Variable 'enthash' is assigned a value that is never used. [unreadVariable]
+            enthash = entry->key->strhash;
+                    ^
+main.c:5017:21: style: Variable 'oldcapacity' is assigned a value that is never used. [unreadVariable]
         oldcapacity = chunk->capacity;
                     ^
-main.c:4782:21: style: Variable 'oldcapacity' is assigned a value that is never used. [unreadVariable]
+main.c:5023:21: style: Variable 'oldcapacity' is assigned a value that is never used. [unreadVariable]
         oldcapacity = chunk->linecapacity;
                     ^
-main.c:9718:14: style: Variable 'type' is assigned a value that is never used. [unreadVariable]
+main.c:9938:14: style: Variable 'type' is assigned a value that is never used. [unreadVariable]
         type = OBJECT_TYPE(instance);
              ^
-main.c:11416:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
+main.c:11612:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
     rsz = fread(&btmp, sizeof(uint8_t), 1, file);
         ^
-main.c:11424:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
-    rsz = fread(&stmp, sizeof(uint16_t), 1, file);
-        ^
-main.c:11432:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
-    rsz = fread(&itmp, sizeof(uint32_t), 1, file);
-        ^
-main.c:11440:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
-    rsz = fread(&dtmp, sizeof(double), 1, file);
-        ^
-main.c:11451:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
+main.c:11623:9: style: Variable 'rsz' is assigned a value that is never used. [unreadVariable]
     rsz = fread(&length, sizeof(uint16_t), 1, file);
         ^
-main.c:12487:17: style: Variable 'oldsize' is assigned a value that is never used. [unreadVariable]
+main.c:12624:17: style: Variable 'oldsize' is assigned a value that is never used. [unreadVariable]
         oldsize = (sizeof(LitCallFrame) * fiber->framecapacity);
                 ^
-main.c:12773:17: style: Unused variable: pr [unusedVariable]
+main.c:12894:17: style: Unused variable: pr [unusedVariable]
     LitIOStream pr;
                 ^
 main.c:2499:5: error: va_list 'vacpy' used before va_start() was called. [va_list_usedBeforeStarted]
@@ -1092,6 +1260,8 @@ main.c:2520:46: error: va_list 'vacpy' used before va_start() was called. [va_li
 main.c:2527:5: error: va_list 'vacpy' used before va_start() was called. [va_list_usedBeforeStarted]
     va_end(vacpy);
     ^
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;DT_DIR...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;DT_REG...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_CONFIG_LOGALLOCATION...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_CONFIG_LOGBLACKING...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_CONFIG_LOGGC...
@@ -1100,34 +1270,78 @@ Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_DISABLE_COLOR;LIT_ENABLE_COLO
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_TRACE_CHUNK...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_TRACE_NULL_FILL...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;LIT_TRACE_STACK...
-main.c:14027:5: portability: %i in format string (no. 2) requires 'int' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-    fprintf(stder, "== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->strbuf.data,
-    ^
-main.c:14027:5: portability: %i in format string (no. 4) requires 'int' but the argument type is 'size_t {aka unsigned long}'. [invalidPrintfArgType_sint]
-    fprintf(stder, "== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, fiber->framecount - 1, frame->function->name->strbuf.data,
-    ^
-main.c:14026:19: style: Variable 'frame' can be declared as pointer to const [constVariablePointer]
-    LitCallFrame* frame = &fiber->framevals[fiber->framecount - 1];
-                  ^
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;MAP_32BIT...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;MAP_ANON;MAP_ANONYMOUS...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;MEMPOOL_LIKELY...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;MEMPOOL_LIKELY;__GNUC__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;M_PI...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;NEON_CONF_OSPATHSIZE...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;PATH_MAX...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IFLNK...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IRGRP...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IROTH...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IRUSR...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IRWXG...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IRWXO...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IRWXU...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_ISDIR...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_ISLNK...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_ISREG...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IWGRP...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IWOTH...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IWUSR...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IXGRP...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IXOTH...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;S_IXUSR...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;TESTING...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;WIN32...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;WIN32;_WIN32;__CYGWIN__;__WIN32...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_ANDROID_;__ANDROID__...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_GNU_SOURCE;__CYGWIN__;__linux__...
+main.c:22:0: information: Include file: <windows.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <windows.h>
+^
+main.c:23:0: information: Include file: <io.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <io.h>
+^
 allocator.h:73:0: information: Include file: <windows.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
     #include <windows.h>
 ^
+oslib.h:25:0: information: Include file: <windows.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+        #include <windows.h>
+^
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;WIN32;_WIN32;__CYGWIN__;__WIN32...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_ANDROID_;__ANDROID__...
+oslib.h:19:0: information: Include file: <unistd.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <unistd.h>
+^
+oslib.h:20:0: information: Include file: <dirent.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <dirent.h>
+^
+oslib.h:21:0: information: Include file: <libgen.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <libgen.h>
+^
+oslib.h:22:0: information: Include file: <sys/time.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <sys/time.h>
+^
+lino.h:124:0: information: Include file: <sys/ioctl.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <sys/ioctl.h>
+^
+lino.h:125:0: information: Include file: <termios.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <termios.h>
+^
+lino.h:126:0: information: Include file: <unistd.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
+    #include <unistd.h>
+^
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_GNU_SOURCE;__CYGWIN__;__linux__...
+lino.h:1932:58: style: Parameter 'ctx' can be declared as pointer to const [constParameterPointer]
+static int lino_context_historysavetofile(linocontext_t* ctx, const char* filename)
+                                                         ^
 allocator.h:75:0: information: Include file: <intrin.h> not found. Please note: Cppcheck does not need standard library headers to get proper results. [missingIncludeSystem]
         #include <intrin.h>
 ^
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_MSC_VER...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_MSC_VER;_WIN32;_WIN64...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_WIN32...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_MSC_VER;_WIN32;_WIN64;__CYGWIN__...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_M_AMD64;_M_X64;__amd64;__x86_64;__x86_64__...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_WIN32;_WIN64...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;_WIN32;__CYGWIN__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__APPLE__;__MACH__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__CELLOS_LV2__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__CLANG__;__GNUC__;va_copy...
@@ -1135,103 +1349,104 @@ main.c:2499:13: error: Uninitialized variable: vacpy [uninitvar]
     va_copy(vacpy, argptr);
             ^
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__CPPCHECK__;__GNUC__...
-Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__CYGWIN__;__linux__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__GNUC__;__TINYC__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__ORBIS__...
-main.c:7482:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7732:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->type = type;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7482:5: note: Null pointer dereference
+main.c:7732:5: note: Null pointer dereference
     compiler->type = type;
     ^
-main.c:7483:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7733:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->scope_depth = -1;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7483:5: note: Null pointer dereference
+main.c:7733:5: note: Null pointer dereference
     compiler->scope_depth = -1;
     ^
-main.c:7484:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7734:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->enclosing = (struct LitCompiler*)emitter->compiler;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7484:5: note: Null pointer dereference
+main.c:7734:5: note: Null pointer dereference
     compiler->enclosing = (struct LitCompiler*)emitter->compiler;
     ^
-main.c:7485:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7735:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->skip_return = false;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7485:5: note: Null pointer dereference
+main.c:7735:5: note: Null pointer dereference
     compiler->skip_return = false;
     ^
-main.c:7486:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7736:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->function = lit_object_makefunction(emitter->pstate, emitter->module);
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7486:5: note: Null pointer dereference
+main.c:7736:5: note: Null pointer dereference
     compiler->function = lit_object_makefunction(emitter->pstate, emitter->module);
     ^
-main.c:7487:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7737:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->loop_depth = 0;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7487:5: note: Null pointer dereference
+main.c:7737:5: note: Null pointer dereference
     compiler->loop_depth = 0;
     ^
-main.c:7488:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
+main.c:7738:5: warning: Either the condition 'emitter->compiler==((void*)0)' is redundant or there is possible null pointer dereference: compiler. [nullPointerRedundantCheck]
     compiler->registers_used = 0;
     ^
-main.c:7491:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
+main.c:7741:26: note: Assuming that condition 'emitter->compiler==((void*)0)' is not redundant
     if(emitter->compiler == NULL)
                          ^
-main.c:7489:25: note: Assignment to 'emitter->compiler=compiler'
+main.c:7739:25: note: Assignment to 'emitter->compiler=compiler'
     emitter->compiler = compiler;
                         ^
-main.c:7488:5: note: Null pointer dereference
+main.c:7738:5: note: Null pointer dereference
     compiler->registers_used = 0;
     ^
-main.c:11911:12: warning: Either the condition 'file==((void*)0)' is redundant or there is possible null pointer dereference: file. [nullPointerRedundantCheck]
+main.c:12065:12: warning: Either the condition 'file==((void*)0)' is redundant or there is possible null pointer dereference: file. [nullPointerRedundantCheck]
     fclose(file);
            ^
-main.c:11907:13: note: Assuming that condition 'file==((void*)0)' is not redundant
+main.c:12061:13: note: Assuming that condition 'file==((void*)0)' is not redundant
     if(file == NULL)
             ^
-main.c:11911:12: note: Null pointer dereference
+main.c:12065:12: note: Null pointer dereference
     fclose(file);
            ^
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__STRICT_ANSI__...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__linux__...
+Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__linux__;__unix__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;__sun__;__svr4__...
 Checking main.c: __CHAR_BIT__=1;__CPPCHECK__=1;va_copy...
 allocator.h:1503:0: style: The function 'mempool_createpool' is never used. [unusedFunction]
@@ -1243,64 +1458,106 @@ void mempool_destroypool(void* msp)
 allocator.h:1751:0: style: The function 'mempool_userrealloc' is never used. [unusedFunction]
 void* mempool_userrealloc(void* msp, void* ptr, size_t nsize)
 ^
-main.c:1376:0: style: The function 'lit_strbufutil_splitstr' is never used. [unusedFunction]
+lino.h:422:0: style: The function 'lino_context_setencodingfunctions' is never used. [unusedFunction]
+static void lino_context_setencodingfunctions(linocontext_t* ctx, linofnprevchlen_t* pclfunc, linofnnextchlen_t* nclfunc, linofnreadcode_t* rcfunc)
+^
+lino.h:492:0: style: The function 'lino_context_maskmodeenable' is never used. [unusedFunction]
+static void lino_context_maskmodeenable(linocontext_t* ctx)
+^
+lino.h:498:0: style: The function 'lino_context_maskmodedisable' is never used. [unusedFunction]
+static void lino_context_maskmodedisable(linocontext_t* ctx)
+^
+lino.h:504:0: style: The function 'lino_context_setmultiline' is never used. [unusedFunction]
+static void lino_context_setmultiline(linocontext_t* ctx, int ml)
+^
+lino.h:801:0: style: The function 'lino_setcompletioncallback' is never used. [unusedFunction]
+static void lino_setcompletioncallback(linocontext_t* ctx, linofncomp_t* fn)
+^
+lino.h:808:0: style: The function 'lino_sethintscallback' is never used. [unusedFunction]
+static void lino_sethintscallback(linocontext_t* ctx, linofnhint_t* fn)
+^
+lino.h:815:0: style: The function 'lino_setfreehintscallback' is never used. [unusedFunction]
+static void lino_setfreehintscallback(linocontext_t* ctx, linofnhintfree_t* fn)
+^
+lino.h:824:0: style: The function 'lino_addcompletion' is never used. [unusedFunction]
+static void lino_addcompletion(linocontext_t* ctx, linocompletions_t* lc, const char* str)
+^
+lino.h:1637:0: style: The function 'lino_debug_printkeycodes' is never used. [unusedFunction]
+static void lino_debug_printkeycodes(linocontext_t* ctx)
+^
+lino.h:1890:0: style: The function 'lino_context_historysetmaxlength' is never used. [unusedFunction]
+static int lino_context_historysetmaxlength(linocontext_t* ctx, int len)
+^
+lino.h:1932:0: style: The function 'lino_context_historysavetofile' is never used. [unusedFunction]
+static int lino_context_historysavetofile(linocontext_t* ctx, const char* filename)
+^
+lino.h:1960:0: style: The function 'lino_context_historyloadfromfile' is never used. [unusedFunction]
+static int lino_context_historyloadfromfile(linocontext_t* ctx, const char* filename)
+^
+main.c:1358:0: style: The function 'lit_sysmem_calloc' is never used. [unusedFunction]
+void* lit_sysmem_calloc(size_t count, size_t sz)
+^
+main.c:1387:0: style: The function 'lit_strbufutil_splitstr' is never used. [unusedFunction]
 size_t lit_strbufutil_splitstr(char* str, char sep, char** ptrs, size_t nptrs)
 ^
-main.c:1404:0: style: The function 'lit_strbufutil_charreplace' is never used. [unusedFunction]
+main.c:1415:0: style: The function 'lit_strbufutil_charreplace' is never used. [unusedFunction]
 size_t lit_strbufutil_charreplace(char* str, char from, char to)
 ^
-main.c:1439:0: style: The function 'lit_strbufutil_isallspace' is never used. [unusedFunction]
+main.c:1450:0: style: The function 'lit_strbufutil_isallspace' is never used. [unusedFunction]
 bool lit_strbufutil_isallspace(const char* s)
 ^
-main.c:1448:0: style: The function 'lit_strbufutil_nextspace' is never used. [unusedFunction]
+main.c:1459:0: style: The function 'lit_strbufutil_nextspace' is never used. [unusedFunction]
 char* lit_strbufutil_nextspace(char* s)
 ^
-main.c:1462:0: style: The function 'lit_strbufutil_trim' is never used. [unusedFunction]
+main.c:1473:0: style: The function 'lit_strbufutil_trim' is never used. [unusedFunction]
 char* lit_strbufutil_trim(char* str)
 ^
-main.c:1496:0: style: The function 'lit_strbufutil_countchar' is never used. [unusedFunction]
+main.c:1507:0: style: The function 'lit_strbufutil_countchar' is never used. [unusedFunction]
 size_t lit_strbufutil_countchar(const char* str, char c)
 ^
-main.c:1511:0: style: The function 'lit_strbufutil_split' is never used. [unusedFunction]
+main.c:1522:0: style: The function 'lit_strbufutil_split' is never used. [unusedFunction]
 size_t lit_strbufutil_split(const char* splitat, const char* sourcetxt, char*** result)
 ^
-main.c:1615:0: style: The function 'lit_strbufutil_strreplace1' is never used. [unusedFunction]
-size_t lit_strbufutil_strreplace1(char **str, size_t selflen, const char* findstr, size_t findlen, const char *substr, size_t sublen)
+main.c:1625:0: style: The function 'lit_strbufutil_strreplace1' is never used. [unusedFunction]
+size_t lit_strbufutil_strreplace1(char** str, size_t selflen, const char* findstr, size_t findlen, const char* substr, size_t sublen)
 ^
-main.c:1667:0: style: The function 'lit_strbufutil_strrepcount' is never used. [unusedFunction]
+main.c:1677:0: style: The function 'lit_strbufutil_strrepcount' is never used. [unusedFunction]
 size_t lit_strbufutil_strrepcount(const char* str, size_t slen, const char* findstr, size_t findlen, size_t sublen)
 ^
-main.c:1697:0: style: The function 'lit_strbufutil_strreplace2' is never used. [unusedFunction]
-void lit_strbufutil_strreplace2(char* target, size_t tgtlen, const char *findstr, size_t findlen, const char *substr, size_t sublen)
+main.c:1707:0: style: The function 'lit_strbufutil_strreplace2' is never used. [unusedFunction]
+void lit_strbufutil_strreplace2(char* target, size_t tgtlen, const char* findstr, size_t findlen, const char* substr, size_t sublen)
 ^
-main.c:1786:0: style: The function 'lit_strbuf_makelongfromptr' is never used. [unusedFunction]
+main.c:1795:0: style: The function 'lit_strbuf_makelongfromptr' is never used. [unusedFunction]
 LitStrBuffer* lit_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
 ^
-main.c:1830:0: style: The function 'lit_strbuf_makebasicempty' is never used. [unusedFunction]
+main.c:1839:0: style: The function 'lit_strbuf_makebasicempty' is never used. [unusedFunction]
 LitStrBuffer* lit_strbuf_makebasicempty(const char* str, size_t len)
 ^
-main.c:1855:0: style: The function 'lit_strbuf_destroy' is never used. [unusedFunction]
+main.c:1864:0: style: The function 'lit_strbuf_destroy' is never used. [unusedFunction]
 bool lit_strbuf_destroy(LitStrBuffer* sb)
 ^
-main.c:1864:0: style: The function 'lit_strbuf_reset' is never used. [unusedFunction]
+main.c:1872:0: style: The function 'lit_strbuf_reset' is never used. [unusedFunction]
 void lit_strbuf_reset(LitStrBuffer* sb)
 ^
-main.c:1949:0: style: The function 'lit_strbuf_get' is never used. [unusedFunction]
+main.c:1941:0: style: The function 'lit_strbuf_length' is never used. [unusedFunction]
+size_t lit_strbuf_length(LitStrBuffer* sb)
+^
+main.c:1953:0: style: The function 'lit_strbuf_get' is never used. [unusedFunction]
 int lit_strbuf_get(LitStrBuffer* sb, size_t idx)
 ^
-main.c:1954:0: style: The function 'lit_strbuf_containschar' is never used. [unusedFunction]
+main.c:1958:0: style: The function 'lit_strbuf_containschar' is never used. [unusedFunction]
 bool lit_strbuf_containschar(LitStrBuffer* sb, char ch)
 ^
-main.c:1994:0: style: The function 'lit_strbuf_charreplace' is never used. [unusedFunction]
+main.c:1998:0: style: The function 'lit_strbuf_charreplace' is never used. [unusedFunction]
 bool lit_strbuf_charreplace(LitStrBuffer* sb, int findme, const char* substr, size_t sublen)
 ^
-main.c:2021:0: style: The function 'lit_strbuf_set' is never used. [unusedFunction]
+main.c:2024:0: style: The function 'lit_strbuf_set' is never used. [unusedFunction]
 bool lit_strbuf_set(LitStrBuffer* sb, size_t idx, int b)
 ^
-main.c:2067:0: style: The function 'lit_strbuf_appendstr' is never used. [unusedFunction]
+main.c:2070:0: style: The function 'lit_strbuf_appendstr' is never used. [unusedFunction]
 bool lit_strbuf_appendstr(LitStrBuffer* sb, const char* str)
 ^
-main.c:2072:0: style: The function 'lit_strbuf_appendbuff' is never used. [unusedFunction]
+main.c:2075:0: style: The function 'lit_strbuf_appendbuff' is never used. [unusedFunction]
 bool lit_strbuf_appendbuff(LitStrBuffer* sb1, LitStrBuffer* sb2)
 ^
 main.c:2197:0: style: The function 'lit_strbuf_appendnumint' is never used. [unusedFunction]
@@ -1357,86 +1614,62 @@ void lit_strbuf_trimleftinplace(LitStrBuffer* sb, const char* list)
 main.c:2673:0: style: The function 'lit_strbuf_trimrightinplace' is never used. [unusedFunction]
 void lit_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
 ^
-main.c:2762:0: style: The function 'lit_iostream_makeopenfile' is never used. [unusedFunction]
+main.c:2761:0: style: The function 'lit_iostream_makeopenfile' is never used. [unusedFunction]
 LitIOStream* lit_iostream_makeopenfile(const char* path, bool writemode)
 ^
-main.c:2778:0: style: The function 'lit_iostream_makestring' is never used. [unusedFunction]
+main.c:2777:0: style: The function 'lit_iostream_makestring' is never used. [unusedFunction]
 LitIOStream* lit_iostream_makestring()
 ^
-main.c:2828:0: style: The function 'lit_iostream_copystring' is never used. [unusedFunction]
-LitString* lit_iostream_copystring(LitState* state, LitIOStream* pr)
-^
-main.c:3026:0: style: The function 'lit_sysmem_calloc' is never used. [unusedFunction]
-void* lit_sysmem_calloc(size_t count, size_t sz)
-^
-main.c:4312:0: style: The function 'lit_state_getglobalfunction' is never used. [unusedFunction]
-LitFunction* lit_state_getglobalfunction(LitState* state, LitString* name)
-^
-main.c:4330:0: style: The function 'lit_state_globalexists' is never used. [unusedFunction]
-bool lit_state_globalexists(LitState* state, LitString* name)
-^
-main.c:4361:0: style: The function 'lit_args_getnumber' is never used. [unusedFunction]
-double lit_args_getnumber(LitValue* args, size_t argc, size_t id, double def)
-^
-main.c:4370:0: style: The function 'lit_args_checkbool' is never used. [unusedFunction]
-bool lit_args_checkbool(LitState* state, LitValue* args, size_t argc, size_t id)
-^
-main.c:4379:0: style: The function 'lit_args_getbool' is never used. [unusedFunction]
-bool lit_args_getbool(LitValue* args, size_t argc, size_t id, bool def)
-^
-main.c:4415:0: style: The function 'lit_args_checkinstance' is never used. [unusedFunction]
-LitInstance* lit_args_checkinstance(LitState* state, LitValue* args, size_t argc, size_t id)
-^
-main.c:4424:0: style: The function 'lit_check_reference' is never used. [unusedFunction]
-LitValue* lit_check_reference(LitState* state, LitValue* args, size_t argc, size_t id)
-^
-main.c:4770:0: style: The function 'lit_chunk_shrink' is never used. [unusedFunction]
-void lit_chunk_shrink(LitChunk* chunk)
-^
-main.c:5800:0: style: The function 'lit_scanner_checkkeyword' is never used. [unusedFunction]
-LitTokenType lit_scanner_checkkeyword(LitScanner* scanner, int start, int length, const char* rest, LitTokenType type)
-^
-main.c:9862:0: style: The function 'objfnstring_less' is never used. [unusedFunction]
-LitValue objfnstring_less(LitState* state, LitValue instance, size_t argc, LitValue* args)
-^
-main.c:9867:0: style: The function 'objfnstring_greater' is never used. [unusedFunction]
-LitValue objfnstring_greater(LitState* state, LitValue instance, size_t argc, LitValue* args)
-^
-main.c:11420:0: style: The function 'lit_util_readuint16' is never used. [unusedFunction]
-uint16_t lit_util_readuint16(FILE* file)
-^
-main.c:11428:0: style: The function 'lit_util_readuint32' is never used. [unusedFunction]
-uint32_t lit_util_readuint32(FILE* file)
-^
-main.c:11436:0: style: The function 'lit_util_readdouble' is never used. [unusedFunction]
-double lit_util_readdouble(FILE* file)
-^
-main.c:11444:0: style: The function 'lit_util_readstring' is never used. [unusedFunction]
-LitString* lit_util_readstring(LitState* state, FILE* file)
-^
-main.c:12856:0: style: The function 'lit_state_callnew' is never used. [unusedFunction]
-LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, size_t argc)
-^
-main.c:12940:0: style: The function 'lit_string_take' is never used. [unusedFunction]
+main.c:3889:0: style: The function 'lit_string_take' is never used. [unusedFunction]
 LitString* lit_string_take(LitState* state, const char* chars, size_t length)
 ^
-main.c:13069:0: style: The function 'lit_string_append' is never used. [unusedFunction]
+main.c:4048:0: style: The function 'lit_string_append' is never used. [unusedFunction]
 void lit_string_append(LitString* dest, const char* str)
 ^
-main.c:13457:0: style: The function 'lit_array_size' is never used. [unusedFunction]
+main.c:4573:0: style: The function 'lit_state_globalexists' is never used. [unusedFunction]
+bool lit_state_globalexists(LitState* state, LitString* name)
+^
+main.c:4579:0: style: The function 'lit_state_getglobal' is never used. [unusedFunction]
+LitValue lit_state_getglobal(LitState* state, LitString* name)
+^
+main.c:4589:0: style: The function 'lit_state_getglobalfunction' is never used. [unusedFunction]
+LitFunction* lit_state_getglobalfunction(LitState* state, LitString* name)
+^
+main.c:5011:0: style: The function 'lit_chunk_shrink' is never used. [unusedFunction]
+void lit_chunk_shrink(LitChunk* chunk)
+^
+main.c:10055:0: style: The function 'lit_objfnstring_less' is never used. [unusedFunction]
+LitValue lit_objfnstring_less(LitState* state, LitValue instance, size_t argc, LitValue* args)
+^
+main.c:10060:0: style: The function 'lit_objfnstring_greater' is never used. [unusedFunction]
+LitValue lit_objfnstring_greater(LitState* state, LitValue instance, size_t argc, LitValue* args)
+^
+main.c:11357:0: style: The function 'lit_coreutil_compileandinterpret' is never used. [unusedFunction]
+bool lit_coreutil_compileandinterpret(LitState* state, LitString* modname, char* source)
+^
+main.c:11616:0: style: The function 'lit_bcfile_readstring' is never used. [unusedFunction]
+LitString* lit_bcfile_readstring(LitState* state, FILE* file)
+^
+main.c:12977:0: style: The function 'lit_state_callnew' is never used. [unusedFunction]
+LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, size_t argc)
+^
+main.c:13287:0: style: The function 'lit_array_size' is never used. [unusedFunction]
 size_t lit_array_size(LitArray* array)
 ^
-main.c:13472:0: style: The function 'lit_array_set' is never used. [unusedFunction]
+main.c:13302:0: style: The function 'lit_array_set' is never used. [unusedFunction]
 LitValue lit_array_set(LitArray* ary, size_t idx, LitValue val)
 ^
-main.c:13536:0: style: The function 'lit_map_get' is never used. [unusedFunction]
+main.c:13364:0: style: The function 'lit_map_get' is never used. [unusedFunction]
 bool lit_map_get(LitMap* map, LitString* key, LitValue* value)
 ^
-main.c:13558:0: style: The function 'lit_map_getfield' is never used. [unusedFunction]
+main.c:13387:0: style: The function 'lit_map_getfield' is never used. [unusedFunction]
 LitValue lit_map_getfield(LitMap* map, const char* name)
 ^
-main.c:13570:0: style: The function 'lit_map_setfield' is never used. [unusedFunction]
+main.c:13399:0: style: The function 'lit_map_setfield' is never used. [unusedFunction]
 void lit_map_setfield(LitMap* map, const char* name, LitValue value)
+^
+main.c:13819:0: style: The function 'lit_tostring_typename' is never used. [unusedFunction]
+const char* lit_tostring_typename(LitObjType t)
 ^
 nofile:0:0: information: Active checkers: 106/592 (use --checkers-report=<filename> to see details) [checkersReport]
 

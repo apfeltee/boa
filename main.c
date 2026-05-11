@@ -786,7 +786,7 @@ struct LitCallFrame
 struct LitMap
 {
     LitObject innerobject;
-    LitTable values;
+    LitTable innertable;
 };
 
 struct LitModule
@@ -848,7 +848,7 @@ struct LitBoundMethod
 struct LitArray
 {
     LitObject innerobject;
-    LitDynListVal values;
+    LitDynListVal innerlist;
 };
 
 struct LitVarargArray
@@ -3033,7 +3033,7 @@ void* lit_reallocate(LitState* state, void* pointer, size_t oldsize, size_t news
 void lit_free_object(LitState* state, LitObject* object)
 {
 #ifdef LIT_CONFIG_LOGALLOCATION
-    fprintf(stderr, "(%s) %p free %s\n", lit_tostring_typename(object->type), (void*)object, lit_tostring_typename(object->type));
+    fprintf(stderr, "(%s) %p free %s\n", lit_value_objtypename(object->type), (void*)object, lit_value_objtypename(object->type));
 #endif
     switch(object->type)
     {
@@ -3117,19 +3117,19 @@ void lit_free_object(LitState* state, LitObject* object)
         }
         case LIT_OBJ_ARRAY:
         {
-            lit_vallist_destroy(&((LitArray*)object)->values);
+            lit_vallist_destroy(&((LitArray*)object)->innerlist);
             LIT_GC_FREEOBJECT(state, LitArray, object);
             break;
         }
         case LIT_OBJ_VARARGARRAY:
         {
-            lit_vallist_destroy(&((LitVarargArray*)object)->array.values);
+            lit_vallist_destroy(&((LitVarargArray*)object)->array.innerlist);
             LIT_GC_FREEOBJECT(state, LitVarargArray, object);
             break;
         }
         case LIT_OBJ_MAP:
         {
-            lit_free_table(&((LitMap*)object)->values);
+            lit_free_table(&((LitMap*)object)->innertable);
             LIT_GC_FREEOBJECT(state, LitMap, object);
             break;
         }
@@ -3231,16 +3231,16 @@ void lit_gcmem_markroots(LitState* state)
     lit_gcmem_markobject(state, (LitObject*)state->range_class);
     lit_gcmem_markobject(state, (LitObject*)state->api_name);
     lit_gcmem_markobject(state, (LitObject*)state->api_function);
-    lit_table_markentries(&state->vmstate.modules->values);
-    lit_table_markentries(&state->vmstate.globals->values);
+    lit_table_markentries(&state->vmstate.modules->innertable);
+    lit_table_markentries(&state->vmstate.globals->innertable);
 }
 
-void lit_gcmem_markarray(LitState* state, LitDynListVal* array)
+void lit_gcmem_markarray(LitState* state, LitDynListVal* list)
 {
     size_t i;
-    for(i = 0; i < array->count; i++)
+    for(i = 0; i < list->count; i++)
     {
-        lit_gcmem_markvalue(state, array->values[i]);
+        lit_gcmem_markvalue(state, list->values[i]);
     }
 }
 
@@ -3373,17 +3373,17 @@ void lit_gcmem_blackenobject(LitState* state, LitObject* object)
         }
         case LIT_OBJ_ARRAY:
         {
-            lit_gcmem_markarray(state, &((LitArray*)object)->values);
+            lit_gcmem_markarray(state, &((LitArray*)object)->innerlist);
             break;
         }
         case LIT_OBJ_VARARGARRAY:
         {
-            lit_gcmem_markarray(state, &((LitVarargArray*)object)->array.values);
+            lit_gcmem_markarray(state, &((LitVarargArray*)object)->array.innerlist);
             break;
         }
         case LIT_OBJ_MAP:
         {
-            lit_table_markentries(&((LitMap*)object)->values);
+            lit_table_markentries(&((LitMap*)object)->innertable);
             break;
         }
         case LIT_OBJ_FIELD:
@@ -4288,10 +4288,8 @@ void lit_value_printobjmap(LitIOStream* pr, LitObject* self, LitTable* tab)
     size_t index;
     size_t valueamount;
     LitValue field;
-    LitTable* values;
     LitTabEntry* entry;
-    values = tab;
-    valueamount = values->htcount;
+    valueamount = tab->htcount;
     lit_iostream_writestring(pr, "{");
     if(valueamount > 0)
     {
@@ -4299,7 +4297,7 @@ void lit_value_printobjmap(LitIOStream* pr, LitObject* self, LitTable* tab)
         index = 0;
         do
         {
-            entry = &values->htentries[index];
+            entry = &tab->htentries[index];
             index++;
             didprint =false;
             if(entry->key != NULL)
@@ -4343,15 +4341,15 @@ void lit_value_printobjarray(LitIOStream* pr, LitArray* self)
     size_t i;
     size_t valueamount;
     LitValue field;
-    LitDynListVal* values;
-    valueamount = self->values.count;
-    values = &self->values;
+    LitDynListVal* vdlist;
+    valueamount = self->innerlist.count;
+    vdlist = &self->innerlist;
     lit_iostream_writestring(pr, "[");
-    if(values->count > 0)
+    if(vdlist->count > 0)
     {
         for(i = 0; i < valueamount; i++)
         {
-            field = values->values[i];
+            field = vdlist->values[i];
             if(lit_value_isarray(field) && lit_value_asarray(field) == self)
             {
                 lit_iostream_writestring(pr, "<recursion>");
@@ -4462,7 +4460,7 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
         case LIT_OBJ_MAP:
         {
             LitMap* map = lit_value_asmap(value);
-            lit_value_printobjmap(pr, (LitObject*)map, &map->values);
+            lit_value_printobjmap(pr, (LitObject*)map, &map->innertable);
         }
         break;
 
@@ -4529,26 +4527,26 @@ void lit_value_printvalue(LitIOStream* pr, LitValue value, bool reprmode)
     }
 }
 
-void lit_dynlistval_ensuresize(LitDynListVal* values, size_t size)
+void lit_dynlistval_ensuresize(LitDynListVal* list, size_t size)
 {
-    lit_dynlistval_ensureactualsize(values, size);
-    if(values->count < size)
+    lit_dynlistval_ensureactualsize(list, size);
+    if(list->count < size)
     {
-        values->count = size;
+        list->count = size;
     }
 }
 
-void lit_dynlistval_ensureactualsize(LitDynListVal* values, size_t size)
+void lit_dynlistval_ensureactualsize(LitDynListVal* list, size_t size)
 {
     size_t i;
-    if(values->capacity < size)
+    if(list->capacity < size)
     {
-        size_t oldcapacity = values->capacity;
-        values->capacity = size;
-        values->values = (LitValue*)lit_sysmem_realloc(values->values, sizeof(LitValue) * (size));
+        size_t oldcapacity = list->capacity;
+        list->capacity = size;
+        list->values = (LitValue*)lit_sysmem_realloc(list->values, sizeof(LitValue) * (size));
         for(i = oldcapacity; i < size; i++)
         {
-            values->values[i] = lit_value_makenull();
+            list->values[i] = lit_value_makenull();
         }
     }
 }
@@ -4567,7 +4565,7 @@ void lit_api_destroy(LitState* state)
 
 bool lit_state_getglobaltovalue(LitState* state, LitString* name, LitValue* dest)
 {
-    return lit_table_getentry(&state->vmstate.globals->values, name, dest);
+    return lit_table_getentry(&state->vmstate.globals->innertable, name, dest);
 }
 
 bool lit_state_globalexists(LitState* state, LitString* name)
@@ -4604,7 +4602,7 @@ void lit_state_setglobal(LitState* state, LitString* name, LitValue value)
 {
     lit_state_pushroot(state, (LitObject*)name);
     lit_state_pushvalueroot(state, value);
-    lit_table_set(&state->vmstate.globals->values, name, value);
+    lit_table_set(&state->vmstate.globals->innertable, name, value);
     lit_state_poproots(state, 2);
 }
 
@@ -4612,7 +4610,7 @@ void lit_state_defnative(LitState* state, const char* name, LitNativeFunctionFn 
 {
     lit_state_pushroot(state, (LitObject*)lit_string_copy(state, name));
     lit_state_pushroot(state, (LitObject*)lit_object_makenativefunc(state, native, lit_value_asstring(lit_state_peekroot(state, 0))));
-    lit_table_set(&state->vmstate.globals->values, lit_value_asstring(lit_state_peekroot(state, 1)), lit_state_peekroot(state, 0));
+    lit_table_set(&state->vmstate.globals->innertable, lit_value_asstring(lit_state_peekroot(state, 1)), lit_state_peekroot(state, 0));
     lit_state_poproots(state, 2);
 }
 
@@ -5026,54 +5024,54 @@ void lit_chunk_shrink(LitChunk* chunk)
     }
 }
 
-void lit_exprlist_init(LitDynListExpr* array)
+void lit_exprlist_init(LitDynListExpr* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_exprlist_destroy(LitDynListExpr* array)
+void lit_exprlist_destroy(LitDynListExpr* list)
 {
-    lit_sysmem_free(array->values);
-    lit_exprlist_init(array);
+    lit_sysmem_free(list->values);
+    lit_exprlist_init(list);
 }
 
-void lit_exprlist_push(LitDynListExpr* array, LitExpression* value)
+void lit_exprlist_push(LitDynListExpr* list, LitExpression* value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (LitExpression**)lit_sysmem_realloc(array->values, sizeof(LitExpression*) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (LitExpression**)lit_sysmem_realloc(list->values, sizeof(LitExpression*) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
-void lit_paramlist_init(LitDynListParam* array)
+void lit_paramlist_init(LitDynListParam* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_paramlist_destroy(LitDynListParam* array)
+void lit_paramlist_destroy(LitDynListParam* list)
 {
-    lit_sysmem_free(array->values);
-    lit_paramlist_init(array);
+    lit_sysmem_free(list->values);
+    lit_paramlist_init(list);
 }
 
-void lit_paramlist_push(LitDynListParam* array, LitParameter value)
+void lit_paramlist_push(LitDynListParam* list, LitParameter value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (LitParameter*)lit_sysmem_realloc(array->values, sizeof(LitParameter) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (LitParameter*)lit_sysmem_realloc(list->values, sizeof(LitParameter) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 };
 
 void lit_ast_destroyparamlist(LitState* state, LitDynListParam* parameters)
@@ -7550,64 +7548,64 @@ void lit_parser_setuprules()
     rules[LIT_ASTTOKTYP_FUNCTION] = lit_parser_makerule(lit_parser_rulefunction, NULL, LIT_ASTPREC_NONE);
 }
 
-void lit_privlist_init(LitDynListPriv* array)
+void lit_privlist_init(LitDynListPriv* list)
 {
-    lit_privlist_reset(array);
+    lit_privlist_reset(list);
 }
 
-void lit_privlist_reset(LitDynListPriv* array)
+void lit_privlist_reset(LitDynListPriv* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_privlist_destroy(LitDynListPriv* array)
+void lit_privlist_destroy(LitDynListPriv* list)
 {
-    lit_sysmem_free(array->values);
-    lit_privlist_reset(array);
+    lit_sysmem_free(list->values);
+    lit_privlist_reset(list);
 }
 
-void lit_privlist_push(LitDynListPriv* array, LitPrivate value)
+void lit_privlist_push(LitDynListPriv* list, LitPrivate value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (LitPrivate*)lit_sysmem_realloc(array->values, sizeof(LitPrivate) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (LitPrivate*)lit_sysmem_realloc(list->values, sizeof(LitPrivate) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
-void lit_loclist_init(LitDynListLoc* array)
+void lit_loclist_init(LitDynListLoc* list)
 {
-    lit_loclist_reset(array);
+    lit_loclist_reset(list);
 }
 
-void lit_loclist_reset(LitDynListLoc* array)
+void lit_loclist_reset(LitDynListLoc* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_loclist_destroy(LitDynListLoc* array)
+void lit_loclist_destroy(LitDynListLoc* list)
 {
-    lit_sysmem_free(array->values);
-    lit_loclist_reset(array);
+    lit_sysmem_free(list->values);
+    lit_loclist_reset(list);
 }
 
-void lit_loclist_push(LitDynListLoc* array, LitLocal value)
+void lit_loclist_push(LitDynListLoc* list, LitLocal value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (LitLocal*)lit_sysmem_realloc(array->values, sizeof(LitLocal) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (LitLocal*)lit_sysmem_realloc(list->values, sizeof(LitLocal) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
 void lit_emitter_resolvestmtlist(LitEmitter* emitter, LitDynListExpr* statements)
@@ -7845,7 +7843,7 @@ int lit_emitter_addprivate(LitEmitter* emitter, const char* name, size_t length,
     {
         lit_emitter_raiseerror(emitter, line, "too many private locals for one module");
     }
-    privnames = &emitter->module->privatenames->values;
+    privnames = &emitter->module->privatenames->innertable;
     key = lit_table_findstring(privnames, name, length, lit_string_hash(name, length));
     if(key != NULL)
     {
@@ -7871,7 +7869,7 @@ int lit_emitter_resolveprivate(LitEmitter* emitter, const char* name, size_t len
     LitValue index;
     LitString* key;
     LitTable* privnames;
-    privnames = &emitter->module->privatenames->values;
+    privnames = &emitter->module->privatenames->innertable;
     key = lit_table_findstring(privnames, name, length, lit_string_hash(name, length));
     if(key != NULL)
     {
@@ -9348,7 +9346,7 @@ LitModule* lit_emitter_emitmod(LitEmitter* emitter, LitDynListExpr* statements, 
     LitValue modulevalue;
     LitModule* module;
     bool isnew = false;
-    if(lit_table_getentry(&emitter->pstate->vmstate.modules->values, modname, &modulevalue))
+    if(lit_table_getentry(&emitter->pstate->vmstate.modules->innertable, modname, &modulevalue))
     {
         module = lit_value_asmodule(modulevalue);
     }
@@ -9411,7 +9409,7 @@ LitModule* lit_emitter_emitmod(LitEmitter* emitter, LitDynListExpr* statements, 
     lit_privlist_destroy(&emitter->privlist);
     if(isnew && !state->had_error)
     {
-        lit_table_set(&state->vmstate.modules->values, modname, lit_value_fromobject(module));
+        lit_table_set(&state->vmstate.modules->innertable, modname, lit_value_fromobject(module));
     }
     module->ran = true;
     return module;
@@ -9433,14 +9431,14 @@ void lit_debug_disaschunk(LitIOStream* pr, LitChunk* chunk, const char* name, co
 {
     size_t i;
     size_t offset;
-    LitDynListVal* values = &chunk->constantlist;
+    LitDynListVal* list = &chunk->constantlist;
     lit_iostream_printf(pr, "^^ %s ^^\n", name);
-    if(values->count > 0)
+    if(list->count > 0)
     {
         lit_iostream_printf(pr, "%sconstants:%s\n", COLOR_MAGENTA, COLOR_RESET);
-        for(i = 0; i < values->count; i++)
+        for(i = 0; i < list->count; i++)
         {
-            LitValue value = values->values[i];
+            LitValue value = list->values[i];
             lit_iostream_printf(pr, "% 4d ", i);
             lit_debug_printconst(pr, value);
             lit_iostream_printf(pr, "\n");
@@ -9889,7 +9887,7 @@ LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, Li
     if(lit_value_ismap(val))
     {
         map = lit_value_asmap(val);
-        lit_util_tabtoarray(state, arr, &map->values);
+        lit_util_tabtoarray(state, arr, &map->innertable);
     }
     else if(lit_value_isinstance(val))
     {
@@ -10444,10 +10442,10 @@ void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, siz
                 size_t varargcount = argc - functionargcount + 1;
                 if(varargcount > 0)
                 {
-                    lit_dynlistval_ensuresize(&array->values, varargcount);
+                    lit_dynlistval_ensuresize(&array->innerlist, varargcount);
                     for(i = 0; i < varargcount; i++)
                     {
-                        array->values.values[i] = args[i + functionargcount - 1];
+                        array->innerlist.values[i] = args[i + functionargcount - 1];
                     }
                 }
                 lit_state_poproot(state);
@@ -10582,7 +10580,7 @@ LitValue lit_objfnarray_constructor(LitState* state, LitValue instance, size_t a
 LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int from, int to)
 {
     size_t i;
-    size_t length = array->values.count;
+    size_t length = array->innerlist.count;
     if(from < 0)
     {
         from = (int)length + from;
@@ -10601,7 +10599,7 @@ LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int from, int t
     LitArray* newarray = lit_array_make(state);
     for(i = 0; i < length; i++)
     {
-        lit_vallist_push(&newarray->values, array->values.values[from + i]);
+        lit_vallist_push(&newarray->innerlist, array->innerlist.values[from + i]);
     }
     return lit_value_fromobject(newarray);
 }
@@ -10621,15 +10619,15 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
         {
             lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         }
-        LitDynListVal* values = &lit_value_asarray(instance)->values;
+        LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
         int64_t index = lit_value_asnumber(args[0]);
         if(index < 0)
         {
-            index = fmax(0, values->count + index);
+            index = fmax(0, list->count + index);
         }
         //fprintf(stderr, "Array[]: index=%ld\n", index);
-        lit_dynlistval_ensuresize(values, index + 1);
-        return values->values[index] = args[1];
+        lit_dynlistval_ensuresize(list, index + 1);
+        return list->values[index] = args[1];
     }
     if(!lit_value_isnumber(args[0]))
     {
@@ -10641,17 +10639,17 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
         lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         return lit_value_makenull();
     }
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
     int index = lit_value_asnumber(args[0]);
     if(index < 0)
     {
-        index = fmax(0, values->count + index);
+        index = fmax(0, list->count + index);
     }
-    if(values->capacity <= (size_t)index)
+    if(list->capacity <= (size_t)index)
     {
         return lit_value_makenull();
     }
-    return values->values[index];
+    return list->values[index];
 }
 
 LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -10662,7 +10660,7 @@ LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, Li
     self = lit_value_asarray(instance);
     for(i = 0; i < argc; i++)
     {
-        lit_vallist_push(&self->values, args[i]);
+        lit_vallist_push(&self->innerlist, args[i]);
     }
     return lit_value_makenull();
 }
@@ -10671,26 +10669,26 @@ LitValue lit_objfnarray_insert(LitState* state, LitValue instance, size_t argc, 
 {
     int i;
     LIT_ENSURE_ARGS(2);
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
     int index = LIT_CHECK_NUMBER(0);
     if(index < 0)
     {
-        index = fmax(0, values->count + index);
+        index = fmax(0, list->count + index);
     }
     LitValue value = args[1];
-    if((int)values->count <= index)
+    if((int)list->count <= index)
     {
-        lit_dynlistval_ensuresize(values, index + 1);
+        lit_dynlistval_ensuresize(list, index + 1);
     }
     else
     {
-        lit_dynlistval_ensuresize(values, values->count + 1);
-        for(i = values->count - 1; i > index; i--)
+        lit_dynlistval_ensuresize(list, list->count + 1);
+        for(i = list->count - 1; i > index; i--)
         {
-            values->values[i] = values->values[i - 1];
+            list->values[i] = list->values[i - 1];
         }
     }
-    values->values[index] = value;
+    list->values[index] = value;
     return lit_value_makenull();
 }
 
@@ -10704,9 +10702,9 @@ LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, 
     }
     LitArray* array = lit_value_asarray(instance);
     LitArray* toAdd = lit_value_asarray(args[0]);
-    for(i = 0; i < toAdd->values.count; i++)
+    for(i = 0; i < toAdd->innerlist.count; i++)
     {
-        lit_vallist_push(&array->values, toAdd->values.values[i]);
+        lit_vallist_push(&array->innerlist, toAdd->innerlist.values[i]);
     }
     return lit_value_makenull();
 }
@@ -10715,9 +10713,9 @@ int lit_coreutil_indexof(LitState* state, LitArray* array, LitValue value)
 {
     size_t i;
     LitValue* ptr;
-    for(i = 0; i < array->values.count; i++)
+    for(i = 0; i < array->innerlist.count; i++)
     {
-        ptr = &array->values.values[i];
+        ptr = &array->innerlist.values[i];
         if(lit_value_compare(state, *ptr, value))
         {
             return (int)i;
@@ -10736,26 +10734,26 @@ LitValue lit_objfnarray_indexof(LitState* state, LitValue instance, size_t argc,
 LitValue lit_coreutil_removeat(LitArray* array, size_t index)
 {
     size_t i;
-    LitDynListVal* values = &array->values;
-    size_t count = values->count;
+    LitDynListVal* list = &array->innerlist;
+    size_t count = list->count;
     if(index >= count)
     {
         return lit_value_makenull();
     }
-    LitValue value = values->values[index];
+    LitValue value = list->values[index];
     if(index == count - 1)
     {
-        values->values[index] = lit_value_makenull();
+        list->values[index] = lit_value_makenull();
     }
     else
     {
-        for(i = index; i < values->count - 1; i++)
+        for(i = index; i < list->count - 1; i++)
         {
-            values->values[i] = values->values[i + 1];
+            list->values[i] = list->values[i + 1];
         }
-        values->values[count - 1] = lit_value_makenull();
+        list->values[count - 1] = lit_value_makenull();
     }
-    values->count--;
+    list->count--;
     return value;
 }
 
@@ -10811,7 +10809,7 @@ LitValue lit_objfnarray_clear(LitState* state, LitValue instance, size_t argc, L
     (void)state;
     (void)argc;
     (void)args;
-    lit_value_asarray(instance)->values.count = 0;
+    lit_value_asarray(instance)->innerlist.count = 0;
     return lit_value_makenull();
 }
 
@@ -10823,24 +10821,24 @@ LitValue lit_objfnarray_iterator(LitState* state, LitValue instance, size_t argc
     if(lit_value_isnumber(args[0]))
     {
         number = lit_value_asnumber(args[0]);
-        if(number >= (int)array->values.count - 1)
+        if(number >= (int)array->innerlist.count - 1)
         {
             return lit_value_makenull();
         }
         number++;
     }
-    return array->values.count == 0 ? lit_value_makenull() : lit_value_makenumber(number);
+    return array->innerlist.count == 0 ? lit_value_makenull() : lit_value_makenumber(number);
 }
 
 LitValue lit_objfnarray_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     size_t index = LIT_CHECK_NUMBER(0);
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
-    if(values->count <= index)
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
+    if(list->count <= index)
     {
         return lit_value_makenull();
     }
-    return values->values[index];
+    return list->values[index];
 }
 
 LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -10852,10 +10850,10 @@ LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc,
     {
         lit_vm_raisefatalerror(state, "expected a function as the callback");
     }
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
-    for(i = 0; i < values->count; i++)
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
+    for(i = 0; i < list->count; i++)
     {
-        lit_state_callvalue(state, callback, &values->values[i], 1);
+        lit_state_callvalue(state, callback, &list->values[i], 1);
     }
     return lit_value_makenull();
 }
@@ -10867,7 +10865,7 @@ LitValue lit_objfnarray_join(LitState* state, LitValue instance, size_t argc, Li
     LitIOStream pr;
     LitString* res;
     LitValue joinee;
-    LitDynListVal* values;
+    LitDynListVal* list;
     (void)argc;
     (void)args;
     havejoinee = false;
@@ -10877,11 +10875,11 @@ LitValue lit_objfnarray_join(LitState* state, LitValue instance, size_t argc, Li
         havejoinee = true;
     }
     lit_iostream_makestackstring(&pr);
-    values = &lit_value_asarray(instance)->values;
-    for(i = 0; i < values->count; i++)
+    list = &lit_value_asarray(instance)->innerlist;
+    for(i = 0; i < list->count; i++)
     {
-        lit_value_printvalue(&pr, values->values[i], false);
-        if((i + 1) < values->count)
+        lit_value_printvalue(&pr, list->values[i], false);
+        if((i + 1) < list->count)
         {
             if(havejoinee)
             {
@@ -10981,14 +10979,14 @@ void lit_coreutil_customquicksort(LitState* state, LitValue* l, int length, LitV
 
 LitValue lit_objfnarray_sort(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
     if(argc == 1 && lit_value_iscallablefunction(args[0]))
     {
-        lit_coreutil_customquicksort(state, values->values, values->count, args[0]);
+        lit_coreutil_customquicksort(state, list->values, list->count, args[0]);
     }
     else
     {
-        lit_coreutil_basicquicksort(state, values->values, values->count);
+        lit_coreutil_basicquicksort(state, list->values, list->count);
     }
     return instance;
 }
@@ -10998,15 +10996,15 @@ LitValue lit_objfnarray_clone(LitState* state, LitValue instance, size_t argc, L
     size_t i;
     (void)argc;
     (void)args;
-    LitDynListVal* values = &lit_value_asarray(instance)->values;
+    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
     LitArray* array = lit_array_make(state);
-    LitDynListVal* newvalues = &array->values;
-    lit_dynlistval_ensuresize(newvalues, values->count);
+    LitDynListVal* newvalues = &array->innerlist;
+    lit_dynlistval_ensuresize(newvalues, list->count);
     /* lit_dynlistval_ensuresize sets the count to max of previous count (0 in this case) and new count, so we have to reset it */
     newvalues->count = 0;
-    for(i = 0; i < values->count; i++)
+    for(i = 0; i < list->count; i++)
     {
-        lit_vallist_push(newvalues, values->values[i]);
+        lit_vallist_push(newvalues, list->values[i]);
     }
     return lit_value_fromobject(array);
 }
@@ -11030,7 +11028,7 @@ LitValue lit_objfnarray_length(LitState* state, LitValue instance, size_t argc, 
     (void)argc;
     (void)args;
     (void)state;
-    return lit_value_makenumber(lit_value_asarray(instance)->values.count);
+    return lit_value_makenumber(lit_value_asarray(instance)->innerlist.count);
 }
 
 /*
@@ -11071,7 +11069,7 @@ LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc,
         return val;
     }
     LitValue value;
-    if(!lit_table_getentry(&map->values, index, &value))
+    if(!lit_table_getentry(&map->innertable, index, &value))
     {
         return lit_value_makenull();
     }
@@ -11094,7 +11092,7 @@ LitValue lit_objfnmap_clear(LitState* state, LitValue instance, size_t argc, Lit
     (void)state;
     (void)argc;
     (void)args;
-    lit_value_asmap(instance)->values.htcount = 0;
+    lit_value_asmap(instance)->innertable.htcount = 0;
     return lit_value_makenull();
 }
 
@@ -11102,14 +11100,14 @@ LitValue lit_objfnmap_iterator(LitState* state, LitValue instance, size_t argc, 
 {
     LIT_ENSURE_ARGS(1);
     int index = lit_value_isnull(args[0]) ? -1 : lit_value_asnumber(args[0]);
-    int value = lit_coreutil_tableiterator(&lit_value_asmap(instance)->values, index);
+    int value = lit_coreutil_tableiterator(&lit_value_asmap(instance)->innertable, index);
     return value == -1 ? lit_value_makenull() : lit_value_makenumber(value);
 }
 
 LitValue lit_objfnmap_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     size_t index = LIT_CHECK_NUMBER(0);
-    return lit_coreutil_tableiterkey(&lit_value_asmap(instance)->values, index);
+    return lit_coreutil_tableiterkey(&lit_value_asmap(instance)->innertable, index);
 }
 
 LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -11122,10 +11120,10 @@ LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, L
     {
         lit_vm_raisefatalerror(state, "expected a function as the callback");
     }
-    LitTable* values = &lit_value_asmap(instance)->values;
-    for(i = 0; i < values->htcapacity; i++)
+    LitTable* tab = &lit_value_asmap(instance)->innertable;
+    for(i = 0; i < tab->htcapacity; i++)
     {
-        LitTabEntry* entry = &values->htentries[i];
+        LitTabEntry* entry = &tab->htentries[i];
         if(entry->key != NULL)
         {
             callargs[0] = lit_value_fromobject(entry->key);
@@ -11141,7 +11139,7 @@ LitValue lit_objfnmap_clone(LitState* state, LitValue instance, size_t argc, Lit
     (void)argc;
     (void)args;
     LitMap* map = lit_object_makemap(state, NULL);
-    lit_table_addall(&lit_value_asmap(instance)->values, &map->values);
+    lit_table_addall(&lit_value_asmap(instance)->innertable, &map->innertable);
     return lit_value_fromobject(map);
 }
 
@@ -11154,7 +11152,7 @@ LitValue lit_objfnmap_tostring(LitState* state, LitValue instance, size_t argc, 
     (void)args;
     self = lit_value_asmap(instance);
     lit_iostream_makestackstring(&pr);
-    lit_value_printobjmap(&pr, (LitObject*)self, &self->values);
+    lit_value_printobjmap(&pr, (LitObject*)self, &self->innertable);
     dest = lit_iostream_takestring(state, &pr);
     return lit_value_fromobject(dest);
 }
@@ -11164,7 +11162,7 @@ LitValue lit_objfnmap_length(LitState* state, LitValue instance, size_t argc, Li
     (void)state;
     (void)argc;
     (void)args;
-    return lit_value_makenumber(lit_value_asmap(instance)->values.htcount);
+    return lit_value_makenumber(lit_value_asmap(instance)->innertable.htcount);
 }
 
 /*
@@ -11663,13 +11661,13 @@ uint64_t lit_bcemu_readuint64(LitEmulatedFile* file)
 double lit_bcemu_readdouble(LitEmulatedFile* file)
 {
     size_t i;
-    uint8_t values[8];
+    uint8_t buf[8];
     double result;
     for(i = 0; i < 8; i++)
     {
-        values[i] = lit_bcemu_readuint8(file);
+        buf[i] = lit_bcemu_readuint8(file);
     }
-    memcpy(&result, values, 8);
+    memcpy(&result, buf, 8);
     return result;
 }
 
@@ -11843,7 +11841,7 @@ void lit_save_module(LitModule* module, FILE* file)
     lit_bcfile_writeuint8(file, (uint8_t)disabled);
     if(!disabled)
     {
-        LitTable* privates = &module->privatenames->values;
+        LitTable* privates = &module->privatenames->innertable;
         for(i = 0; i < module->privatecount; i++)
         {
             if(privates->htentries[i].key != NULL)
@@ -11878,7 +11876,7 @@ LitModule* lit_load_module(LitState* state, const char* input)
     for(j = 0; j < modulecount; j++)
     {
         LitModule* module = lit_object_makemodule(state, lit_read_estring(state, &file));
-        LitTable* privates = &module->privatenames->values;
+        LitTable* privates = &module->privatenames->innertable;
         uint16_t privatescount = lit_bcemu_readuint16(&file);
         bool enabled = !((bool)lit_bcemu_readuint8(&file));
         module->privatevalues = (LitValue*)lit_sysmem_malloc(privatescount * sizeof(LitValue));
@@ -11893,7 +11891,7 @@ LitModule* lit_load_module(LitState* state, const char* input)
             }
         }
         module->mainfunction = lit_bcemu_loadfunction(state, &file, module);
-        lit_table_set(&state->vmstate.modules->values, module->name, lit_value_fromobject(module));
+        lit_table_set(&state->vmstate.modules->innertable, module->name, lit_value_fromobject(module));
         if(j == 0)
         {
             first = module;
@@ -12277,7 +12275,7 @@ LitValue lit_objfndirectory_read(LitState* state, LitValue instance, size_t argc
         res = lit_iostream_takestring(state, &pr);
         struct stat st;
         stat(res->strbuf.data, &st);
-        lit_vallist_push(&array->values, lit_value_fromobject(res));
+        lit_vallist_push(&array->innerlist, lit_value_fromobject(res));
     }
     closedir(dhnd);
     return lit_value_fromobject(array);
@@ -12506,94 +12504,94 @@ void lit_corelib_installmath(LitState* state)
     lit_vmexec_popgc(state);
 }
 
-void lit_uintlist_init(LitDynListUInt* array)
+void lit_uintlist_init(LitDynListUInt* list)
 {
-    lit_uintlist_reset(array);
+    lit_uintlist_reset(list);
 }
 
-void lit_uintlist_reset(LitDynListUInt* array)
+void lit_uintlist_reset(LitDynListUInt* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_uintlist_destroy(LitDynListUInt* array)
+void lit_uintlist_destroy(LitDynListUInt* list)
 {
-    lit_sysmem_free(array->values);
-    lit_uintlist_reset(array);
+    lit_sysmem_free(list->values);
+    lit_uintlist_reset(list);
 }
 
-void lit_uintlist_push(LitDynListUInt* array, size_t value)
+void lit_uintlist_push(LitDynListUInt* list, size_t value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (size_t*)lit_sysmem_realloc(array->values, sizeof(size_t) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (size_t*)lit_sysmem_realloc(list->values, sizeof(size_t) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
-void lit_bytelist_init(LitDynListByte* array)
+void lit_bytelist_init(LitDynListByte* list)
 {
-    lit_bytelist_reset(array);
+    lit_bytelist_reset(list);
 }
 
-void lit_bytelist_reset(LitDynListByte* array)
+void lit_bytelist_reset(LitDynListByte* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_bytelist_destroy(LitDynListByte* array)
+void lit_bytelist_destroy(LitDynListByte* list)
 {
-    lit_sysmem_free(array->values);
-    lit_bytelist_reset(array);
+    lit_sysmem_free(list->values);
+    lit_bytelist_reset(list);
 }
 
-void lit_bytelist_push(LitDynListByte* array, uint8_t value)
+void lit_bytelist_push(LitDynListByte* list, uint8_t value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (uint8_t*)lit_sysmem_realloc(array->values, sizeof(uint8_t) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (uint8_t*)lit_sysmem_realloc(list->values, sizeof(uint8_t) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
-void lit_vallist_init(LitDynListVal* array)
+void lit_vallist_init(LitDynListVal* list)
 {
-    lit_vallist_reset(array);
+    lit_vallist_reset(list);
 }
 
-void lit_vallist_reset(LitDynListVal* array)
+void lit_vallist_reset(LitDynListVal* list)
 {
-    array->values = NULL;
-    array->capacity = 0;
-    array->count = 0;
+    list->values = NULL;
+    list->capacity = 0;
+    list->count = 0;
 }
 
-void lit_vallist_destroy(LitDynListVal* array)
+void lit_vallist_destroy(LitDynListVal* list)
 {
-    lit_sysmem_free(array->values);
-    lit_vallist_reset(array);
+    lit_sysmem_free(list->values);
+    lit_vallist_reset(list);
 }
 
-void lit_vallist_push(LitDynListVal* array, LitValue value)
+void lit_vallist_push(LitDynListVal* list, LitValue value)
 {
-    if(array->capacity < array->count + 1)
+    if(list->capacity < list->count + 1)
     {
-        size_t oldcapacity = array->capacity;
-        array->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        array->values = (LitValue*)lit_sysmem_realloc(array->values, sizeof(LitValue) * (array->capacity));
+        size_t oldcapacity = list->capacity;
+        list->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->values = (LitValue*)lit_sysmem_realloc(list->values, sizeof(LitValue) * (list->capacity));
     }
-    array->values[array->count] = value;
-    array->count++;
+    list->values[list->count] = value;
+    list->count++;
 }
 
 LitValue lit_vallist_get(LitDynListVal* list, size_t idx)
@@ -12690,11 +12688,11 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, L
         {
             LitArray* array = &lit_object_makevararray(state)->array;
             lit_state_pushroot(state, (LitObject*)array);
-            lit_dynlistval_ensuresize(&array->values, argc - targetargcount + 1);
+            lit_dynlistval_ensuresize(&array->innerlist, argc - targetargcount + 1);
             size_t j = 0;
             for(ti = targetargcount - 1; ti < argc; ti++)
             {
-                array->values.values[j++] = *(frame->slots + ti + 1);
+                array->innerlist.values[j++] = *(frame->slots + ti + 1);
             }
             *(frame->slots + targetargcount) = lit_value_fromobject(array);
             lit_state_poproot(state);
@@ -12977,7 +12975,7 @@ LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentati
 LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, size_t argc)
 {
     LitValue value;
-    if(!lit_table_getentry(&state->vmstate.globals->values, lit_string_copy(state, name), &value))
+    if(!lit_table_getentry(&state->vmstate.globals->innertable, lit_string_copy(state, name), &value))
     {
         lit_vm_raisefatalerror(state, "failed to create instance of class %s: class not found", name);
         return lit_value_makenull();
@@ -13010,7 +13008,7 @@ LitObject* lit_object_allocobject(LitState* state, size_t size, LitObjType type)
     object->next = state->vmstate.objects;
     state->vmstate.objects = object;
 #ifdef LIT_CONFIG_LOGALLOCATION
-    printf("%p allocate %ld for %s\n", (void*)object, size, lit_tostring_typename(type));
+    printf("%p allocate %ld for %s\n", (void*)object, size, lit_value_objtypename(type));
 #endif
     return object;
 }
@@ -13275,33 +13273,33 @@ LitBoundMethod* lit_object_makeboundmethod(LitState* state, LitValue receiver, L
 LitArray* lit_array_make(LitState* state)
 {
     LitArray* array = (LitArray*)lit_object_allocobject(state, sizeof(LitArray), LIT_OBJ_ARRAY);
-    lit_vallist_init(&array->values);
+    lit_vallist_init(&array->innerlist);
     return array;
 }
 
 void lit_array_push(LitArray* array, LitValue val)
 {
-    lit_vallist_push(&array->values, val);
+    lit_vallist_push(&array->innerlist, val);
 }
 
 size_t lit_array_size(LitArray* array)
 {
-    return array->values.count;
+    return array->innerlist.count;
 }
 
 size_t lit_array_count(LitArray* array)
 {
-    return array->values.count;
+    return array->innerlist.count;
 }
 
 LitValue lit_array_get(LitArray* ary, size_t idx)
 {
-    return lit_vallist_get(&ary->values, idx);
+    return lit_vallist_get(&ary->innerlist, idx);
 }
 
 LitValue lit_array_set(LitArray* ary, size_t idx, LitValue val)
 {
-    return lit_vallist_set(&ary->values, idx, val);
+    return lit_vallist_set(&ary->innerlist, idx, val);
 }
 
 LitValue lit_array_removeat(LitArray* array, size_t index)
@@ -13310,7 +13308,7 @@ LitValue lit_array_removeat(LitArray* array, size_t index)
     size_t count;
     LitValue value;
     LitDynListVal* vl;
-    vl = &array->values;
+    vl = &array->innerlist;
     count = vl->count;
     if(index >= count)
     {
@@ -13336,17 +13334,17 @@ LitValue lit_array_removeat(LitArray* array, size_t index)
 LitVarargArray* lit_object_makevararray(LitState* state)
 {
     LitVarargArray* array = (LitVarargArray*)lit_object_allocobject(state, sizeof(LitVarargArray), LIT_OBJ_VARARGARRAY);
-    lit_vallist_init(&array->array.values);
+    lit_vallist_init(&array->array.innerlist);
     return array;
 }
 
 LitMap* lit_object_makemap(LitState* state, LitTable* fields)
 {
     LitMap* map = (LitMap*)lit_object_allocobject(state, sizeof(LitMap), LIT_OBJ_MAP);
-    lit_table_init(state, &map->values);
+    lit_table_init(state, &map->innertable);
     if(fields != NULL)
     {
-        lit_table_addall(fields, &map->values);
+        lit_table_addall(fields, &map->innertable);
     }
     return map;
 }
@@ -13358,28 +13356,28 @@ bool lit_map_set(LitMap* map, LitString* key, LitValue value)
         lit_map_delete(map, key);
         return false;
     }
-    return lit_table_set(&map->values, key, value);
+    return lit_table_set(&map->innertable, key, value);
 }
 
 bool lit_map_get(LitMap* map, LitString* key, LitValue* value)
 {
-    return lit_table_getentry(&map->values, key, value);
+    return lit_table_getentry(&map->innertable, key, value);
 }
 
 bool lit_map_delete(LitMap* map, LitString* key)
 {
-    return lit_table_delete(&map->values, key);
+    return lit_table_delete(&map->innertable, key);
 }
 
 void lit_map_addall(LitMap* from, LitMap* to)
 {
     int i;
-    for(i = 0; i <= from->values.htcapacity; i++)
+    for(i = 0; i <= from->innertable.htcapacity; i++)
     {
-        LitTabEntry* entry = &from->values.htentries[i];
+        LitTabEntry* entry = &from->innertable.htentries[i];
         if(entry->key != NULL)
         {
-            lit_table_set(&to->values, entry->key, entry->value);
+            lit_table_set(&to->innertable, entry->key, entry->value);
         }
     }
 }
@@ -13389,7 +13387,7 @@ LitValue lit_map_getfield(LitMap* map, const char* name)
     LitValue value;
     LitState* state;
     state = ((LitObject*)map)->pstate;
-    if(!lit_table_getentry(&map->values, lit_string_copy(state, name), &value))
+    if(!lit_table_getentry(&map->innertable, lit_string_copy(state, name), &value))
     {
         value = lit_value_makenull();
     }
@@ -13400,7 +13398,7 @@ void lit_map_setfield(LitMap* map, const char* name, LitValue value)
 {
     LitState* state;
     state = ((LitObject*)map)->pstate;
-    lit_table_set(&map->values, lit_string_copy(state, name), value);
+    lit_table_set(&map->innertable, lit_string_copy(state, name), value);
 }
 
 LitUserdata* lit_userdata_makeuserdata(LitState* state, size_t size)
@@ -13816,35 +13814,6 @@ void lit_state_raiseerror(LitState* state, LitErrorType type, const char* fmt, .
     state->had_error = true;
 }
 
-const char* lit_tostring_typename(LitObjType t)
-{
-    switch(t)
-    {
-        case LIT_OBJ_STRING: return "string";
-        case LIT_OBJ_FUNCSCRIPT: return "funcscript";
-        case LIT_OBJ_FUNCNATIVE: return "funcnative";
-        case LIT_OBJ_FUNCNATMETHOD: return "funcnatmethod";
-        case LIT_OBJ_FIBER: return "fiber";
-        case LIT_OBJ_MODULE: return "module";
-        case LIT_OBJ_FUNCCLOSURE: return "funcclosure";
-        case LIT_OBJ_CLSPROTOTYPE: return "clsprototype";
-        case LIT_OBJ_UPVALUE: return "upvalue";
-        case LIT_OBJ_CLASS: return "class";
-        case LIT_OBJ_INSTANCE: return "instance";
-        case LIT_OBJ_FUNCBOUNDMETHOD: return "funcboundmethod";
-        case LIT_OBJ_ARRAY: return "array";
-        case LIT_OBJ_VARARGARRAY: return "varargarray";
-        case LIT_OBJ_MAP: return "map";
-        case LIT_OBJ_USERDATA: return "userdata";
-        case LIT_OBJ_RANGE: return "range";
-        case LIT_OBJ_FIELD: return "field";
-        case LIT_OBJ_REFERENCE: return "reference";
-    }
-    return "?unknown?";
-}
-
-
-
 void lit_vmexec_traceframe(LitState* state, LitFiber* fiber)
 {
     (void)state;
@@ -14031,11 +14000,11 @@ bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClos
         {
             LitArray* array = &lit_object_makevararray(state)->array;
             lit_state_pushroot(state, (LitObject*)array);
-            lit_dynlistval_ensuresize(&array->values, argc - targetargcount + 1);
+            lit_dynlistval_ensuresize(&array->innerlist, argc - targetargcount + 1);
             size_t j = 0;
             for(i = targetargcount - 1; i < argc; i++)
             {
-                array->values.values[j++] = *(frame->slots + i + 1);
+                array->innerlist.values[j++] = *(frame->slots + i + 1);
             }
             *(frame->slots + targetargcount) = lit_value_fromobject(array);
             lit_state_poproot(state);
@@ -14585,7 +14554,7 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
 #endif
     LitCallFrame* previousframe;
     LitTable* globals;
-    globals = &state->vmstate.globals->values;
+    globals = &state->vmstate.globals->innertable;
     lit_vmexec_pushgc(state, true) fiber->abort = false;
     lit_vmmac_readframe(state, &fiber);
     state->vmstate.fiber = fiber;
@@ -14677,18 +14646,18 @@ dispatch:
             array = lit_array_make(state);
             state->vmstate.vmregisteritems[ra] = lit_value_fromobject(array);
             sz = rb;
-            if(sz > array->values.capacity)
+            if(sz > array->innerlist.capacity)
             {
-                if(array->values.capacity > 0)
+                if(array->innerlist.capacity > 0)
                 {
-                    sz = array->values.capacity - 1;
+                    sz = array->innerlist.capacity - 1;
                 }
                 else
                 {
                     sz = 0;
                 }
             }
-            lit_dynlistval_ensureactualsize(&array->values, sz);
+            lit_dynlistval_ensureactualsize(&array->innerlist, sz);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(OP_MAKEOBJECT)
@@ -15187,7 +15156,7 @@ dispatch:
             LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_A(state->vmstate.instruction)]);
             LitClass* klass = lit_object_makeclass(state, name);
             state->vmstate.vmregisteritems[LIT_INSTRUCTION_C(state->vmstate.instruction)] = lit_value_fromobject(klass);
-            lit_table_set(&state->vmstate.globals->values, name, lit_value_fromobject(klass));
+            lit_table_set(&state->vmstate.globals->innertable, name, lit_value_fromobject(klass));
             uint16_t rb = LIT_INSTRUCTION_B(state->vmstate.instruction);
             if(rb == 0)
             {
@@ -15623,7 +15592,7 @@ dispatch:
             LitValue value = state->vmstate.vmregisteritems[LIT_INSTRUCTION_C(state->vmstate.instruction)];
             if(lit_value_ismap(operand))
             {
-                lit_table_set(&lit_value_asmap(operand)->values, key, value);
+                lit_table_set(&lit_value_asmap(operand)->innertable, key, value);
             }
             else if(lit_value_isinstance(operand))
             {
@@ -15639,7 +15608,7 @@ dispatch:
         {
             LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INSTRUCTION_BX(state->vmstate.instruction)]);
             LitValue* value;
-            if(lit_table_getslot(&state->vmstate.globals->values, name, &value))
+            if(lit_table_getslot(&state->vmstate.globals->innertable, name, &value))
             {
                 state->vmstate.vmregisteritems[LIT_INSTRUCTION_A(state->vmstate.instruction)] = lit_value_fromobject(lit_object_makereference(state, value));
             }
