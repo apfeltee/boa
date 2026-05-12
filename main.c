@@ -4148,42 +4148,14 @@ void lit_string_appendbyte(LitString* dest, int b)
     return lit_string_appendlen(dest, &c, 1);
 }
 
-void lit_string_numbertostream(LitIOStream* pr, double dn)
-{
-    if(isnan(dn))
-    {
-        lit_iostream_writestring(pr, "nan");
-        return;
-    }
-    if(isinf(dn))
-    {
-        if(dn > 0.0)
-        {
-            lit_iostream_writestring(pr, "infinity");
-            return;
-        }
-        else
-        {
-            lit_iostream_writestring(pr, "-infinity");
-            return;
-        }
-    }
-    if(((int64_t)dn) == dn)
-    {
-        lit_iostream_printf(pr, "%ld", (int64_t)dn);
-    }
-    else
-    {
-        lit_iostream_printf(pr, "%g", dn);
-    }
-}
+
 
 
 LitValue lit_string_numbertostring(LitState* state, double value)
 {
     LitIOStream pr;
     lit_iostream_makestackstring(&pr);
-    lit_string_numbertostream(&pr, value);
+    lit_value_printnumber(&pr, value);
     return lit_value_fromobject(lit_iostream_takestring(state, &pr));
 }
 
@@ -4601,6 +4573,36 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
     }
 }
 
+void lit_value_printnumber(LitIOStream* pr, double dn)
+{
+    if(isnan(dn))
+    {
+        lit_iostream_writestring(pr, "nan");
+        return;
+    }
+    if(isinf(dn))
+    {
+        if(dn > 0.0)
+        {
+            lit_iostream_writestring(pr, "infinity");
+            return;
+        }
+        else
+        {
+            lit_iostream_writestring(pr, "-infinity");
+            return;
+        }
+    }
+    if(((int64_t)dn) == dn)
+    {
+        lit_iostream_printf(pr, "%ld", (int64_t)dn);
+    }
+    else
+    {
+        lit_iostream_printf(pr, "%g", dn);
+    }
+}
+
 void lit_value_printvalue(LitIOStream* pr, LitValue value, bool reprmode)
 {
     if(lit_value_isbool(value))
@@ -4613,7 +4615,7 @@ void lit_value_printvalue(LitIOStream* pr, LitValue value, bool reprmode)
     }
     else if(lit_value_isnumber(value))
     {
-        lit_string_numbertostream(pr, lit_value_asnumber(value));
+        lit_value_printnumber(pr, lit_value_asnumber(value));
     }
     else if(lit_value_isobject(value))
     {
