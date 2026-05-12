@@ -4168,7 +4168,14 @@ void lit_string_numbertostream(LitIOStream* pr, double dn)
             return;
         }
     }
-    lit_iostream_printf(pr, "%g", dn);
+    if(((int64_t)dn) == dn)
+    {
+        lit_iostream_printf(pr, "%ld", (int64_t)dn);
+    }
+    else
+    {
+        lit_iostream_printf(pr, "%g", dn);
+    }
 }
 
 
