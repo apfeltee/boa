@@ -116,9 +116,9 @@ function core_sha1(x, l)
     var c = -1732584194;
     var d =  271733878;
     var e = -1009589776;
-    var i = 0;
-    for(i = 0; i < x.length; i = i + 16)
+    for(var ci = 0; ci < x.length; ci = ci + 16)
     {
+        println("ci=", ci)
         var olda = a;
         var oldb = b;
         var oldc = c;
@@ -128,7 +128,8 @@ function core_sha1(x, l)
         {
             if(j < 16)
             {
-                w[j] = x[i + j];
+                println("j=", j)
+                w[j] = x[ci + j];
             }
             else
             {
@@ -176,13 +177,13 @@ function str2binb(str)
 {
     var bin = [];
     var mask = (1 << chrsz) - 1;
-    for(var i = 0; i < str.length * chrsz; i += chrsz)
+    for(var si = 0; si < str.length * chrsz; si += chrsz)
     {
-        if(bin[i>>5] == null)
+        if(bin[si>>5] == null)
         {
-            bin[i>>5] = 0
+            bin[si>>5] = 0
         }
-        bin[i>>5] |= (str.charCodeAt(i / chrsz) & mask) << (24 - i%32);
+        bin[si>>5] |= (str.charCodeAt(si / chrsz) & mask) << (24 - si%32);
     }
     return bin;
 }
@@ -197,10 +198,10 @@ function core_hmac_sha1(key, data)
     }
     var ipad = []
     var opad = []
-    for(var i = 0; i < 16; i++) 
+    for(var hi = 0; hi < 16; hi++) 
     {
-        ipad[i] = bkey[i] ^ 0x36363636;
-        opad[i] = bkey[i] ^ 0x5C5C5C5C;
+        ipad[hi] = bkey[hi] ^ 0x36363636;
+        opad[hi] = bkey[hi] ^ 0x5C5C5C5C;
     }
     var hash = core_sha1(ipad + str2binb(data), 512 + data.length * chrsz);
     return core_sha1(opad + hash, 512 + 160);
@@ -212,9 +213,9 @@ function binb2str(bin)
 {
     var str = "";
     var mask = (1 << chrsz) - 1;
-    for(var i = 0; i < bin.length * 32; i += chrsz)
+    for(var bi = 0; bi < bin.length * 32; bi += chrsz)
     {
-        str += String.chr(unshiftright(bin[i>>5], (24 - i%32)) & mask);
+        str += String.chr(unshiftright(bin[bi>>5], (24 - bi%32)) & mask);
     }
     return str;
 }
@@ -224,10 +225,10 @@ function binb2hex(binarray)
 {
     var hex_tab = hexcase ? "0123456789ABCDEF" : "0123456789abcdef";
     var str = "";
-    for(var i = 0; i < binarray.length * 4; i++)
+    for(var xi = 0; xi < binarray.length * 4; xi++)
     {
-        var c1 = hex_tab.charCodeAt((binarray[i>>2] >> ((3 - i%4)*8+4)) & 0xF);
-        var c2 = hex_tab.charCodeAt((binarray[i>>2] >> ((3 - i%4)*8  )) & 0xF);
+        var c1 = hex_tab.charCodeAt((binarray[xi>>2] >> ((3 - xi%4)*8+4)) & 0xF);
+        var c2 = hex_tab.charCodeAt((binarray[xi>>2] >> ((3 - xi%4)*8  )) & 0xF);
         str += c1;
         str += c2;
     }
@@ -239,18 +240,18 @@ function binb2b64(binarray)
 {
     const tab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     var str = "";
-    for(var i = 0; i < binarray.length * 4; i += 3)
+    for(var mi = 0; mi < binarray.length * 4; mi += 3)
     {
-        var triplet = ((((binarray[i   >> 2] >> 8 * (3 -  i    % 4))  & 0xFF) << 16) | (((binarray[i+1 >> 2] >> 8 * (3 - (i + 1) % 4))  & 0xFF) << 8 ) |  (((binarray[i+2 >> 2] >> 8 * (3 - (i + 2) % 4))) & 0xFF));
-        for(var j = 0; j < 4; j++)
+        var triplet = ((((binarray[mi   >> 2] >> 8 * (3 -  mi    % 4))  & 0xFF) << 16) | (((binarray[mi+1 >> 2] >> 8 * (3 - (mi + 1) % 4))  & 0xFF) << 8 ) |  (((binarray[mi+2 >> 2] >> 8 * (3 - (mi + 2) % 4))) & 0xFF));
+        for(var ji = 0; ji < 4; ji++)
         {
-            if(i * 8 + j * 6 > binarray.length * 32)
+            if(mi * 8 + ji * 6 > binarray.length * 32)
             {
                 str += b64pad;
             }
             else
             {
-                str += tab.charCodeAt((triplet >> 6*(3-j)) & 0x3F);
+                str += tab.charCodeAt((triplet >> 6*(3-ji)) & 0x3F);
             }
         }
     }
