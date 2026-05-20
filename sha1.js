@@ -118,7 +118,6 @@ function core_sha1(x, l)
     var e = -1009589776;
     for(var ci = 0; ci < x.length; ci = ci + 16)
     {
-        println("ci=", ci)
         var olda = a;
         var oldb = b;
         var oldc = c;
@@ -128,7 +127,6 @@ function core_sha1(x, l)
         {
             if(j < 16)
             {
-                println("j=", j)
                 w[j] = x[ci + j];
             }
             else
@@ -211,51 +209,50 @@ function core_hmac_sha1(key, data)
 // Convert an array of big-endian words to a string
 function binb2str(bin)
 {
-    var str = "";
+    var str = [];
     var mask = (1 << chrsz) - 1;
     for(var bi = 0; bi < bin.length * 32; bi += chrsz)
     {
-        str += String.chr(unshiftright(bin[bi>>5], (24 - bi%32)) & mask);
+        str.push(String.chr(unshiftright(bin[bi>>5], (24 - bi%32)) & mask));
     }
-    return str;
+    return str.join();
 }
 
 // Convert an array of big-endian words to a hex string.
 function binb2hex(binarray)
 {
     var hex_tab = hexcase ? "0123456789ABCDEF" : "0123456789abcdef";
-    var str = "";
+    var str = [];
     for(var xi = 0; xi < binarray.length * 4; xi++)
     {
-        var c1 = hex_tab.charCodeAt((binarray[xi>>2] >> ((3 - xi%4)*8+4)) & 0xF);
-        var c2 = hex_tab.charCodeAt((binarray[xi>>2] >> ((3 - xi%4)*8  )) & 0xF);
-        str += c1;
-        str += c2;
+        var c1 = hex_tab.charAt((binarray[xi>>2] >> ((3 - xi%4)*8+4)) & 0xF);
+        var c2 = hex_tab.charAt((binarray[xi>>2] >> ((3 - xi%4)*8  )) & 0xF);
+        str.push(c1, c2)
     }
-    return str;
+    return str.join();
 }
 
 // Convert an array of big-endian words to a base-64 string
 function binb2b64(binarray)
 {
     const tab = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    var str = "";
+    var str = [];
     for(var mi = 0; mi < binarray.length * 4; mi += 3)
     {
         var triplet = ((((binarray[mi   >> 2] >> 8 * (3 -  mi    % 4))  & 0xFF) << 16) | (((binarray[mi+1 >> 2] >> 8 * (3 - (mi + 1) % 4))  & 0xFF) << 8 ) |  (((binarray[mi+2 >> 2] >> 8 * (3 - (mi + 2) % 4))) & 0xFF));
         for(var ji = 0; ji < 4; ji++)
         {
-            if(mi * 8 + ji * 6 > binarray.length * 32)
+            if((mi * 8 + ji * 6) > (binarray.length * 32))
             {
-                str += b64pad;
+                str.push(b64pad);
             }
             else
             {
-                str += tab.charCodeAt((triplet >> 6*(3-ji)) & 0x3F);
+                str.push(tab.charAt((triplet >> 6*(3-ji)) & 0x3F));
             }
         }
     }
-    return str;
+    return str.join();
 }
 
 

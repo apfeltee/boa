@@ -1,0 +1,2 @@
+require("non_existent_module")
+print("I should not be printed")

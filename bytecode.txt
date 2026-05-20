@@ -1,0 +1,35 @@
+^^ test_subscript_bug.lit ^^
+constants:
+   0 1
+   1 2
+   2 3
+   3 100
+   4 1
+   5 "print"
+text:
+        var m = [1, 2, 3];
+0000    1 mkarray       1 	3
+0001    | move          2 	c0 (1) 	0
+0002    | arraypush     1 	2
+0003    | move          2 	c1 (2) 	0
+0004    | arraypush     1 	2
+0005    | move          2 	c2 (3) 	0
+0006    | arraypush     1 	2
+0007    | privset       1 	0
+        var a = 100;
+0008    2 move          1 	c3 (100) 	0
+0009    | privset       1 	1
+        m = m[1];
+0010    3 privget       1 	0
+0011    | move          2 	c4 (1) 	0
+0012    | indexget      1 	2 	0
+0013    | privset       1 	0
+        print(m);
+0014    4 globalget    c5 ("print") 	1
+0015    | privget       2 	0
+0016    | call          1 	2 	1
+0017    | ldnull        0 	0 	0
+0018    | return        0 	1 	0
+hex:
+0000C044 00400080 00008074 00404080 00008074 00408080 00008074 00000065 0040C040 00004065 00000066 00410080 00008072 00000065 00014062 000000A6 00808067 00000001 00004007 
+vv test_subscript_bug.lit vv

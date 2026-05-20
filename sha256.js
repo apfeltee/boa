@@ -249,21 +249,6 @@ function SHA256(s)
     return binb2hex(core_sha256(str2binb(s), s.length * chrsz));
 }
 
-/*
-function print(...args)
-{
-    for (var i = 0; i < args.length; i++)
-    {
-        var arg = args[i];
-        var sarg = "undefined";
-        if (arg != undefined) {
-            sarg = arg.toString();
-        }
-        process.stdout.write(sarg);
-    }
-}
-*/
-
 const strings = [
     ["foo", "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"],
     ["bar", "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"],

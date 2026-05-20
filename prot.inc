@@ -240,8 +240,7 @@ void lit_paramlist_destroy(LitDynListParam *list);
 void lit_paramlist_push(LitDynListParam *list, LitAstFuncParamExpr value);
 void lit_ast_destroyparamlist(LitState *state, LitDynListParam *parameters);
 void lit_ast_destroyexprlist(LitState *state, LitDynListExpr *expressions);
-void lit_ast_destroystmtlist(LitState *state, LitDynListExpr *statements);
-void lit_ast_destroyexpression(LitState *state, LitAstExpression *expression);
+void lit_ast_destroyexpression(LitState *state, LitAstExpression *topexpr);
 LitAstExpression *lit_ast_allocexpression(uint64_t line, size_t size, LitAstExprType type);
 LitAstLiteralValExpr *lit_ast_makeliteralexpr(size_t line, LitValue value);
 LitAstBinaryExpr *lit_ast_makebinaryexpr(size_t line, LitAstExpression *left, LitAstExpression *right, LitAstTokType op);
@@ -259,8 +258,7 @@ LitAstRangeExpr *lit_ast_makerangeexpr(size_t line, LitAstExpression *from, LitA
 LitAstTernaryExpr *lit_ast_maketernaryexpr(size_t line, LitAstExpression *condition, LitAstExpression *if_branch, LitAstExpression *else_branch);
 LitAstStrTemplateExpr *lit_ast_makeinterpolationexpr(size_t line);
 LitAstRefExpr *lit_ast_makerefexpr(size_t line, LitAstExpression *to);
-void lit_ast_destroystmt(LitState *state, LitAstExpression *statement);
-LitAstExprStmtExpr *lit_ast_makeexprstmt(size_t line, LitAstExpression *expression);
+LitAstExprStmtExpr *lit_ast_makeexprstmt(size_t line, LitAstExpression *exv);
 LitAstBlockExpr *lit_ast_makeblockstmt(size_t line);
 LitAstVarGetExpr *lit_ast_makevargetexpr(size_t line, const char *name, size_t length);
 LitAstVarDeclExpr *lit_ast_makevardeclstmt(size_t line, const char *name, size_t length, LitAstExpression *init, bool constant);
@@ -271,7 +269,7 @@ LitAstContinueExpr *lit_ast_makecontinuestmt(size_t line);
 LitBreakStatement *lit_ast_makebreakstmt(size_t line);
 LitAstFunctionExpr *lit_ast_makefuncdefstmt(size_t line, const char *name, size_t length);
 LitAstFunctionExpr *lit_ast_makelambdaexpr(size_t line);
-LitAstReturnExpr *lit_ast_makereturnstmt(size_t line, LitAstExpression *expression);
+LitAstReturnExpr *lit_ast_makereturnstmt(size_t line, LitAstExpression *exv);
 LitAstMethodExpr *lit_ast_makemethoddefstmt(size_t line, LitString *name, bool is_static);
 LitAstClassExpr *lit_ast_makeclassdefstmt(size_t line, LitString *name, LitString *parent);
 LitAstFieldExpr *lit_ast_makefieldstmt(size_t line, LitString *name, LitAstExpression *getter, LitAstExpression *setter, bool is_static);
@@ -406,20 +404,21 @@ int lit_emitter_addupvalue(LitAstEmitter *emt, LitAstCompiler *ccx, size_t index
 int lit_emitter_resolveupvalue(LitAstEmitter *emt, LitAstCompiler *ccx, const char *name, size_t length, size_t line);
 void lit_emitter_marklocalinit(LitAstEmitter *emt, size_t index);
 void lit_emitter_markprivateinit(LitAstEmitter *emt, size_t index);
-void lit_emitter_resolvestatement(LitAstEmitter *emt, LitAstExpression *statement);
+void lit_emitter_resolvestatement(LitAstEmitter *emt, LitAstExpression *topexpr);
 LitOpCode lit_emitter_translateunaryop(LitAstTokType token);
 LitOpCode lit_emitter_translatebinaryop(LitAstTokType token);
-uint16_t lit_emitter_parsearg(LitAstEmitter *emt, LitAstExpression *expression, uint8_t reg);
+uint16_t lit_emitter_parsearg(LitAstEmitter *emt, LitAstExpression *topexpr, uint8_t reg);
 void lit_emitter_emitbinaryexpr(LitAstEmitter *emt, LitAstBinaryExpr *expr, uint8_t reg, bool swap);
 bool lit_emitter_emitparams(LitAstEmitter *emt, LitDynListParam *parameters, size_t line);
-void lit_emitter_emitexprignoringregister(LitAstEmitter *emt, LitAstExpression *expression);
-void lit_emitter_emitexpr(LitAstEmitter *emt, LitAstExpression *expression, uint64_t reg);
-void lit_emitter_emitexprfull(LitAstEmitter *emt, LitAstExpression *expression, uint64_t reg, bool ignored);
+void lit_emitter_emitexprignoringregister(LitAstEmitter *emt, LitAstExpression *topexpr);
+void lit_emitter_emitexpr(LitAstEmitter *emt, LitAstExpression *topexpr, uint64_t reg);
+void lit_emitter_emitexprfull(LitAstEmitter *emt, LitAstExpression *topexpr, uint64_t reg, bool ignored);
 void lit_emitter_patchloopjumps(LitAstEmitter *emt, LitDynListUInt *breaks);
-void lit_emitter_emitstmtscoped(LitAstEmitter *emt, LitAstExpression *statement);
-bool lit_emitter_emitstmt(LitAstEmitter *emt, LitAstExpression *statement);
+void lit_emitter_emitstmtscoped(LitAstEmitter *emt, LitAstExpression *expr);
+bool lit_emitter_emitstmt(LitAstEmitter *emt, LitAstExpression *topexpr);
 LitModule *lit_emitter_emitmod(LitAstEmitter *emt, LitDynListExpr *statements, LitString *modname);
 const char *lit_debug_opcname(uint64_t opc);
+void lit_debug_disasmodule_recursive(LitState *state, LitIOStream *pr, LitFunction *function, const char *source, LitTable *disassembled);
 void lit_debug_disasmodule(LitIOStream *pr, LitModule *module, const char *source);
 void lit_debug_printconst(LitIOStream *pr, LitValue value);
 void lit_debug_disaschunk(LitIOStream *pr, LitChunk *chunk, const char *name, const char *source);
@@ -427,7 +426,7 @@ void lit_debug_callbackprintabcinstr(LitIOStream *pr, LitOpCode opc, uint64_t in
 void lit_debug_callbackprintabxinstr(LitIOStream *pr, LitOpCode opc, uint64_t instruction);
 void lit_debug_callbackprintasbxinstr(LitIOStream *pr, LitOpCode opc, uint64_t instruction);
 void lit_debug_printregister(LitIOStream *pr, uint16_t reg);
-void lit_debug_printconstarg(LitIOStream *pr, LitChunk *chunk, uint16_t arg, bool indent);
+void lit_debug_printconstarg(LitIOStream *pr, LitChunk *chunk, uint32_t arg, bool indent);
 void lit_debug_printconstorregister(LitIOStream *pr, LitChunk *chunk, uint16_t arg);
 void lit_debug_printunaryinstr(LitIOStream *pr, LitChunk *chunk, LitOpCode opc, uint64_t instruction);
 void lit_debug_printbinaryinstr(LitIOStream *pr, LitChunk *chunk, LitOpCode opc, uint64_t instruction);
@@ -472,6 +471,7 @@ LitValue lit_objfnstring_endswith(LitState *state, LitValue instance, size_t arg
 LitValue lit_objfnstring_replace(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_splice(LitState *state, LitString *string, int from, int to);
 LitValue lit_objfnstring_substring(LitState *state, LitValue instance, size_t argc, LitValue *args);
+LitValue lit_objfnstring_indexof(LitState *state, LitValue thisval, size_t argc, LitValue *args);
 LitValue lit_objfnstring_charcodeat(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_subscript(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnstring_length(LitState *state, LitValue instance, size_t argc, LitValue *args);
@@ -729,4 +729,3 @@ void *mempool_userrealloc(void *msp, void *ptr, size_t nsize);
 /* optparse.h */
 /* oslib.h */
 /* regtypes.h */
-/* strbuf.h */

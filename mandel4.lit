@@ -32,7 +32,19 @@ for(var y = -1.0; y < 1.0; y = y + 0.05)
         }
         if(k < 40)
         {
-            print(k % 10);
+            var bc = (k % 10);
+            var chr = "!";
+            if(bc == 2){ chr = "-" }
+            else if(bc == 3){ chr = "+" }
+            else if(bc == 4){ chr = "/" }
+            else if(bc == 5){ chr = "*" }
+            else if(bc == 6){ chr = "%" }
+            else if(bc == 1){ chr = "~" }
+            else if(bc == 9){ chr = ";" }
+            else if(bc == 8){ chr = "?" }
+            else if(bc == 0){ chr = "=" }
+            else if(bc == 7){ chr = "&" }
+            print(chr);
         }
         else
         {

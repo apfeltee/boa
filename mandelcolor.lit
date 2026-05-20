@@ -13,9 +13,9 @@ function calc_point(cx, cy, maxit)
         xp = t;
         if(((xp * xp) + (yp * yp)) > 4)
         {
-            return i;
+            break;
         }
-        i = i + 1;
+        i++;
     }
     return i;
 }
@@ -36,9 +36,9 @@ function mandelbrot(x1,y1, x2,y2, size_x,size_y, max_iter)
                 var bc = ((c % 6) + 1);
                 print(ec, "[37;4", bc, "m ");
             }
-            x = x + step_x;
+            x += step_x;
         }
-        y = y + step_y;
+        y += step_y;
         print(ec, "[0m", "\n");
     }
 }
