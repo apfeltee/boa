@@ -134,7 +134,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_ENSURE_ARGS(count)                                                      \
     if(argc != count)                                                               \
     {                                                                               \
-        lit_vm_raisefatalerror(state, "expected %i arguments, got %i", count, argc); \
+        lit_vm_raisefatalerror(state, "expected %ld arguments, got %ld", (size_t)count, (size_t)argc); \
         return lit_value_makenull();                                                \
     }
 
@@ -1359,6 +1359,15 @@ struct LitFileData
 };
 
 #include "prot.inc"
+
+#if defined(__GNUC__)
+    #define LIT_ATTRIB(...) __attribute__(__VA_ARGS__)
+#else
+    #define LIT_ATTRIB(...)
+#endif
+
+
+bool lit_vm_raisefatalerror(LitState *state, const char *format, ...) LIT_ATTRIB((format(printf, 2, 3)));
 
 jmp_buf g_vmglobaljumpbuf;
 
@@ -4150,9 +4159,6 @@ void lit_string_appendbyte(LitString* dest, int b)
     c = b;
     return lit_string_appendlen(dest, &c, 1);
 }
-
-
-
 
 LitValue lit_string_numbertostring(LitState* state, double value)
 {
@@ -10833,9 +10839,25 @@ void lit_state_openlibraries(LitState* state)
 
 LitValue lit_objfndefault_invalidconstructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    const char* cname;
+    LitString* name;
     (void)argc;
     (void)args;
-    lit_vm_raisefatalerror(state, "cannot create an instance of built-in type", lit_value_asinstance(instance)->klass->name);
+    name = NULL; 
+    cname = "?unknown?";
+    if(lit_value_isinstance(instance))
+    {
+        name = lit_value_asinstance(instance)->klass->name;
+    }
+    else if(lit_value_isclass(instance))
+    {
+        name = lit_value_asclass(instance)->name;
+    }
+    if(name != NULL)
+    {
+        cname = lit_string_getdata(name);
+    }
+    lit_vm_raisefatalerror(state, "class %s has no constructor", cname);
     return lit_value_makenull();
 }
 
@@ -11160,15 +11182,19 @@ LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, Li
 
 LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    //fprintf(stderr, "in objfnstring_plus\n");
     LitString* self;
+    LitString* clone;
     LitString* other;
     LitString* result;
     size_t length;
     char* chars;
-
     (void)argc;
     self = lit_value_asstring(instance);
+    clone = lit_string_clone(state, self);
     other = lit_value_tostring(state, args[0], 0);
+    lit_string_appendlen(clone, lit_string_getdata(other), lit_string_getlength(other));
+    return lit_value_fromobject(clone);
 
     length = self->strbuf.length + other->strbuf.length;
     chars = (char*)lit_sysmem_malloc(length + 1);
@@ -12639,6 +12665,7 @@ void lit_state_opencorelibrary(LitState* state)
         klass = lit_class_make(state, "String", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindstaticmethod(klass, "chr", lit_objfnstring_chr);
+        lit_class_bindstaticmethod(klass, "fromCharCode", lit_objfnstring_chr);
         lit_class_bindmethod(klass, "+", lit_objfnstring_plus);
         /*
         lit_class_bindmethod(klass, "<", lit_objfnstring_less);
@@ -12660,6 +12687,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "[]", lit_objfnstring_subscript);
         lit_class_bindmethod(klass, "charAt", lit_objfnstring_subscript);
         lit_class_bindmethod(klass, "charCodeAt", lit_objfnstring_charcodeat);
+        lit_class_bindmethod(klass, "size", lit_objfnstring_length);
         lit_class_bindgetsetter(klass, "length", lit_objfnstring_length, NULL);
         state->string_class = klass;
     }
