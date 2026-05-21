@@ -10406,6 +10406,15 @@ LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, L
     for(i = 0; i < statements->listcount; i++)
     {
         LitAstExpression* stmt = statements->listitems[i];
+        if(i == statements->listcount - 1 && stmt->type == LIT_ASTEXPRTYP_EXPRESSION && !endedscope)
+        {
+            uint8_t r = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)stmt)->exvalue, r);
+            lit_emitter_emitabc(emt, stmt->line, LIT_OPCODE_RETURN, r, 1, 0);
+            lit_emitter_freeregister(emt, r);
+            emt->compiler->skip_return = true;
+            break;
+        }
         if(lit_emitter_emitstmt(emt, stmt))
         {
             endedscope = true;
@@ -12618,13 +12627,10 @@ LitValue lit_cfn_eval(LitState* state, LitValue instance, size_t argc, LitValue*
 {
     (void)instance;
     char* code = (char*)LIT_CHECK_GETSTRINGDATA(0);
-    if(lit_evalutil_compileandrun(state, state->vmstate.fiber->module->name, code))
+    LitFiber* fiber = state->vmstate.fiber;
+    if(lit_evalutil_compileandrun(state, fiber->module->name, code))
     {
-        //return state->vmstate.frame->slots[2];
-        //return lit_vmmac_getrc(state, LIT_INSTRUCTION_SB(state->vmstate.instruction));
-        //return state->vmstate.frame->slots[5];
-        return state->vmstate.vmregisteritems[1];
-        
+        fiber->returnaddress = args - 1;
     }
     return lit_value_makenull();
 }
