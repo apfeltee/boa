@@ -1014,6 +1014,8 @@ struct LitState
     LitModule* last_module;
 
     LitString* conststrthis;
+    LitString* conststrtostring;
+    LitString* conststrconstructor;
 };
 
 struct LitResult
@@ -4428,7 +4430,10 @@ void lit_value_printobjinstance(LitIOStream* pr, LitClass* klass, LitInstance* s
     LitString* sr;
     LitState* state;
     state = ((LitObject*)self)->pstate;
+    sr = NULL;
+    #if 0
     sr = lit_value_tostrinvoketostring(state, lit_value_fromobject(self), 2, false);
+    #endif
     if(sr != NULL)
     {
         lit_iostream_putlen(pr, lit_string_getdata(sr), lit_string_getlength(sr));
@@ -4712,7 +4717,6 @@ void lit_dynlistval_ensureactualsize(LitDynListVal* list, size_t size)
     }
 }
 
-
 LitClass* lit_class_make(LitState* state, const char* name, LitClass* super)
 {
     LitClass* klass;
@@ -4757,16 +4761,12 @@ void lit_class_bindmethod(LitClass* selfclass, const char* name, LitNativeFuncti
 
 void lit_class_bindconstructor(LitClass* selfclass, LitNativeFunctionFn fn)
 {
-    const char* fname;
-    LitString* nm;
     LitFuncNative* meth;
     LitState* state;
     state = ((LitObject*)selfclass)->pstate;
-    fname = "constructor";
-    nm = lit_string_copylen(state, fname, strlen(fname));
-    meth = lit_object_makenativemethod(state, fn, nm);
+    meth = lit_object_makenativemethod(state, fn, state->conststrconstructor);
     selfclass->mthconstructor = (LitObject*)meth;
-    lit_table_set(&selfclass->mthtable, nm, lit_value_fromobject(meth));
+    lit_table_set(&selfclass->mthtable, state->conststrconstructor, lit_value_fromobject(meth));
 }
 
 void lit_class_bindstaticmethod(LitClass* selfclass, const char* name, LitNativeFunctionFn fn)
@@ -7253,7 +7253,7 @@ LitAstExpression* lit_astparser_rulesuper(LitAstParser* prs, bool canassign)
     size_t line = prs->previous.line;
     if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT) || lit_astparser_match(prs, LIT_ASTTOKTYP_SMALLARROW)))
     {
-        LitAstExpression* expr = (LitAstExpression*)lit_ast_makesuperexpr(line, lit_string_copylen(prs->pstate, "constructor", 11), false);
+        LitAstExpression* expr = (LitAstExpression*)lit_ast_makesuperexpr(line, prs->pstate->conststrconstructor, false);
         lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after 'super'");
         return lit_astparser_parsecall(prs, expr, false);
     }
@@ -10263,7 +10263,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             size_t i;
             LitString* clsname;
             LitAstMethodExpr* stmt = (LitAstMethodExpr*)topexpr;
-            bool constructor = stmt->name->strbuf.length == 11 && memcmp(stmt->name->strbuf.data, "constructor", 11) == 0;
+            bool constructor = stmt->name->strbuf.length == lit_string_getlength(emt->pstate->conststrconstructor) && memcmp(stmt->name->strbuf.data, lit_string_getdata(emt->pstate->conststrconstructor), lit_string_getlength(emt->pstate->conststrconstructor)) == 0;
             if(constructor && stmt->is_static)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "constructors cannot be static");
@@ -14107,15 +14107,29 @@ LitResult lit_state_findandcallmethod(LitState* state, LitValue callee, LitStrin
 LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_t indentation, bool explicitfail)
 {
     size_t needed;
+    LitValue tmpv;
     LitValue* tmptr;
-    LitFiber* fiber = state->vmstate.fiber;
+    LitFiber* fiber;
+    LitInstance* inst;
+    fiber = state->vmstate.fiber;
+    /*
+    * NB: only do this with instances for now.
+    */
+    if(!lit_value_isinstance(object))
+    {
+        goto failed;
+    }
+    if(lit_value_isinstance(object))
+    {
+        inst = lit_value_asinstance(object);
+        if(!lit_table_getentry(&inst->klass->mthtable, state->conststrtostring, &tmpv))
+        {
+            return NULL;
+        }       
+    }
     if(lit_fiber_ensureframes(state, fiber))
     {
-        if(explicitfail)
-        {
-            return lit_string_copy(state, "null");
-        }
-        return NULL;
+        goto failed;
     }
     LitFunction* function = state->apifunction;
     if(function == NULL)
@@ -14127,7 +14141,7 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
         chunk->compiledcodecount = 0;
         chunk->constantlist.listcount = 0;
         function->maxregisters = 3;
-        int constant = lit_chunk_addconstant(state, chunk, lit_value_fromobject(lit_string_copy(state, "toString")));
+        int constant = lit_chunk_addconstant(state, chunk, lit_value_fromobject(state->conststrtostring));
         lit_chunk_push(chunk, LIT_REG_FORMABCINST(LIT_OPCODE_INVOKE, 1, 2, constant), 1);
         lit_chunk_push(chunk, LIT_REG_FORMABCINST(LIT_OPCODE_RETURN, 1, 0, 0), 1);
     }
@@ -14172,6 +14186,12 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
         return NULL;
     }
     return lit_value_asstring(result.result);
+    failed:
+        if(explicitfail)
+        {
+            return lit_string_copy(state, "null");
+        }
+        return NULL;
 }
 
 LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentation)
@@ -14751,18 +14771,22 @@ LitState* lit_state_make()
     state->streamstdout->shouldflush = true;
     state->streamstderr = lit_iostream_makeio(stderr, false);
     state->config.desttrace = state->streamstderr;
+    lit_init_vm(state);
+    lit_api_init(state);
+    {
+        state->conststrthis = lit_string_copy(state, "this");
+        state->conststrtostring = lit_string_copy(state, "toString");
+        state->conststrconstructor = lit_string_copy(state, "constructor");
+    }
     state->lexer = (LitAstLexer*)lit_sysmem_malloc(sizeof(LitAstLexer));
     state->parser = (LitAstParser*)lit_sysmem_malloc(sizeof(LitAstParser));
     lit_astparser_init(state, (LitAstParser*)state->parser);
     state->emitter = (LitAstEmitter*)lit_sysmem_malloc(sizeof(LitAstEmitter));
     lit_emitter_init(state, state->emitter);
-    lit_init_vm(state);
-    lit_api_init(state);
+
     lit_state_opencorelibrary(state);
     lit_state_openlibraries(state);
-    {
-        state->conststrthis = lit_string_copy(state, "this");
-    }
+
     return state;
 }
 
@@ -16518,7 +16542,7 @@ dispatch:
         {
             LitClass* klass = lit_value_asclass(state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)]);
             LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
-            if((klass->mthconstructor == NULL || (klass->super != NULL && klass->mthconstructor == ((LitClass*)klass->super)->mthconstructor)) && name->strbuf.length == 11 && memcmp(name->strbuf.data, "constructor", 11) == 0)
+            if((klass->mthconstructor == NULL || (klass->super != NULL && klass->mthconstructor == ((LitClass*)klass->super)->mthconstructor)) && name->strbuf.length == lit_string_getlength(state->conststrconstructor) && memcmp(name->strbuf.data, lit_string_getdata(state->conststrconstructor), lit_string_getlength(state->conststrconstructor)) == 0)
             {
                 klass->mthconstructor = lit_value_asobject(lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction)));
             }
