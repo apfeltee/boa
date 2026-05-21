@@ -633,6 +633,7 @@ LitResult lit_state_callclosure(LitState *state, LitFuncClosure *callee, LitValu
 LitResult lit_state_callmethod(LitState *state, LitValue instance, LitValue callee, LitValue *arguments, size_t argc);
 LitResult lit_state_callvalue(LitState *state, LitValue callee, LitValue *arguments, size_t argc);
 LitResult lit_state_findandcallmethod(LitState *state, LitValue callee, LitString *mthname, LitValue *arguments, size_t argc);
+LitString *lit_value_tostrinvoketostring(LitState *state, LitValue object, size_t indentation, bool explicitfail);
 LitString *lit_value_tostring(LitState *state, LitValue object, size_t indentation);
 LitValue lit_state_callnew(LitState *state, const char *name, LitValue *args, size_t argc);
 bool lit_value_iscallablefunction(LitValue value);

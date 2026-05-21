@@ -1,0 +1,14 @@
+class A {
+	toString() {
+		return "an instance of A!"
+	}
+}
+
+var a = new A()
+var start = time()
+
+for (var i in 0 .. 10) {
+	println(a.toString())
+}
+
+println("elapsed: " + (time() - start))

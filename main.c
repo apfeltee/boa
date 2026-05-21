@@ -4425,9 +4425,20 @@ void lit_value_printobjmap(LitIOStream* pr, LitObject* self, LitTable* tab)
 
 void lit_value_printobjinstance(LitIOStream* pr, LitClass* klass, LitInstance* self)
 {
-    lit_iostream_printf(pr, "<instance of %s: ", klass->name->strbuf.data);
-    lit_value_printobjmap(pr, (LitObject*)self, &self->fields);
-    lit_iostream_printf(pr, "  >");
+    LitString* sr;
+    LitState* state;
+    state = ((LitObject*)self)->pstate;
+    sr = lit_value_tostrinvoketostring(state, lit_value_fromobject(self), 2, false);
+    if(sr != NULL)
+    {
+        lit_iostream_putlen(pr, lit_string_getdata(sr), lit_string_getlength(sr));
+    }
+    else
+    {
+        lit_iostream_printf(pr, "<instance of %s: ", klass->name->strbuf.data);
+        lit_value_printobjmap(pr, (LitObject*)self, &self->fields);
+        lit_iostream_printf(pr, "  >");
+    }
 }
 
 void lit_value_printobjarray(LitIOStream* pr, LitArray* self)
@@ -14093,43 +14104,18 @@ LitResult lit_state_findandcallmethod(LitState* state, LitValue callee, LitStrin
     return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
 }
 
-LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentation)
+LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_t indentation, bool explicitfail)
 {
     size_t needed;
     LitValue* tmptr;
-    LitIOStream pr;
-    if(lit_value_isstring(object))
-    {
-        return lit_value_asstring(object);
-    }
-    else if(!lit_value_isobject(object))
-    {
-        if(lit_value_isnull(object))
-        {
-            return lit_string_copy(state, "null");
-        }
-        else if(lit_value_isnumber(object))
-        {
-            return lit_value_asstring(lit_string_numbertostring(state, lit_value_asnumber(object)));
-        }
-        else if(lit_value_isbool(object))
-        {
-            return lit_string_copy(state, lit_value_asbool(object) ? "true" : "false");
-        }
-    }
-    else if(lit_value_isreference(object))
-    {
-        LitValue* slot = lit_value_asreference(object)->slot;
-        if(slot == NULL)
-        {
-            return lit_string_copy(state, "null");
-        }
-        return lit_value_tostring(state, *slot, 0);
-    }
     LitFiber* fiber = state->vmstate.fiber;
     if(lit_fiber_ensureframes(state, fiber))
     {
-        return lit_string_copy(state, "null");
+        if(explicitfail)
+        {
+            return lit_string_copy(state, "null");
+        }
+        return NULL;
     }
     LitFunction* function = state->apifunction;
     if(function == NULL)
@@ -14171,13 +14157,55 @@ LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentati
     LitResult result = lit_state_execfiber(state, fiber);
     if(result.type != LIT_STATUS_OK)
     {
-        return lit_string_copy(state, "null");
+        if(explicitfail)
+        {
+            return lit_string_copy(state, "null");
+        }
+        return NULL;
     }
     if(!lit_value_isstring(result.result))
     {
-        return lit_string_copy(state, "invalid toString()");
+        if(explicitfail)
+        {
+            return lit_string_copy(state, "invalid toString()");
+        }
+        return NULL;
     }
     return lit_value_asstring(result.result);
+}
+
+LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentation)
+{
+    LitIOStream pr;
+    if(lit_value_isstring(object))
+    {
+        return lit_value_asstring(object);
+    }
+    else if(!lit_value_isobject(object))
+    {
+        if(lit_value_isnull(object))
+        {
+            return lit_string_copy(state, "null");
+        }
+        else if(lit_value_isnumber(object))
+        {
+            return lit_value_asstring(lit_string_numbertostring(state, lit_value_asnumber(object)));
+        }
+        else if(lit_value_isbool(object))
+        {
+            return lit_string_copy(state, lit_value_asbool(object) ? "true" : "false");
+        }
+    }
+    else if(lit_value_isreference(object))
+    {
+        LitValue* slot = lit_value_asreference(object)->slot;
+        if(slot == NULL)
+        {
+            return lit_string_copy(state, "null");
+        }
+        return lit_value_tostring(state, *slot, 0);
+    }
+    return lit_value_tostrinvoketostring(state, object, indentation, true);
 }
 
 LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, size_t argc)
