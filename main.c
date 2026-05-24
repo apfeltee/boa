@@ -386,6 +386,11 @@ enum LitAstTokType
     LIT_ASTTOKTYP_KWCONST,
     LIT_ASTTOKTYP_KWREF,
 
+    LIT_ASTTOKTYP_KWTRY,
+    LIT_ASTTOKTYP_KWCATCH,
+    LIT_ASTTOKTYP_KWFINALLY,
+    LIT_ASTTOKTYP_KWTHROW,
+
     LIT_ASTTOKTYP_ERROR,
     LIT_ASTTOKTYP_EOF
 };
@@ -445,7 +450,9 @@ enum LitAstExprType
     LIT_ASTEXPRTYP_RETURN,
     LIT_ASTEXPRTYP_METHOD,
     LIT_ASTEXPRTYP_CLASS,
-    LIT_ASTEXPRTYP_FIELD
+    LIT_ASTEXPRTYP_FIELD,
+    LIT_ASTEXPRTYP_TRY,
+    LIT_ASTEXPRTYP_THROW
 };
 
 enum LitInstrucType
@@ -517,6 +524,10 @@ enum LitOpCode
     LIT_OPCODE_REFUPVALUE, /* R(A) := ref U(Bx) */
     LIT_OPCODE_REFFIELD, /* R(A) = ref R(B)[C(C)] */
     LIT_OPCODE_REFSET, /* ref R(A) := R(B) */
+    LIT_OPCODE_PUSH_TRY, /* push try handler at PC + Bx */
+    LIT_OPCODE_POP_TRY, /* pop try handler */
+    LIT_OPCODE_THROW, /* throw R(A) */
+    LIT_OPCODE_RETHROW, /* rethrow fiber->error */
 };
 
 enum LitIOStrMode
@@ -585,6 +596,8 @@ typedef struct /**/ LitAstReturnExpr LitAstReturnExpr;
 typedef struct /**/ LitAstMethodExpr LitAstMethodExpr;
 typedef struct /**/ LitAstClassExpr LitAstClassExpr;
 typedef struct /**/ LitAstFieldExpr LitAstFieldExpr;
+typedef struct /**/ LitAstTryExpr LitAstTryExpr;
+typedef struct /**/ LitAstThrowExpr LitAstThrowExpr;
 typedef struct /**/ LitAstPrivate LitAstPrivate;
 typedef struct /**/ LitDynListPriv LitDynListPriv;
 typedef struct /**/ LitAstLocal LitAstLocal;
@@ -604,6 +617,7 @@ typedef struct LitIOStream LitIOStream;
 typedef struct LitStrBuffer LitStrBuffer;
 typedef struct LitValue LitValue;
 typedef struct LitVMState LitVMState;
+typedef struct LitHandler LitHandler;
 typedef struct LitDynListUInt LitDynListUInt;
 typedef struct LitDynListByte LitDynListByte;
 typedef struct LitDynListVal LitDynListVal;
@@ -865,6 +879,14 @@ struct LitModule
     bool ran;
 };
 
+struct LitHandler
+{
+    uint64_t* handler_ip;
+    uint32_t register_count;
+    uint32_t frame_count;
+    uint8_t error_reg;
+};
+
 struct LitFiber
 {
     LitObject innerobject;
@@ -882,6 +904,10 @@ struct LitFiber
     bool abort;
     bool catcher;
     bool caught;
+
+    LitHandler* handlers;
+    uint32_t handler_count;
+    uint32_t handler_capacity;
 };
 
 struct LitClass
@@ -1380,6 +1406,22 @@ struct LitAstFieldExpr
     LitAstExpression* getter;
     LitAstExpression* setter;
     bool is_static;
+};
+
+struct LitAstTryExpr
+{
+    LitAstExpression exprbase;
+    LitAstExpression* try_block;
+    LitAstExpression* catch_block;
+    LitAstExpression* finally_block;
+    const char* catch_var;
+    size_t catch_var_len;
+};
+
+struct LitAstThrowExpr
+{
+    LitAstExpression exprbase;
+    LitAstExpression* exvalue;
 };
 
 struct LitFileData
@@ -4434,6 +4476,10 @@ void lit_free_object(LitState* state, LitObject* object)
             LitFiber* fiber = (LitFiber*)object;
             lit_sysmem_free(fiber->framevals);
             lit_sysmem_free(fiber->registeritems);
+            if(fiber->handlers != NULL)
+            {
+                lit_sysmem_free(fiber->handlers);
+            }
             LIT_GC_FREEOBJECT(state, LitFiber, object);
             break;
         }
@@ -5925,6 +5971,21 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
             lit_sysmem_free(topexpr);
             break;
         }
+        case LIT_ASTEXPRTYP_TRY:
+        {
+            LitAstTryExpr* expr = (LitAstTryExpr*)topexpr;
+            lit_ast_destroyexpression(state, expr->try_block);
+            if(expr->catch_block) lit_ast_destroyexpression(state, expr->catch_block);
+            if(expr->finally_block) lit_ast_destroyexpression(state, expr->finally_block);
+            lit_sysmem_free(topexpr);
+            break;
+        }
+        case LIT_ASTEXPRTYP_THROW:
+        {
+            lit_ast_destroyexpression(state, ((LitAstThrowExpr*)topexpr)->exvalue);
+            lit_sysmem_free(topexpr);
+            break;
+        }
         default:
         {
             lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "unknown expression type %d", (int)topexpr->type);
@@ -6199,6 +6260,24 @@ LitAstFieldExpr* lit_ast_makefieldstmt(size_t line, LitString* name, LitAstExpre
     expr->getter = getter;
     expr->setter = setter;
     expr->is_static = is_static;
+    return expr;
+}
+
+LitAstTryExpr* lit_ast_maketrystmt(size_t line, LitAstExpression* try_block, LitAstExpression* catch_block, LitAstExpression* finally_block, const char* catch_var, size_t catch_var_len)
+{
+    LitAstTryExpr* expr = (LitAstTryExpr*)lit_ast_allocexpression(line, sizeof(LitAstTryExpr), LIT_ASTEXPRTYP_TRY);
+    expr->try_block = try_block;
+    expr->catch_block = catch_block;
+    expr->finally_block = finally_block;
+    expr->catch_var = catch_var;
+    expr->catch_var_len = catch_var_len;
+    return expr;
+}
+
+LitAstThrowExpr* lit_ast_makethrowstmt(size_t line, LitAstExpression* exvalue)
+{
+    LitAstThrowExpr* expr = (LitAstThrowExpr*)lit_ast_allocexpression(line, sizeof(LitAstThrowExpr), LIT_ASTEXPRTYP_THROW);
+    expr->exvalue = exvalue;
     return expr;
 }
 
@@ -6647,6 +6726,10 @@ LitAstTokType lit_astlex_scanidenttype(LitAstLexer* lex)
         { LIT_ASTTOKTYP_KWIN, "in" },
         { LIT_ASTTOKTYP_KWCONST, "const" },
         { LIT_ASTTOKTYP_KWREF, "ref" },
+        { LIT_ASTTOKTYP_KWTRY, "try" },
+        { LIT_ASTTOKTYP_KWCATCH, "catch" },
+        { LIT_ASTTOKTYP_KWFINALLY, "finally" },
+        { LIT_ASTTOKTYP_KWTHROW, "throw" },
         { (LitAstTokType)0, NULL },
     };
     /* clang-format on */
@@ -7680,6 +7763,55 @@ LitAstExpression* lit_astparser_parsevardecl(LitAstParser* prs)
     return (LitAstExpression*)lit_ast_makevardeclstmt(line, name, length, init, constant);
 }
 
+LitAstExpression* lit_astparser_parsetry(LitAstParser* prs)
+{
+    size_t line = prs->previous.line;
+    lit_astparser_ignorelinefeeds(prs);
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect '{' after 'try'");
+    LitAstExpression* try_block = lit_astparser_parseblock(prs);
+    LitAstExpression* catch_block = NULL;
+    LitAstExpression* finally_block = NULL;
+    const char* catch_var = NULL;
+    size_t catch_var_len = 0;
+
+    lit_astparser_ignorelinefeeds(prs);
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCATCH))
+    {
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN))
+        {
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "Expect identifier after 'catch('");
+            catch_var = prs->previous.start;
+            catch_var_len = prs->previous.length;
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "Expect ')' after catch identifier");
+        }
+        lit_astparser_ignorelinefeeds(prs);
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect '{' after 'catch'");
+        catch_block = lit_astparser_parseblock(prs);
+    }
+
+    lit_astparser_ignorelinefeeds(prs);
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFINALLY))
+    {
+        lit_astparser_ignorelinefeeds(prs);
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect '{' after 'finally'");
+        finally_block = lit_astparser_parseblock(prs);
+    }
+
+    if(catch_block == NULL && finally_block == NULL)
+    {
+        lit_state_raiseerror(prs->pstate, LIT_ERROR_COMPILEERROR, "Expect 'catch' or 'finally' after 'try'");
+    }
+
+    return (LitAstExpression*)lit_ast_maketrystmt(line, try_block, catch_block, finally_block, catch_var, catch_var_len);
+}
+
+LitAstExpression* lit_astparser_parsethrow(LitAstParser* prs)
+{
+    size_t line = prs->previous.line;
+    LitAstExpression* exvalue = lit_astparser_parseexpr(prs);
+    return (LitAstExpression*)lit_ast_makethrowstmt(line, exvalue);
+}
+
 LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
 {
     size_t line = prs->previous.line;
@@ -8096,6 +8228,14 @@ LitAstExpression* lit_astparser_parsestmt(LitAstParser* prs)
     else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWIF))
     {
         return lit_astparser_parseif(prs);
+    }
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWTRY))
+    {
+        return lit_astparser_parsetry(prs);
+    }
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWTHROW))
+    {
+        return lit_astparser_parsethrow(prs);
     }
     else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFOR))
     {
@@ -8746,6 +8886,36 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 }
                 lit_iostream_puts(apr->printer, ")\n");
                 lit_astprint_printexpression(apr, oex->body);
+            }
+            break;
+        case LIT_ASTEXPRTYP_TRY:
+            {
+                LitAstTryExpr* oex = (LitAstTryExpr*)expr;
+                lit_iostream_puts(apr->printer, "try\n");
+                lit_astprint_printexpression(apr, oex->try_block);
+                if(oex->catch_block != NULL)
+                {
+                    lit_iostream_puts(apr->printer, "catch");
+                    if(oex->catch_var != NULL)
+                    {
+                        lit_iostream_printf(apr->printer, "(%.*s)", (int)oex->catch_var_len, oex->catch_var);
+                    }
+                    lit_iostream_puts(apr->printer, "\n");
+                    lit_astprint_printexpression(apr, oex->catch_block);
+                }
+                if(oex->finally_block != NULL)
+                {
+                    lit_iostream_puts(apr->printer, "finally\n");
+                    lit_astprint_printexpression(apr, oex->finally_block);
+                }
+            }
+            break;
+        case LIT_ASTEXPRTYP_THROW:
+            {
+                LitAstThrowExpr* oex = (LitAstThrowExpr*)expr;
+                lit_iostream_puts(apr->printer, "throw ");
+                lit_astprint_printexpression(apr, oex->exvalue);
+                lit_iostream_puts(apr->printer, ";\n");
             }
             break;
         case LIT_ASTEXPRTYP_VARDECL:
@@ -10240,6 +10410,74 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             lit_sysmem_free(endjumps);
             break;
         }
+        case LIT_ASTEXPRTYP_THROW:
+        {
+            LitAstThrowExpr* expr = (LitAstThrowExpr*)topexpr;
+            uint8_t reg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, expr->exvalue, reg);
+            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_THROW, reg, 0, 0);
+            lit_emitter_freeregister(emt, reg);
+            break;
+        }
+        case LIT_ASTEXPRTYP_TRY:
+        {
+            LitAstTryExpr* expr = (LitAstTryExpr*)topexpr;
+            uint8_t error_reg = 0;
+
+            uint64_t try_instr_idx = lit_emitter_emittmp(emt);
+
+            lit_emitter_emitstmtscoped(emt, expr->try_block);
+
+            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_POP_TRY, 0, 0, 0);
+
+            uint64_t jump_to_finally = lit_emitter_emittmp(emt);
+
+            uint64_t catch_start = emt->chunk->compiledcodecount;
+            lit_emitter_patchinstr(emt, try_instr_idx, LIT_REG_FORMABXINST(LIT_OPCODE_PUSH_TRY, error_reg, (int64_t)catch_start - (int64_t)try_instr_idx - 1));
+
+            if(expr->catch_block != NULL)
+            {
+                lit_emitter_scopebegin(emt);
+                if(expr->catch_var != NULL)
+                {
+                    uint8_t reg = lit_emitter_reserveregister(emt);
+                    uint64_t local_idx = lit_emitter_addlocal(emt, expr->catch_var, expr->catch_var_len, topexpr->line, false, reg);
+                    error_reg = reg;
+                    lit_emitter_patchinstr(emt, try_instr_idx, LIT_REG_FORMABXINST(LIT_OPCODE_PUSH_TRY, error_reg, (int64_t)catch_start - (int64_t)try_instr_idx - 1));
+                    lit_emitter_marklocalinit(emt, local_idx);
+                }
+                lit_emitter_emitstmt(emt, expr->catch_block);
+                lit_emitter_scopeend(emt);
+                
+                uint64_t finally_start = emt->chunk->compiledcodecount;
+                lit_emitter_patchinstr(emt, jump_to_finally, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)finally_start - (int64_t)jump_to_finally - 1));
+
+                if(expr->finally_block != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, expr->finally_block);
+                }
+            }
+            else
+            {
+                // No catch block. If an error occurs, it jumps here.
+                // We MUST run finally and then rethrow.
+                if(expr->finally_block != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, expr->finally_block);
+                }
+                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_RETHROW, 0, 0, 0);
+                
+                uint64_t finally_start = emt->chunk->compiledcodecount;
+                lit_emitter_patchinstr(emt, jump_to_finally, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)finally_start - (int64_t)jump_to_finally - 1));
+                
+                // Normal path (no error)
+                if(expr->finally_block != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, expr->finally_block);
+                }
+            }
+            break;
+        }
         case LIT_ASTEXPRTYP_FUNCTION:
         {
             size_t i;
@@ -10835,6 +11073,10 @@ const char* lit_debug_opcname(uint64_t opc)
                 case LIT_OPCODE_REFUPVALUE: return "refupvalue";
                 case LIT_OPCODE_REFFIELD: return "reffield";
                 case LIT_OPCODE_REFSET: return "setref";
+                case LIT_OPCODE_PUSH_TRY: return "pushtry";
+                case LIT_OPCODE_POP_TRY: return "poptry";
+                case LIT_OPCODE_THROW: return "throw";
+                case LIT_OPCODE_RETHROW: return "rethrow";
     }
     return "?unknown?";
 }
@@ -11180,6 +11422,10 @@ void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const
                 handle_opcode(LIT_OPCODE_REFUPVALUE, LIT_INSTYP_ABX) /* R(A) := ref U(Bx) */
                 handle_opcode(LIT_OPCODE_REFFIELD, LIT_INSTYP_ABC) /* R(A) = ref R(B)[C(C)] */
                 handle_opcode(LIT_OPCODE_REFSET, LIT_INSTYP_ABC) /* ref R(A) := R(B) */
+                handle_opcode(LIT_OPCODE_PUSH_TRY, LIT_INSTYP_ABX) /* push try handler at PC + Bx */
+                handle_opcode(LIT_OPCODE_POP_TRY, LIT_INSTYP_ABC) /* pop try handler */
+                handle_opcode(LIT_OPCODE_THROW, LIT_INSTYP_ABC) /* throw R(A) */
+                handle_opcode(LIT_OPCODE_RETHROW, LIT_INSTYP_ABC) /* rethrow fiber->error */
                 #endif
                 #undef handle_opcode
                 default:
@@ -14613,6 +14859,11 @@ LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFuncScript
     fiber->openupvalues = NULL;
     fiber->abort = false;
     fiber->returnaddress = NULL;
+
+    fiber->handlers = NULL;
+    fiber->handler_count = 0;
+    fiber->handler_capacity = 0;
+
     if(function != NULL)
     {
         LitCallFrame* frame = &fiber->framevals[0];
@@ -15341,6 +15592,17 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     while(fiber != NULL)
     {
         fiber->error = error;
+        if(fiber->handler_count > 0)
+        {
+            LitHandler* handler = &fiber->handlers[--fiber->handler_count];
+            fiber->framecount = handler->frame_count;
+            state->vmstate.frame = &fiber->framevals[fiber->framecount - 1];
+            state->vmstate.currentchunk = &state->vmstate.frame->function->chunk;
+            state->vmstate.ip = handler->handler_ip;
+            state->vmstate.vmregisteritems = fiber->registeritems + handler->register_count;
+            state->vmstate.vmregisteritems[handler->error_reg] = error;
+            return true;
+        }
         if(fiber->catcher)
         {
             fiber->caught = true;
@@ -16030,6 +16292,10 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
         &&LABELNAME(LIT_OPCODE_REFUPVALUE),
         &&LABELNAME(LIT_OPCODE_REFFIELD),
         &&LABELNAME(LIT_OPCODE_REFSET),
+        &&LABELNAME(LIT_OPCODE_PUSH_TRY),
+        &&LABELNAME(LIT_OPCODE_POP_TRY),
+        &&LABELNAME(LIT_OPCODE_THROW),
+        &&LABELNAME(LIT_OPCODE_RETHROW),
     };
 #endif
     bool traceforcenl;
@@ -16174,6 +16440,10 @@ dispatch:
         CASE_CODE(LIT_OPCODE_RETURN)
         {
             LitValue value;
+            while(fiber->handler_count > 0 && fiber->handlers[fiber->handler_count - 1].frame_count >= fiber->framecount)
+            {
+                fiber->handler_count--;
+            }
             value = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
             lit_vmexec_closeupvalues(state, state->vmstate.vmregisteritems);
             fiber->framecount--;
@@ -17238,6 +17508,45 @@ dispatch:
                 lit_vmmac_fail(state, "provided value is not a reference");
             }
             *lit_value_asreference(reference)->slot = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_PUSH_TRY)
+        {
+            uint64_t rbx;
+            rbx = LIT_INST_GETBX(state->vmstate.instruction);
+            if(fiber->handler_count == fiber->handler_capacity)
+            {
+                fiber->handler_capacity = LIT_GROW_CAPACITY(fiber->handler_capacity);
+                fiber->handlers = (LitHandler*)lit_sysmem_realloc(fiber->handlers, fiber->handler_capacity * sizeof(LitHandler));
+            }
+            LitHandler* handler = &fiber->handlers[fiber->handler_count++];
+            handler->handler_ip = state->vmstate.ip + (int)rbx;
+            handler->register_count = (uint32_t)(state->vmstate.vmregisteritems - fiber->registeritems);
+            handler->frame_count = fiber->framecount;
+            handler->error_reg = LIT_INST_GETA(state->vmstate.instruction);
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_POP_TRY)
+        {
+            fiber->handler_count--;
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_THROW)
+        {
+            uint64_t ra;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            if(!lit_vm_handleerror(state, lit_value_tostring(state, state->vmstate.vmregisteritems[ra], 0)))
+            {
+                return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
+            }
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_RETHROW)
+        {
+            if(!lit_vm_handleerror(state, lit_value_asstring(fiber->error)))
+            {
+                return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
+            }
             lit_vmmac_dispatchnext();
         }
 #if !defined(LIT_CONF_USECOMPUTEDGOTO) || (LIT_CONF_USECOMPUTEDGOTO == 0)

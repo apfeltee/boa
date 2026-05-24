@@ -66,7 +66,7 @@ EXTRAFLAGS =
 
 usesanitizer = 0
 CFLAGS =
-CFLAGS += -ftrapv
+#CFLAGS += -ftrapv
 ifeq (1, $(usesanitizer))
 CFLAGS += -fsanitize=undefined
 #CFLAGS += -fsanitize=address
