@@ -1,3 +1,9 @@
-
-var r = eval("5+5")
-println("r = ", r)
+try
+{
+    var r = eval("5 / null")
+    println("r = ", r)
+}
+catch(e)
+{
+    println("caught: ", e)
+}
