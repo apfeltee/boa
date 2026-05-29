@@ -1,0 +1,72 @@
+try
+{
+    try
+    {
+        throw "Second exception thrown"
+    }
+    catch(e)
+    {
+        println(`inner:  ${e}`);
+    }
+}
+catch(e)
+{
+    println(`outer: ${e}`);
+}
+
+try
+{
+    var i = 10
+    println(i)
+    try
+    {
+        println({}[10])
+    }
+    catch(e)
+    {
+        println(`\nMessage: ${e}`)
+    }
+    finally
+    {
+        println("Despite the error, I run because I am in finally")
+    }
+}
+catch(e)
+{
+    println(e)
+}
+
+try
+{
+    throw "I am a thrown exception"
+    throw "Second exception we will never reach"
+}
+catch(e)
+{
+    println("\nCatching exception...")
+    println(`Exception message: ${e}`)
+}
+
+try
+{
+    println("\nTry block called")
+}
+finally
+{
+    println("Final block called\n")
+}
+
+try
+{
+    println([]["10"])
+}
+catch(e)
+{
+    print("past finally: ", e, "\n")
+}
+finally
+{
+    println("Error occurred, but I will still run")
+}
+
+println("all good")

@@ -28,10 +28,6 @@
 #include "oslib.h"
 #include "lino.h"
 
-#if !defined(_WIN32) && !defined(__CYGWIN__)
-    #include <dirent.h>
-#endif
-
 #if !defined(LIT_INLINE)
     /* gcc defines __STRICT_ANSI__ in C++, because C++ defaults to strict mode */
     #if defined(__STRICT_ANSI__) && !defined(__cplusplus)
@@ -10818,7 +10814,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                 lit_emitter_emitabx(emt, emt->lastline, LIT_OPCODE_ARRAYPUSH, reg, r);
             }
             lit_emitter_freeregister(emt, r);
-            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKE, reg, 2, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copy(emt->pstate, "join"))));
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKE, reg, 1, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copy(emt->pstate, "join"))));
             break;
         }
         case LIT_ASTEXPRTYP_THIS:
@@ -16616,6 +16612,7 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
             state->vmstate.frame = &fiber->framevals[fiber->framecount - 1];
             state->vmstate.currentchunk = &state->vmstate.frame->function->chunk;
             state->vmstate.ip = handler->handlerip;
+            state->vmstate.frame->ip = handler->handlerip;
             state->vmstate.vmregisteritems = fiber->registeritems + handler->registercount;
             state->vmstate.vmregisteritems[handler->errorreg] = error;
             return true;
@@ -18641,7 +18638,7 @@ dispatch:
             uint64_t rbx;
             LitHandler* handler;
             rbx = LIT_INST_GETBX(state->vmstate.instruction);
-            if(fiber->handlercount == fiber->handlercapacity)
+            if(fiber->handlercount >= fiber->handlercapacity)
             {
                 fiber->handlercapacity = LIT_GROW_CAPACITY(fiber->handlercapacity);
                 fiber->handleritems = (LitHandler*)lit_sysmem_realloc(fiber->handleritems, fiber->handlercapacity * sizeof(LitHandler));
@@ -18655,7 +18652,10 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_POP_TRY)
         {
-            fiber->handlercount--;
+            if(fiber->handlercount > 0)
+            {
+                fiber->handlercount--;
+            }
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_THROW)
@@ -18666,6 +18666,7 @@ dispatch:
             {
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
             }
+            lit_vmmac_readframe(state, &fiber);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_RETHROW)
@@ -18674,6 +18675,7 @@ dispatch:
             {
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
             }
+            lit_vmmac_readframe(state, &fiber);
             lit_vmmac_dispatchnext();
         }
 #if !defined(LIT_CONF_USECOMPUTEDGOTO) || (LIT_CONF_USECOMPUTEDGOTO == 0)
