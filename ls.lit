@@ -1,0 +1,18 @@
+
+println(ARGV)
+
+try
+{
+    var items = Directory.read(ARGV[1] || "examples")
+    var len = items.length;
+    for(var i=0; i<items.length; i++)
+    {
+        var item = items[i];
+        var thing = ("<" + item + ">");
+        println(thing);
+    }
+}
+catch(e)
+{
+    println("failed: ", e)
+}

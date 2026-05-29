@@ -43,7 +43,7 @@ WFLAGS +=  -Wwrite-strings
 
 
 OPTFLAGS = -O0
-#OPTFLAGS = -O5 -funroll-loops -flto -ffast-math 
+#OPTFLAGS = -O5 -funroll-loops -ffast-math 
 
 
 ## empty by default
@@ -81,10 +81,9 @@ endif
 CFLAGS += $(INCFLAGS) $(OPTFLAGS) -g3 -ggdb3
 #CFLAGS += -DNEON_INLINE="__attribute__((hot, optimize(5)))"
 
-#CC = gcc $(WFLAGS) $(EXTRAFLAGS)
-CC = clang -gdwarf-4 -ferror-limit=1000 $(WFLAGS) $(EXTRAFLAGS)
-
 CC = gcc $(WFLAGS) $(EXTRAFLAGS)
+#CC = clang -gdwarf-4 -ferror-limit=1000 $(WFLAGS) $(EXTRAFLAGS)
+	
 #CC = tcc $(WFLAGS) $(EXTRAFLAGS)
 DEPCC = gcc
 

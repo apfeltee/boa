@@ -105,11 +105,14 @@
     #define PATH_MAX 1024
 #endif
 
-typedef struct NNFSStat NNFSStat;
+
+extern int kill(int, int);
+
+typedef struct LitFSStat LitFSStat;
 typedef struct FSDirReader FSDirReader;
 typedef struct FSDirItem FSDirItem;
 
-struct NNFSStat
+struct LitFSStat
 {
     struct stat rawstbuf;
     int mode;
@@ -139,43 +142,140 @@ struct FSDirItem
     bool isfile;
 };
 
-char *osfn_utilstrndup(const char *src, size_t len);
-char *osfn_utilstrdup(const char *src);
-bool fslib_diropen(FSDirReader *rd, const char *path);
-bool fslib_dirread(FSDirReader *rd, FSDirItem *itm);
-bool fslib_dirclose(FSDirReader *rd);
-FILE *osfn_popen(const char *cmd, const char *type);
-void osfn_pclose(FILE *fh);
-int osfn_chmod(const char *path, int mode);
-char *osfn_realpath(const char *path, char *respath);
-char *osfn_dirname(const char *fname);
-char *osfn_fallbackbasename(const char *opath);
-char *osfn_basename(const char *path);
-int osfn_isatty(int fd);
-int osfn_symlink(const char *path1, const char *path2);
-int osfn_symlinkat(const char *path1, int fd, const char *path2);
-char *osfn_getcwd(char *buf, size_t size);
-int osfn_lstat(const char *path, struct stat *buf);
-int osfn_truncate(const char *path, size_t length);
-unsigned int osfn_sleep(unsigned int seconds);
-int osfn_gettimeofday(struct timeval *tp, void *tzp);
-int osfn_mkdir(const char *path, size_t mode);
-int osfn_rmdir(const char *path);
-int osfn_unlink(const char *path);
-const char *osfn_getenv(const char *key);
-bool osfn_setenv(const char *key, const char *value, bool replace);
-int osfn_chdir(const char *path);
-int osfn_getpid(void);
-int osfn_kill(int pid, int code);
-bool nn_util_fsfileexists(const char *filepath);
-bool nn_util_fsfileistype(const char *filepath, int typ);
-bool nn_util_fsfileisfile(const char *filepath);
-bool nn_util_fsfileisdirectory(const char *filepath);
-char *nn_util_fsgetbasename(const char *path);
-const char *nn_filestat_ctimetostring(const time_t *timep);
-bool nn_filestat_initempty(NNFSStat *nfs);
-bool nn_filestat_setup(NNFSStat *nfs);
-bool nn_filestat_initfrompath(NNFSStat *nfs, const char *path);
+bool fslib_diropen(FSDirReader* rd, const char* path)
+{
+    #if defined(OSFN_ISLINUX)
+        if((rd->handle = opendir(path)) == NULL)
+        {
+            return false;
+        }
+        return true;
+    #endif
+    return false;
+}
+
+bool fslib_dirread(FSDirReader* rd, FSDirItem* itm)
+{
+    itm->isdir = false;
+    itm->isfile = false;
+    memset(itm->name, 0, NEON_CONF_OSPATHSIZE);
+    #if defined(OSFN_ISLINUX)
+        struct dirent* ent;
+        if((ent = readdir((DIR*)(rd->handle))) == NULL)
+        {
+            return false;
+        }
+        if(ent->d_type == DT_DIR)
+        {
+            itm->isdir = true;
+        }
+        if(ent->d_type == DT_REG)
+        {
+            itm->isfile = true;
+        }
+        strcpy(itm->name, ent->d_name);
+        return true;
+    #endif
+    return false;
+}
+
+bool fslib_dirclose(FSDirReader* rd)
+{
+    #if defined(OSFN_ISLINUX)
+        closedir((DIR*)(rd->handle));
+    #endif
+    return false;
+}
+
+
+static const char* lit_util_filestatinternmodetoname(int t)
+{
+    switch(t)
+    {
+        #if defined(S_IFBLK)
+            case S_IFBLK:
+                return "blockdevice";
+                break;
+        #endif
+        #if defined(S_IFCHR)
+            case S_IFCHR:
+                return "characterdevice";
+                break;
+        #endif
+        #if defined(S_IFDIR)
+            case S_IFDIR:
+                return "directory";
+                break;
+        #endif
+        #if defined(S_IFIFO)
+            case S_IFIFO:
+                return "pipe";
+                break;
+        #endif
+        #if defined(S_IFLNK)
+            case S_IFLNK:
+                return "symlink";
+                break;
+        #endif
+        #if defined(S_IFREG)
+            case S_IFREG:
+                return "file";
+                break;
+        #endif
+        #if defined(S_IFSOCK)
+            case S_IFSOCK:
+                return "socket";
+                break;
+        #endif
+            default:
+                break;
+    }
+    return "unknown";
+}
+
+
+bool lit_filestat_initempty(LitFSStat* nfs)
+{
+    memset(nfs, 0, sizeof(LitFSStat));
+    return true;
+}
+
+bool lit_filestat_setup(LitFSStat* nfs)
+{
+    nfs->inode = nfs->rawstbuf.st_ino;
+    nfs->mode = (nfs->rawstbuf.st_mode & S_IFMT);
+    nfs->numlinks = nfs->rawstbuf.st_nlink;
+    nfs->owneruid = nfs->rawstbuf.st_uid;
+    nfs->ownergid = nfs->rawstbuf.st_gid;
+    #if !defined(_WIN32) && !defined(_WIN64)
+        nfs->blocksize = nfs->rawstbuf.st_blksize;
+        nfs->blockcount = nfs->rawstbuf.st_blocks;
+    #else
+        nfs->blocksize = 8;
+        nfs->blockcount = (1024 * 4);
+    #endif
+    nfs->filesize = nfs->rawstbuf.st_size;
+    nfs->modename = lit_util_filestatinternmodetoname(nfs->mode);
+    nfs->tmlastchanged = (&nfs->rawstbuf.st_ctime);
+    nfs->tmlastaccessed = (&nfs->rawstbuf.st_atime);
+    nfs->tmlastmodified = (&nfs->rawstbuf.st_mtime);
+    return true;
+}
+
+
+bool lit_filestat_initfrompath(LitFSStat* nfs, const char* path)
+{
+    if(!lit_filestat_initempty(nfs))
+    {
+        return false;
+    }
+    if(stat(path, &nfs->rawstbuf) == -1)
+    {
+        return false;
+    }
+    return lit_filestat_setup(nfs);
+}
+
 
 
 #endif
