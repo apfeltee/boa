@@ -24,20 +24,23 @@
 #endif
 
 #include "allocator.h"
-#include "regtypes.h"
 #include "optparse.h"
 #include "oslib.h"
 #include "lino.h"
 
-#if !defined(_WIN32) && !defined(__CYGWIN__)
-    #include <dirent.h>
-#endif
-
 #if !defined(LIT_INLINE)
-    #if defined(__GNUC__) || defined(__TINYC__)
-        #define LIT_INLINE __attribute__((always_inline)) inline
+    /* gcc defines __STRICT_ANSI__ in C++, because C++ defaults to strict mode */
+    #if defined(__STRICT_ANSI__) && !defined(__cplusplus)
+        #define LIT_INLINE
+        /* prot.inc would still use the inline keyword */
+        #undef inline
+        #define inline
     #else
-        #define LIT_INLINE inline
+        #if defined(__GNUC__) || defined(__TINYC__)
+            #define LIT_INLINE __attribute__((always_inline)) inline
+        #else
+            #define LIT_INLINE inline
+        #endif
     #endif
 #endif
 
@@ -134,15 +137,9 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_CONFIG_UINT8COUNT UINT8_MAX + 1
 #define LIT_CONFIG_UINT16COUNT UINT16_MAX + 1
 
-#define RETURN_RUNTIME_ERROR() return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
-#define LIT_STATUS_RUNTIME_FAIL (lit_result_make(LIT_STATUS_INVALID, lit_value_makenull()))
-
-#define RETURN_OK(r) return lit_result_make(LIT_STATUS_OK, r);
-
 #define LIT_CHECK_NUMBER(id) lit_args_checknumber(state, __FUNCTION__, args, argc, id)
 
 #define LIT_CHECK_GETSTRINGDATA(id) lit_args_checkstring(state, args, argc, id)
-#define LIT_CHECK_GETSTRINGDATAOR(id, def) lit_args_getstring(args, argc, id, def)
 
 #define LIT_CHECK_GETSTRINGOBJECT(id) lit_args_checkobjstring(state, args, argc, id)
 
@@ -158,15 +155,13 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_CONFIG_BCENDNUMBER 2942
 #define LIT_CONFIG_BCSTRINGKEY 48
 
-#define lit_set_native_exit_jump() setjmp(g_vmglobaljumpbuf)
 
-#define OBJECT_TYPE(value) (lit_value_asobject(value)->type)
+
 
 #define LIT_CONFIG_TABLEMAXLOAD 0.75
 
 #define LIT_GROW_CAPACITY(capacity) ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define LIT_GC_FREEOBJECT(state, type, pointer) lit_reallocate(state, pointer, sizeof(type), 0)
 
 #define LIT_BIT_SETBIT(number, n) number |= 1UL << n
 #define LIT_BIT_ISSET(number, n) (((number >> n) & 1U) != 0)
@@ -234,7 +229,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
         ((opcode) & LIT_CONFIG_OPCODESIZE) | \
         (((a) & LIT_CONFIG_ARGSIZEA) << LIT_CONFIG_ARGPOSA) | \
         ((labs((int64_t)(sbx)) & LIT_CONFIG_ARGSIZESBX) << LIT_CONFIG_ARGPOSSBX)) | \
-        (((((int64_t)(sbx)) < 0 ? 1 : 0) << LIT_CONFIG_FLAGPOSSBX) \
+        ((((((int64_t)(sbx)) < 0) ? 1 : 0) << LIT_CONFIG_FLAGPOSSBX) \
     )
 
 enum LitBit
@@ -284,11 +279,6 @@ enum LitFuncType
     LIT_FUNCTYPE_CONSTRUCTOR
 };
 
-enum LitErrorType
-{
-    LIT_ERROR_COMPILEERROR,
-    LIT_ERROR_RUNTIMEERROR
-};
 
 enum LitStatusCode
 {
@@ -300,7 +290,7 @@ enum LitStatusCode
 
 enum LitAstTokType
 {
-    LIT_ASTTOKTYP_NEWLINE,
+    LIT_ASTTOKTYP_LINEFEED,
 
     /* single-character tokens */
     LIT_ASTTOKTYP_LEFTPAREN,
@@ -348,6 +338,7 @@ enum LitAstTokType
     LIT_ASTTOKTYP_ARROW,
     LIT_ASTTOKTYP_SMALLARROW,
     LIT_ASTTOKTYP_TILDE,
+    LIT_ASTTOKTYP_REFSYM,
     LIT_ASTTOKTYP_CARET,
     LIT_ASTTOKTYP_CARETEQUAL,
     LIT_ASTTOKTYP_DOT,
@@ -359,33 +350,38 @@ enum LitAstTokType
     /* literals */
     LIT_ASTTOKTYP_IDENTIFIER,
     LIT_ASTTOKTYP_STRING,
-    LIT_ASTTOKTYP_INTERPOLATION,
+    LIT_ASTTOKTYP_STRTEMPLATE,
     LIT_ASTTOKTYP_NUMBER,
 
     /* keywords */
-    LIT_ASTTOKTYP_CLASS,
-    LIT_ASTTOKTYP_ELSE,
-    LIT_ASTTOKTYP_FALSE,
-    LIT_ASTTOKTYP_FOR,
-    LIT_ASTTOKTYP_FUNCTION,
-    LIT_ASTTOKTYP_IF,
-    LIT_ASTTOKTYP_NULL,
-    LIT_ASTTOKTYP_RETURN,
-    LIT_ASTTOKTYP_SUPER,
-    LIT_ASTTOKTYP_THIS,
-    LIT_ASTTOKTYP_TRUE,
-    LIT_ASTTOKTYP_VAR,
-    LIT_ASTTOKTYP_WHILE,
-    LIT_ASTTOKTYP_CONTINUE,
-    LIT_ASTTOKTYP_BREAK,
-    LIT_ASTTOKTYP_NEW,
-    LIT_ASTTOKTYP_EXPORT,
-    LIT_ASTTOKTYP_IS,
-    LIT_ASTTOKTYP_STATIC,
-    LIT_ASTTOKTYP_OPERATOR,
-    LIT_ASTTOKTYP_IN,
-    LIT_ASTTOKTYP_CONST,
-    LIT_ASTTOKTYP_REF,
+    LIT_ASTTOKTYP_KWCLASS,
+    LIT_ASTTOKTYP_KWELSE,
+    LIT_ASTTOKTYP_KWFALSE,
+    LIT_ASTTOKTYP_KWFOR,
+    LIT_ASTTOKTYP_KWFUNCTION,
+    LIT_ASTTOKTYP_KWIF,
+    LIT_ASTTOKTYP_KWNULL,
+    LIT_ASTTOKTYP_KWRETURN,
+    LIT_ASTTOKTYP_KWSUPER,
+    LIT_ASTTOKTYP_KWTHIS,
+    LIT_ASTTOKTYP_KWTRUE,
+    LIT_ASTTOKTYP_KWVAR,
+    LIT_ASTTOKTYP_KWWHILE,
+    LIT_ASTTOKTYP_KWCONTINUE,
+    LIT_ASTTOKTYP_KWBREAK,
+    LIT_ASTTOKTYP_KWNEW,
+    LIT_ASTTOKTYP_KWEXPORT,
+    LIT_ASTTOKTYP_KWIS,
+    LIT_ASTTOKTYP_KWSTATIC,
+    LIT_ASTTOKTYP_KWOPERATOR,
+    LIT_ASTTOKTYP_KWIN,
+    LIT_ASTTOKTYP_KWCONST,
+    LIT_ASTTOKTYP_KWREF,
+
+    LIT_ASTTOKTYP_KWTRY,
+    LIT_ASTTOKTYP_KWCATCH,
+    LIT_ASTTOKTYP_KWFINALLY,
+    LIT_ASTTOKTYP_KWTHROW,
 
     LIT_ASTTOKTYP_ERROR,
     LIT_ASTTOKTYP_EOF
@@ -446,7 +442,9 @@ enum LitAstExprType
     LIT_ASTEXPRTYP_RETURN,
     LIT_ASTEXPRTYP_METHOD,
     LIT_ASTEXPRTYP_CLASS,
-    LIT_ASTEXPRTYP_FIELD
+    LIT_ASTEXPRTYP_FIELD,
+    LIT_ASTEXPRTYP_TRY,
+    LIT_ASTEXPRTYP_THROW
 };
 
 enum LitInstrucType
@@ -518,6 +516,10 @@ enum LitOpCode
     LIT_OPCODE_REFUPVALUE, /* R(A) := ref U(Bx) */
     LIT_OPCODE_REFFIELD, /* R(A) = ref R(B)[C(C)] */
     LIT_OPCODE_REFSET, /* ref R(A) := R(B) */
+    LIT_OPCODE_PUSH_TRY, /* push try handler at PC + Bx */
+    LIT_OPCODE_POP_TRY, /* pop try handler */
+    LIT_OPCODE_THROW, /* throw R(A) */
+    LIT_OPCODE_RETHROW, /* rethrow fiber->error */
 };
 
 enum LitIOStrMode
@@ -530,7 +532,6 @@ enum LitIOStrMode
 typedef enum LitIOStrMode LitIOStrMode;
 typedef enum /**/ LitObjType LitObjType;
 typedef enum /**/ LitFuncType LitFuncType;
-typedef enum /**/ LitErrorType LitErrorType;
 typedef enum /**/ LitStatusCode LitStatusCode;
 typedef enum /**/ LitAstTokType LitAstTokType;
 typedef enum /**/ LitPrecedence LitPrecedence;
@@ -586,6 +587,8 @@ typedef struct /**/ LitAstReturnExpr LitAstReturnExpr;
 typedef struct /**/ LitAstMethodExpr LitAstMethodExpr;
 typedef struct /**/ LitAstClassExpr LitAstClassExpr;
 typedef struct /**/ LitAstFieldExpr LitAstFieldExpr;
+typedef struct /**/ LitAstTryExpr LitAstTryExpr;
+typedef struct /**/ LitAstThrowExpr LitAstThrowExpr;
 typedef struct /**/ LitAstPrivate LitAstPrivate;
 typedef struct /**/ LitDynListPriv LitDynListPriv;
 typedef struct /**/ LitAstLocal LitAstLocal;
@@ -605,6 +608,7 @@ typedef struct LitIOStream LitIOStream;
 typedef struct LitStrBuffer LitStrBuffer;
 typedef struct LitValue LitValue;
 typedef struct LitVMState LitVMState;
+typedef struct LitHandler LitHandler;
 typedef struct LitDynListUInt LitDynListUInt;
 typedef struct LitDynListByte LitDynListByte;
 typedef struct LitDynListVal LitDynListVal;
@@ -613,7 +617,7 @@ typedef struct LitTabEntry LitTabEntry;
 typedef struct LitTable LitTable;
 typedef struct LitObject LitObject;
 typedef struct LitString LitString;
-typedef struct LitFunction LitFunction;
+typedef struct LitFuncScript LitFuncScript;
 typedef struct LitUpvalue LitUpvalue;
 typedef struct LitFuncClosure LitFuncClosure;
 typedef struct LitClsPrototype LitClsPrototype;
@@ -624,7 +628,7 @@ typedef struct LitModule LitModule;
 typedef struct LitFiber LitFiber;
 typedef struct LitClass LitClass;
 typedef struct LitInstance LitInstance;
-typedef struct LitBoundMethod LitBoundMethod;
+typedef struct LitFuncBound LitFuncBound;
 typedef struct LitArray LitArray;
 typedef struct LitVarargArray LitVarargArray;
 typedef struct LitUserdata LitUserdata;
@@ -634,6 +638,10 @@ typedef struct LitReference LitReference;
 typedef struct LitState LitState;
 typedef struct ListDynListPtr ListDynListPtr;
 typedef struct LitAstPrinter LitAstPrinter;
+typedef struct LitConstStrings LitConstStrings;
+typedef struct LitConfig LitConfig;
+
+
 typedef void (*LitErrorFn)(LitState* state, const char* message);
 typedef void (*LitPrintFn)(LitState* state, const char* message);
 typedef LitAstExpression* (*LitPrefixParseFn)(LitAstParser*, bool);
@@ -788,7 +796,7 @@ struct LitString
     LitStrBuffer strbuf;
 };
 
-struct LitFunction
+struct LitFuncScript
 {
     LitObject innerobject;
     LitChunk chunk;
@@ -811,15 +819,15 @@ struct LitUpvalue
 struct LitFuncClosure
 {
     LitObject innerobject;
-    LitFunction* function;
-    LitUpvalue** upvalues;
+    LitFuncScript* function;
+    LitUpvalue** closureupvalueitems;
     uint32_t upvaluecount;
 };
 
 struct LitClsPrototype
 {
     LitObject innerobject;
-    LitFunction* function;
+    LitFuncScript* function;
     bool* local;
     uint32_t* indexes;
     uint32_t upvaluecount;
@@ -834,7 +842,7 @@ struct LitFuncNative
 
 struct LitCallFrame
 {
-    LitFunction* function;
+    LitFuncScript* function;
     LitFuncClosure* closure;
     uint64_t* ip;
     LitValue* slots;
@@ -857,9 +865,17 @@ struct LitModule
     LitValue* privatevalues;
     LitMap* privatenames;
     uint32_t privatecount;
-    LitFunction* mainfunction;
+    LitFuncScript* mainfunction;
     LitFiber* mainfiber;
     bool ran;
+};
+
+struct LitHandler
+{
+    uint64_t* handlerip;
+    uint32_t registercount;
+    uint32_t framecount;
+    uint8_t errorreg;
 };
 
 struct LitFiber
@@ -879,6 +895,9 @@ struct LitFiber
     bool abort;
     bool catcher;
     bool caught;
+    LitHandler* handleritems;
+    uint32_t handlercount;
+    uint32_t handlercapacity;
 };
 
 struct LitClass
@@ -898,7 +917,7 @@ struct LitInstance
     LitTable fields;
 };
 
-struct LitBoundMethod
+struct LitFuncBound
 {
     LitObject innerobject;
     LitValue receiver;
@@ -961,61 +980,80 @@ struct LitVMState
     LitValue* vmregisteritems;
     LitValue* vmconstantvalues;
     LitValue* vmprivatevalues;
-    LitUpvalue** upvalues;
+    LitUpvalue** vmupvalueitems;
     uint64_t* ip;
     uint64_t instruction;
 };
 
+/*
+* contains pre-allocated strings that are often used, to reduce memory use.
+* you should *never* directly modify these objects; clone them instead.
+*/
+struct LitConstStrings
+{
+    LitString* strthis;
+    LitString* strtostring;
+    LitString* strconstructor;
+    LitString* strnull;
+    LitString* stropequal;
+    LitString* stropindex;
+};
+
+struct LitConfig
+{
+    /* should the AST be dumped? */
+    bool dumpast;
+    /* should the interpreter stop after dumping the AST? */
+    bool quitafterdump;
+    /* should execution be traced? */
+    bool traceexecution;
+    /* (requires traceexecution) but only print instructions? */
+    bool traceinstsonly;
+    /* not currently in use; true if the interpreter is in REPL mode */
+    bool isreplmode;
+    /* (requires traceexecution) has a destination file for trace output been defined? */
+    bool havedesttrace;
+    /* where text for $traceexecution goes. defaults to stderr. if $havedesttrace, then thats what it'll point to. */
+    LitIOStream* desttrace;
+};
+
 struct LitState
 {
-    struct
-    {
-        bool dumpast;
-        bool traceexecution;
-        bool traceinstsonly;
-        bool tracechunk;
-        bool isreplmode;
-        bool havedesttrace;
-        bool quitafterdump;
-        LitIOStream* desttrace;
-    } config;
+    LitConfig config;
 
     LitVMState vmstate;
 
-    int64_t bytes_allocated;
+    int64_t bytesallocated;
     int64_t gcnextgc;
     bool gcallowgc;
     bool gcwasallowed;
     LitIOStream* streamstdout;
     LitIOStream* streamstderr;
     LitErrorFn printerrmessagefn;
-    LitValue* roots;
-    size_t root_count;
-    size_t root_capacity;
-    LitAstLexer* lexer;
-    LitAstParser* parser;
-    LitAstEmitter* emitter;
-    bool had_error;
-    LitFunction* apifunction;
+    LitValue* rootvalues;
+    size_t rootcount;
+    size_t rootcapacity;
+    LitAstLexer* activelexer;
+    LitAstParser* activeparser;
+    LitAstEmitter* activeemitter;
+    bool haderror;
+    LitFuncScript* apifunction;
     LitString* apiname;
     /* Mental note: */
     /* When adding another class here, DO NOT forget to mark it or it will be GC-ed */
     LitClass* stdclassclass;
     LitClass* stdobjectclass;
-    LitClass* number_class;
-    LitClass* string_class;
-    LitClass* bool_class;
-    LitClass* function_class;
-    LitClass* fiber_class;
-    LitClass* module_class;
-    LitClass* array_class;
-    LitClass* map_class;
-    LitClass* range_class;
-    LitModule* last_module;
-
-    LitString* conststrthis;
-    LitString* conststrtostring;
-    LitString* conststrconstructor;
+    LitClass* stdclassnumber;
+    LitClass* stdclassstring;
+    LitClass* stdclassbool;
+    LitClass* stdclassfunction;
+    LitClass* stdclassfiber;
+    LitClass* stdclassmodule;
+    LitClass* stdclassarray;
+    LitClass* stdclassmap;
+    LitClass* stdclassrange;
+    LitModule* lastmodule;
+    LitConstStrings strings;
 };
 
 struct LitResult
@@ -1064,14 +1102,14 @@ struct LitAstUpvalue
 struct LitAstCompiler
 {
     LitDynListLoc locals;
-    int scope_depth;
-    LitFunction* function;
+    int scopedepth;
+    LitFuncScript* function;
     LitFuncType type;
-    LitAstUpvalue upvalues[LIT_CONFIG_UINT8COUNT];
+    LitAstUpvalue compiledupvalueitems[LIT_CONFIG_UINT8COUNT];
     uint64_t registersused;
     LitAstCompiler* enclosing;
-    bool skip_return;
-    size_t loop_depth;
+    bool skipreturn;
+    size_t loopdepth;
 };
 
 struct LitAstEmitter
@@ -1079,16 +1117,16 @@ struct LitAstEmitter
     LitState* pstate;
     LitChunk* chunk;
     LitAstCompiler* compiler;
-    size_t last_line;
-    size_t loop_start;
+    size_t lastline;
+    size_t loopstart;
     LitDynListPriv privlist;
     LitDynListUInt breaks;
     LitDynListUInt continues;
     LitModule* module;
-    LitString* class_name;
-    uint32_t class_register;
-    bool class_has_super;
-    int emit_reference;
+    LitString* classname;
+    uint32_t classregister;
+    bool classhassuper;
+    int emitreference;
 };
 
 struct LitAstRule
@@ -1101,8 +1139,8 @@ struct LitAstRule
 struct LitAstParser
 {
     LitState* pstate;
-    bool had_error;
-    bool panic_mode;
+    bool haderror;
+    bool panicmode;
     LitAstToken previous;
     LitAstToken current;
     LitAstCompiler* compiler;
@@ -1125,7 +1163,7 @@ struct LitAstLexer
     LitState* pstate;
     size_t bracevalues[LIT_INTERPOLATION_NESTING_MAX];
     size_t bracecount;
-    bool had_error;
+    bool haderror;
 };
 
 struct LitAstExpression
@@ -1146,7 +1184,7 @@ struct LitAstBinaryExpr
     LitAstExpression* left;
     LitAstExpression* right;
     LitAstTokType op;
-    bool ignore_left;
+    bool ignoreleft;
 };
 
 struct LitAstUnaryExpr
@@ -1185,7 +1223,7 @@ struct LitAstIndexGetExpr
     const char* name;
     size_t length;
     int jump;
-    bool ignore_emit;
+    bool ignoreemit;
     bool ignoreresult;
 };
 
@@ -1237,7 +1275,7 @@ struct LitAstSuperExpr
 {
     LitAstExpression exprbase;
     LitString* methodname;
-    bool ignore_emit;
+    bool ignoreemit;
     bool ignoreresult;
 };
 
@@ -1349,7 +1387,7 @@ struct LitAstMethodExpr
     LitString* name;
     LitDynListParam parameters;
     LitAstExpression* body;
-    bool is_static;
+    bool isstatic;
 };
 
 struct LitAstClassExpr
@@ -1366,7 +1404,23 @@ struct LitAstFieldExpr
     LitString* name;
     LitAstExpression* getter;
     LitAstExpression* setter;
-    bool is_static;
+    bool isstatic;
+};
+
+struct LitAstTryExpr
+{
+    LitAstExpression exprbase;
+    LitAstExpression* tryblock;
+    LitAstExpression* catchblock;
+    LitAstExpression* finallyblock;
+    const char* catchvarstr;
+    size_t catchvarlen;
+};
+
+struct LitAstThrowExpr
+{
+    LitAstExpression exprbase;
+    LitAstExpression* exvalue;
 };
 
 struct LitFileData
@@ -1648,7 +1702,7 @@ void lit_strbufutil_callboundscheckinsert(LitStrBuffer* sb, size_t pos, const ch
 {
     if(pos > sb->length)
     {
-        fprintf(stderr, "%s:%i: - out of bounds error [index: %ld, num_of_bits: %ld]\n", file, line, (long)pos, (long)sb->length);
+        fprintf(stderr, "%s:%i: - out of bounds error [index: %ld, numofbits: %ld]\n", file, line, (long)pos, (long)sb->length);
         errno = EDOM;
         abort();
     }
@@ -1764,8 +1818,10 @@ void lit_strbufutil_strreplace2(char* target, size_t tgtlen, const char* findstr
     const char* p;
     const char* tmp;
     char* inspoint;
-    char buffer[1024] = { 0 };
+    char buffer[1024];
+
     (void)tgtlen;
+    memset(buffer, 0, sizeof(buffer));
     inspoint = &buffer[0];
     tmp = target;
     while(true)
@@ -2453,7 +2509,7 @@ void lit_strbuf_insert(LitStrBuffer* sb, size_t dstpos, const char* src, size_t 
  * lit_strbuf_overwrite(sb,3,2,mystr,strlen(mystr));
  * // sb is now "aaaxxxccc"
  * lit_strbuf_overwrite(sb,3,2,"_",1);
- * // sb is now "aaa_ccc"
+ * // sb is now "aaaccc"
  */
 void lit_strbuf_overwrite(LitStrBuffer* sb, size_t dstpos, size_t dstlen, const char* src, size_t srclen)
 {
@@ -2740,6 +2796,1260 @@ void lit_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
     data[sb->length] = '\0';
 }
 
+bool lit_util_charisdigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+bool lit_util_charisalpha(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+/* http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float */
+int lit_util_closestpoweroftwo(int n)
+{
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n++;
+    return n;
+}
+
+int lit_util_stringutfgetcountdecode(uint8_t byte)
+{
+    if((byte & 0xc0) == 0x80)
+    {
+        return 0;
+    }
+    if((byte & 0xf8) == 0xf0)
+    {
+        return 4;
+    }
+    if((byte & 0xf0) == 0xe0)
+    {
+        return 3;
+    }
+    if((byte & 0xe0) == 0xc0)
+    {
+        return 2;
+    }
+    return 1;
+}
+
+int lit_util_stringutfgetcountencode(int value)
+{
+    if(value <= 0x7f)
+    {
+        return 1;
+    }
+    if(value <= 0x7ff)
+    {
+        return 2;
+    }
+    if(value <= 0xffff)
+    {
+        return 3;
+    }
+    if(value <= 0x10ffff)
+    {
+        return 4;
+    }
+    return 0;
+}
+
+int lit_util_stringutfencode(int value, uint8_t* bytes)
+{
+    if(value <= 0x7f)
+    {
+        *bytes = value & 0x7f;
+        return 1;
+    }
+    else if(value <= 0x7ff)
+    {
+        *bytes = 0xc0 | ((value & 0x7c0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+        return 2;
+    }
+    else if(value <= 0xffff)
+    {
+        *bytes = 0xe0 | ((value & 0xf000) >> 12);
+        bytes++;
+        *bytes = 0x80 | ((value & 0xfc0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+        return 3;
+    }
+    else if(value <= 0x10ffff)
+    {
+        *bytes = 0xf0 | ((value & 0x1c0000) >> 18);
+        bytes++;
+        *bytes = 0x80 | ((value & 0x3f000) >> 12);
+        bytes++;
+        *bytes = 0x80 | ((value & 0xfc0) >> 6);
+        bytes++;
+        *bytes = 0x80 | (value & 0x3f);
+        return 4;
+    }
+    UNREACHABLE
+    return 0;
+}
+
+int lit_util_stringutfdecode(const uint8_t* bytes, uint32_t length)
+{
+    int value;
+    uint32_t remainingbytes;
+    if(*bytes <= 0x7f)
+    {
+        return *bytes;
+    }
+    if((*bytes & 0xe0) == 0xc0)
+    {
+        value = *bytes & 0x1f;
+        remainingbytes = 1;
+    }
+    else if((*bytes & 0xf0) == 0xe0)
+    {
+        value = *bytes & 0x0f;
+        remainingbytes = 2;
+    }
+    else if((*bytes & 0xf8) == 0xf0)
+    {
+        value = *bytes & 0x07;
+        remainingbytes = 3;
+    }
+    else
+    {
+        return -1;
+    }
+    if(remainingbytes > length - 1)
+    {
+        return -1;
+    }
+    while(remainingbytes > 0)
+    {
+        bytes++;
+        remainingbytes--;
+        if((*bytes & 0xc0) != 0x80)
+        {
+            return -1;
+        }
+        value = value << 6 | (*bytes & 0x3f);
+    }
+    return value;
+}
+
+int lit_util_isutfbyte(int c)
+{
+    return (((c) & 0xC0) != 0x80);
+}
+
+int lit_util_stringutfucharoffset(const char* str, int index)
+{
+    int offset;
+    offset = 0;
+    while(index > 0 && str[offset])
+    {
+        if(!lit_util_isutfbyte(str[++offset]))
+        {
+            if(!lit_util_isutfbyte(str[++offset]))
+            {
+                if(!lit_util_isutfbyte(str[++offset]))
+                {
+                    ++offset;
+                }
+            }
+        }
+        index--;
+    }
+    return offset;
+}
+
+void lit_util_stringchangecase(char* instr, size_t inlen, int (*func)(int))
+{
+    size_t i;
+    for(i = 0; i < inlen; i++)
+    {
+        instr[i] = func(instr[i]);
+    }
+}
+
+static int lit_util_findfirstpos(const char* str, size_t len, int ch)
+{
+    size_t i;
+    for(i=0; i<len; i++)
+    {
+        if(str[i] == ch)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+char* lit_util_readhandle(FILE* hnd, size_t* dlen)
+{
+    long rawtold;
+    /*
+    * the value returned by ftell() may not necessarily be the same as
+    * the amount that can be read.
+    * since we only ever read a maximum of $toldlen, there will
+    * be no memory trashing.
+    */
+    size_t toldlen;
+    size_t actuallen;
+    char* buf;
+    if(fseek(hnd, 0, SEEK_END) == -1)
+    {
+        return NULL;
+    }
+    if((rawtold = ftell(hnd)) == -1)
+    {
+        return NULL;
+    }
+    toldlen = rawtold;
+    if(fseek(hnd, 0, SEEK_SET) == -1)
+    {
+        return NULL;
+    }
+    buf = (char*)calloc(toldlen + 1, sizeof(char));
+    memset(buf, 0, toldlen+1);
+    if(buf != NULL)
+    {
+        actuallen = fread(buf, sizeof(char), toldlen, hnd);
+        /*
+        // optionally, read remainder:
+        size_t tmplen;
+        if(actuallen < toldlen)
+        {
+            tmplen = actuallen;
+            actuallen += fread(buf+tmplen, sizeof(char), actuallen-toldlen, hnd);
+            ...
+        }
+        // unlikely to be necessary, so not implemented.
+        */
+        if(dlen != NULL)
+        {
+            *dlen = actuallen;
+        }
+        return buf;
+    }
+    return NULL;
+}
+
+char* lit_util_readfile(const char* filename, size_t* dlen)
+{
+    char* b;
+    FILE* fh;
+    if((fh = fopen(filename, "rb")) == NULL)
+    {
+        return NULL;
+    }
+    b = lit_util_readhandle(fh, dlen);
+    fclose(fh);
+    return b;
+}
+
+
+bool lit_util_fileexists(const char* path)
+{
+    struct stat buffer;
+    return stat(path, &buffer) == 0;
+}
+
+char* lit_util_dupstring(const char* string)
+{
+    size_t length;
+    char* newstring;
+    length = strlen(string) + 1;
+    newstring = (char*)lit_sysmem_malloc(length);
+    memcpy(newstring, string, length);
+    return newstring;
+}
+
+
+FILE* lit_util_popen(const char* cmd, const char* type)
+{
+    #if defined(OSFN_ISLINUX)
+        return popen(cmd, type);
+    #endif
+    return NULL;
+}
+
+void lit_util_pclose(FILE* fh)
+{
+    #if defined(OSFN_ISLINUX)
+        pclose(fh);
+    #endif
+}
+
+int lit_util_chmod(const char* path, int mode)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return chmod(path, mode);
+    #else
+        return -1;
+    #endif
+}
+
+char* lit_util_realpath(const char* path, char* respath)
+{
+    char* copy;
+    #if defined(OSFN_ISUNIXLIKE)
+        char* rt;
+        rt = realpath(path, respath);
+        if(rt != NULL)
+        {
+            copy = lit_util_dupstring(rt);
+            free(rt);
+            return copy;
+        }
+    #else
+    #endif
+    copy = lit_util_dupstring(path);
+    respath = copy;
+    return copy;
+}
+
+char* lit_util_dirname(const char *fname)
+{
+    size_t dirlen;
+    char * dirpart;
+    const char *p;
+    const char *slash;
+    p = fname;
+    slash = NULL;
+    if(fname)
+    {
+        if(*fname && fname[1] == ':')
+        {
+            slash = fname + 1;
+            p += 2;
+        }
+        /* Find the rightmost slash.  */
+        while (*p)
+        {
+            if (*p == '/' || *p == '\\')
+            {
+                slash = p;
+            }
+            p++;
+        }
+        if(slash == NULL)
+        {
+            fname = ".";
+            dirlen = 1;
+        }
+        else
+        {
+            /* Remove any trailing slashes.  */
+            while(slash > fname && (slash[-1] == '/' || slash[-1] == '\\'))
+            {
+                slash--;
+            }
+            /* How long is the directory we will return?  */
+            dirlen = slash - fname + (slash == fname || slash[-1] == ':');
+            if (*slash == ':' && dirlen == 1)
+            {
+                dirlen += 2;
+            }
+        }
+        dirpart = (char *)lit_sysmem_malloc(dirlen + 1);
+        if(dirpart != NULL)
+        {
+            strncpy(dirpart, fname, dirlen);
+            if (slash && *slash == ':' && dirlen == 3)
+            {
+                dirpart[2] = '.';	/* for "x:foo" return "x:." */
+            }
+            dirpart[dirlen] = '\0';
+        }
+        return dirpart;
+    }
+    return NULL;
+}
+
+char* lit_util_fsgetbasename(const char* opath)
+{
+    char* strbeg;
+    char* strend;
+    char* cpath;
+    strend = cpath = (char*)opath;
+    while(*strend)
+    {
+        strend++;
+    }
+    while(strend > cpath && strend[-1] == '/')
+    {
+        strend--;
+    }
+    strbeg = strend;
+    while(strbeg > cpath && strbeg[-1] != '/')
+    {
+        strbeg--;
+    }
+    /* len = (strend - strbeg) */
+    cpath = strbeg;
+    cpath[(strend - strbeg)] = 0;
+    return strbeg;
+}
+
+
+int lit_util_isatty(int fd)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return isatty(fd);
+    #else
+        return 0;
+    #endif
+}
+
+int lit_util_symlink(const char* path1, const char* path2)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return symlink(path1, path2);
+    #else
+        return -1;
+    #endif
+}
+
+int lit_util_symlinkat(const char* path1, int fd, const char* path2)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return symlinkat(path1, fd, path2);
+    #else
+        return -1;
+    #endif
+}
+
+char* lit_util_getcwd(char* buf, size_t size)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return getcwd(buf, size);
+    #else
+        #if defined(OSFN_ISWINNT)
+            GetCurrentDirectory(size, buf);
+            return buf;
+        #endif
+    #endif
+    return NULL;
+
+}
+
+int lit_util_lstat(const char* path, struct stat* buf)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return lstat(path, buf);
+    #else
+        return stat(path, buf);
+    #endif
+}
+
+
+int lit_util_truncate(const char* path, size_t length)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return truncate(path, length);
+    #else
+        return -1;
+    #endif
+}
+
+unsigned int lit_util_sleep(unsigned int seconds)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return sleep(seconds);
+    #else
+        return 0;
+    #endif
+}
+
+int lit_util_gettimeofday(struct timeval* tp, void* tzp)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return gettimeofday(tp, tzp);
+    #else
+        return 0;
+    #endif
+}
+
+int lit_util_mkdir(const char* path, size_t mode)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return mkdir(path, mode);
+    #else
+        return -1;
+    #endif
+}
+
+int lit_util_rmdir(const char* path)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return rmdir(path);
+    #else
+        return -1;
+    #endif
+}
+
+int lit_util_unlink(const char* path)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return unlink(path);
+    #else
+        return -1;
+    #endif
+}
+
+
+const char* lit_util_getenv(const char* key)
+{
+    return getenv(key);
+}
+
+bool lit_util_setenv(const char* key, const char* value, bool replace)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return (setenv(key, value, replace) == 0);
+    #else
+        int errcode;
+        size_t envsize;
+        errcode = 0;
+        if(!replace)
+        {
+            envsize = 0;
+            errcode = getenv_s(&envsize, NULL, 0, key);
+            if(errcode || envsize) return errcode;
+        }
+        if(_putenv_s(key, value) == -1)
+        {
+            return false;
+        }
+        return true;
+    #endif
+}
+
+int lit_util_chdir(const char* path)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return chdir(path);
+    #else
+        return -1;
+    #endif
+}
+
+int lit_util_getpid()
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return getpid();
+    #endif
+    return -1;
+}
+
+int lit_util_kill(int pid, int code)
+{
+    #if defined(OSFN_ISUNIXLIKE)
+        return kill(pid, code);
+    #else
+        return -1;
+    #endif
+}
+
+bool lit_util_fsfileexists(const char* filepath)
+{
+    #if !defined(NEON_PLAT_ISWINDOWS)
+        return access(filepath, F_OK) == 0;
+    #else
+        struct stat st;
+        if(stat(filepath, &st) == -1)
+        {
+            return false;
+        }
+        return true;
+    #endif
+}
+
+bool lit_util_fsfileistype(const char* filepath, int typ)
+{
+    struct stat st;
+    (void)filepath;
+    if(stat(filepath, &st) == -1)
+    {
+        return false;
+    }
+    if(typ == 'f')
+    {
+        return S_ISREG(st.st_mode);
+    }
+    else if(typ == 'd')
+    {
+        return S_ISDIR(st.st_mode);
+    }
+    return false;
+}
+
+bool lit_util_fsfileisfile(const char* filepath)
+{
+    return lit_util_fsfileistype(filepath, 'f');
+}
+
+bool lit_util_fsfileisdirectory(const char* filepath)
+{
+    return lit_util_fsfileistype(filepath, 'd');
+}
+
+/* endutils */
+
+void lit_dynlistval_init(LitDynListVal* list)
+{
+    lit_dynlistval_reset(list);
+}
+
+void lit_dynlistval_reset(LitDynListVal* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistval_destroy(LitDynListVal* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistval_reset(list);
+}
+
+void lit_dynlistval_push(LitDynListVal* list, LitValue val)
+{
+    size_t i;
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (LitValue*)lit_sysmem_realloc(list->listitems, sizeof(LitValue) * (list->listcapacity));
+        for(i = oldcapacity; i < list->listcapacity; i++)
+        {
+            list->listitems[i] = lit_value_makenull();
+        }
+    }
+    list->listitems[list->listcount] = val;
+    list->listcount++;
+}
+
+LitValue lit_dynlistval_get(LitDynListVal* list, size_t idx)
+{
+    return list->listitems[idx];
+}
+
+LitValue lit_dynlistval_set(LitDynListVal* list, size_t idx, LitValue val)
+{
+    list->listitems[idx] = val;
+    return list->listitems[idx];
+}
+
+void lit_dynlistval_ensuresize(LitDynListVal* list, size_t size)
+{
+    lit_dynlistval_ensureactualsize(list, size);
+    if(list->listcount < size)
+    {
+        list->listcount = size;
+    }
+}
+
+void lit_dynlistval_ensureactualsize(LitDynListVal* list, size_t size)
+{
+    size_t i;
+    size_t oldcapacity;
+    if(list->listcapacity < size)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = size;
+        list->listitems = (LitValue*)lit_sysmem_realloc(list->listitems, sizeof(LitValue) * (size));
+        for(i = oldcapacity; i < size; i++)
+        {
+            list->listitems[i] = lit_value_makenull();
+        }
+    }
+}
+
+void lit_dynlistpriv_init(LitDynListPriv* list)
+{
+    lit_dynlistpriv_reset(list);
+}
+
+void lit_dynlistpriv_reset(LitDynListPriv* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistpriv_destroy(LitDynListPriv* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistpriv_reset(list);
+}
+
+void lit_dynlistpriv_push(LitDynListPriv* list, LitAstPrivate priv)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (LitAstPrivate*)lit_sysmem_realloc(list->listitems, sizeof(LitAstPrivate) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = priv;
+    list->listcount++;
+}
+
+void lit_dynlistloc_init(LitDynListLoc* list)
+{
+    lit_dynlistloc_reset(list);
+}
+
+void lit_dynlistloc_reset(LitDynListLoc* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistloc_destroy(LitDynListLoc* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistloc_reset(list);
+}
+
+void lit_dynlistloc_push(LitDynListLoc* list, LitAstLocal loc)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (LitAstLocal*)lit_sysmem_realloc(list->listitems, sizeof(LitAstLocal) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = loc;
+    list->listcount++;
+}
+
+void lit_dynlistexpr_init(LitDynListExpr* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistexpr_destroy(LitDynListExpr* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistexpr_init(list);
+}
+
+void lit_dynlistexpr_push(LitDynListExpr* list, LitAstExpression* value)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (LitAstExpression**)lit_sysmem_realloc(list->listitems, sizeof(LitAstExpression*) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = value;
+    list->listcount++;
+}
+
+void lit_dynlistparam_init(LitDynListParam* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistparam_destroy(LitDynListParam* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistparam_init(list);
+}
+
+void lit_dynlistparam_push(LitDynListParam* list, LitAstFuncParamExpr value)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (LitAstFuncParamExpr*)lit_sysmem_realloc(list->listitems, sizeof(LitAstFuncParamExpr) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = value;
+    list->listcount++;
+}
+
+void lit_dynlistuint_init(LitDynListUInt* list)
+{
+    lit_dynlistuint_reset(list);
+}
+
+void lit_dynlistuint_reset(LitDynListUInt* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistuint_destroy(LitDynListUInt* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistuint_reset(list);
+}
+
+void lit_dynlistuint_push(LitDynListUInt* list, size_t val)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (size_t*)lit_sysmem_realloc(list->listitems, sizeof(size_t) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = val;
+    list->listcount++;
+}
+
+void lit_dynlistbyte_init(LitDynListByte* list)
+{
+    lit_dynlistbyte_reset(list);
+}
+
+void lit_dynlistbyte_reset(LitDynListByte* list)
+{
+    list->listitems = NULL;
+    list->listcapacity = 0;
+    list->listcount = 0;
+}
+
+void lit_dynlistbyte_destroy(LitDynListByte* list)
+{
+    lit_sysmem_free(list->listitems);
+    lit_dynlistbyte_reset(list);
+}
+
+void lit_dynlistbyte_push(LitDynListByte* list, uint8_t val)
+{
+    size_t oldcapacity;
+    if(list->listcapacity < list->listcount + 1)
+    {
+        oldcapacity = list->listcapacity;
+        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
+        list->listitems = (uint8_t*)lit_sysmem_realloc(list->listitems, sizeof(uint8_t) * (list->listcapacity));
+    }
+    list->listitems[list->listcount] = val;
+    list->listcount++;
+}
+
+
+void lit_table_init(LitState* state, LitTable* table)
+{
+    table->pstate = state;
+    lit_table_resetvars(table);
+}
+
+void lit_table_resetvars(LitTable* table)
+{
+    table->htcapacity = -1;
+    table->htcount = 0;
+    table->htentries = NULL;
+}
+
+void lit_free_table(LitTable* table)
+{
+    if(table->htcapacity > 0)
+    {
+        lit_sysmem_free(table->htentries);
+    }
+    lit_table_resetvars(table);
+}
+
+LitTabEntry* lit_table_findentry(LitTabEntry* entries, int capacity, LitString* key)
+{
+    uint32_t index;
+    LitTabEntry* tombstone;
+    LitTabEntry* entry;
+    index = key->strhash % capacity;
+    tombstone = NULL;
+    while(true)
+    {
+        entry = &entries[index];
+        if(entry->entkey == NULL)
+        {
+            if(lit_value_isnull(entry->entvalue))
+            {
+                return tombstone != NULL ? tombstone : entry;
+            }
+            else if(tombstone == NULL)
+            {
+                tombstone = entry;
+            }
+        }
+        if(entry->entkey == key)
+        {
+            return entry;
+        }
+        index = (index + 1) % capacity;
+    }
+}
+
+void lit_table_adjustcapacity(LitTable* table, int capacity)
+{
+    int i;
+    LitTabEntry* entry;
+    LitTabEntry* entries;
+    LitTabEntry* destination;
+    entries = (LitTabEntry*)lit_sysmem_malloc((capacity + 1) * sizeof(LitTabEntry));
+    for(i = 0; i <= capacity; i++)
+    {
+        entries[i].entkey = NULL;
+        entries[i].entvalue = lit_value_makenull();
+    }
+    table->htcount = 0;
+    for(i = 0; i <= table->htcapacity; i++)
+    {
+        entry = &table->htentries[i];
+        if(entry->entkey == NULL)
+        {
+            continue;
+        }
+        destination = lit_table_findentry(entries, capacity, entry->entkey);
+        destination->entkey = entry->entkey;
+        destination->entvalue = entry->entvalue;
+        table->htcount++;
+    }
+    lit_sysmem_free(table->htentries);
+    table->htcapacity = capacity;
+    table->htentries = entries;
+}
+
+bool lit_table_set(LitTable* table, LitString* key, LitValue value)
+{
+    int capacity;
+    LitTabEntry* entry;
+    bool isnew;
+    if(table->htcount + 1 > (table->htcapacity + 1) * LIT_CONFIG_TABLEMAXLOAD)
+    {
+        capacity = LIT_GROW_CAPACITY(table->htcapacity + 1) - 1;
+        lit_table_adjustcapacity(table, capacity);
+    }
+    entry = lit_table_findentry(table->htentries, table->htcapacity, key);
+    isnew = entry->entkey == NULL;
+    if(isnew && lit_value_isnull(entry->entvalue))
+    {
+        table->htcount++;
+    }
+    entry->entkey = key;
+    entry->entvalue = value;
+    return isnew;
+}
+
+bool lit_table_getentry(LitTable* table, LitString* key, LitValue* value)
+{
+    LitTabEntry* entry;
+    if(table->htcount == 0)
+    {
+        return false;
+    }
+    entry = lit_table_findentry(table->htentries, table->htcapacity, key);
+    if(entry->entkey == NULL)
+    {
+        return false;
+    }
+    *value = entry->entvalue;
+    return true;
+}
+
+bool lit_table_getslot(LitTable* table, LitString* key, LitValue** value)
+{
+    LitTabEntry* entry;
+    if(table->htcount == 0)
+    {
+        return false;
+    }
+    entry = lit_table_findentry(table->htentries, table->htcapacity, key);
+    if(entry->entkey == NULL)
+    {
+        return false;
+    }
+    *value = &entry->entvalue;
+    return true;
+}
+
+bool lit_table_delete(LitTable* table, LitString* key)
+{
+    LitTabEntry* entry;
+    if(table->htcount == 0)
+    {
+        return false;
+    }
+    entry = lit_table_findentry(table->htentries, table->htcapacity, key);
+    if(entry->entkey == NULL)
+    {
+        return false;
+    }
+    entry->entkey = NULL;
+    entry->entvalue = lit_value_makebool(true);
+    return true;
+}
+
+LitString* lit_table_findstring(LitTable* table, const char* chars, size_t length, uint32_t hash)
+{
+    size_t entlen;
+    const char* entstr;
+    uint32_t enthash;
+    uint32_t index;
+    LitTabEntry* entry;
+    (void)enthash;
+    if(chars == NULL)
+    {
+        return NULL;
+    }
+    if(length == 0)
+    {
+        return NULL;
+    }
+    if(table->htcount == 0)
+    {
+        return NULL;
+    }
+    index = hash % table->htcapacity;
+    while(true)
+    {
+        entry = &table->htentries[index];
+        if(entry->entkey == NULL)
+        {
+            if(lit_value_isnull(entry->entvalue))
+            {
+                return NULL;
+            }
+        }
+        else
+        {
+            entlen = entry->entkey->strbuf.length;
+            enthash = entry->entkey->strhash;
+            entstr = entry->entkey->strbuf.data;
+            if(entlen == length && /* enthash == hash && */ memcmp(entstr, chars, length) == 0)
+            {
+                return entry->entkey;
+            }
+        }
+        index = (index + 1) % table->htcapacity;
+    }
+}
+
+void lit_table_addall(LitTable* from, LitTable* to)
+{
+    int i;
+    LitTabEntry* entry;
+    for(i = 0; i <= from->htcapacity; i++)
+    {
+        entry = &from->htentries[i];
+        if(entry->entkey != NULL)
+        {
+            lit_table_set(to, entry->entkey, entry->entvalue);
+        }
+    }
+}
+
+void lit_table_addallignoring(LitTable* from, LitTable* to)
+{
+    int i;
+    LitValue fake;
+    LitTabEntry* entry;
+    for(i = 0; i <= from->htcapacity; i++)
+    {
+        entry = &from->htentries[i];
+        if(entry->entkey != NULL && !lit_table_getentry(to, entry->entkey, &fake))
+        {
+            lit_table_set(to, entry->entkey, entry->entvalue);
+        }
+    }
+}
+
+void lit_table_removewhite(LitTable* table)
+{
+    int i;
+    LitObject* obj;
+    LitTabEntry* entry;
+    for(i = 0; i <= table->htcapacity; i++)
+    {
+        entry = &table->htentries[i];
+        if(entry->entkey != NULL)
+        {
+            obj = (LitObject*)entry->entkey;
+            if(!obj->marked)
+            {
+                lit_table_delete(table, entry->entkey);
+            }
+        }
+    }
+}
+
+void lit_table_markentries(LitTable* table)
+{
+    int i;
+    LitState* state;
+    LitTabEntry* entry;
+    state = table->pstate;
+    for(i = 0; i <= table->htcapacity; i++)
+    {
+        entry = &table->htentries[i];
+        lit_gcmem_markobject(state, (LitObject*)entry->entkey);
+        lit_gcmem_markvalue(state, entry->entvalue);
+    }
+}
+
+void lit_chunk_init(LitChunk* chunk)
+{
+    lit_chunk_reset(chunk);
+    lit_dynlistval_init(&chunk->constantlist);
+}
+
+void lit_chunk_reset(LitChunk* chunk)
+{
+    chunk->compiledcodecount = 0;
+    chunk->capacity = 0;
+    chunk->compiledcodechunk = NULL;
+    chunk->haslineinfo = true;
+    chunk->linecount = 0;
+    chunk->linecapacity = 0;
+    chunk->lines = NULL;
+}
+
+void lit_chunk_destroy(LitChunk* chunk)
+{
+    lit_sysmem_free(chunk->compiledcodechunk);
+    lit_sysmem_free(chunk->lines);
+    lit_dynlistval_destroy(&chunk->constantlist);
+    lit_chunk_reset(chunk);
+}
+
+void lit_chunk_push(LitChunk* chunk, uint64_t word, uint16_t line)
+{
+    size_t oldcapacity;
+    size_t lineindex;
+    size_t value;
+
+    if(chunk->capacity < chunk->compiledcodecount + 1)
+    {
+        oldcapacity = chunk->capacity;
+        chunk->capacity = LIT_GROW_CAPACITY(oldcapacity);
+        chunk->compiledcodechunk = (uint64_t*)lit_sysmem_realloc(chunk->compiledcodechunk, sizeof(uint64_t) * (chunk->capacity));
+    }
+    chunk->compiledcodechunk[chunk->compiledcodecount] = word;
+    chunk->compiledcodecount++;
+    if(!chunk->haslineinfo)
+    {
+        return;
+    }
+    if(chunk->linecapacity < chunk->linecount + 4)
+    {
+        oldcapacity = chunk->linecapacity;
+        chunk->linecapacity = LIT_GROW_CAPACITY(chunk->linecapacity);
+        chunk->lines = (uint16_t*)lit_sysmem_realloc(chunk->lines, sizeof(uint16_t) * (chunk->linecapacity));
+        if(oldcapacity == 0)
+        {
+            chunk->lines[0] = 0;
+            chunk->lines[1] = 0;
+        }
+    }
+    lineindex = chunk->linecount;
+    value = chunk->lines[lineindex];
+    if(value != 0 && value != line)
+    {
+        chunk->linecount += 2;
+        lineindex = chunk->linecount;
+        chunk->lines[lineindex + 1] = 0;
+    }
+    chunk->lines[lineindex] = line;
+    chunk->lines[lineindex + 1]++;
+}
+
+size_t lit_chunk_addconstant(LitState* state, LitChunk* chunk, LitValue constant)
+{
+    lit_state_pushvalueroot(state, constant);
+    lit_dynlistval_push(&chunk->constantlist, constant);
+    lit_state_poproot(state);
+    return chunk->constantlist.listcount - 1;
+}
+
+size_t lit_chunk_getline(LitChunk* chunk, size_t offset)
+{
+    size_t i;
+    size_t rle;
+    size_t line;
+    size_t index;
+    if(!chunk->haslineinfo)
+    {
+        return 0;
+    }
+    if(chunk->linecapacity == 0)
+    {
+        return 0;
+    }
+    rle = 0;
+    line = 0;
+    index = 0;
+    for(i = 0; i <= offset; i++)
+    {
+        if(rle > 0)
+        {
+            rle--;
+            continue;
+        }
+        line = 0;
+        rle = 0;
+        if(index <= chunk->linecapacity)
+        {
+            line = chunk->lines[index];
+            if((index + 1) < chunk->linecapacity)
+            {
+                rle = chunk->lines[index + 1];
+                if(rle > 0)
+                {
+                    rle--;
+                }
+            }
+        }
+        else
+        {
+            goto finishup;
+        }
+        index += 2;
+    }
+finishup:
+    return line;
+}
+
+void lit_chunk_shrink(LitChunk* chunk)
+{
+    size_t oldcapacity;
+    (void)oldcapacity;
+    if(chunk->capacity > chunk->compiledcodecount)
+    {
+        oldcapacity = chunk->capacity;
+        chunk->capacity = chunk->compiledcodecount;
+        chunk->compiledcodechunk = (uint64_t*)lit_sysmem_realloc(chunk->compiledcodechunk, sizeof(uint64_t) * (chunk->capacity));
+    }
+    if(chunk->linecapacity > chunk->linecount)
+    {
+        oldcapacity = chunk->linecapacity;
+        chunk->linecapacity = chunk->linecount + 2;
+        chunk->lines = (uint16_t*)lit_sysmem_realloc(chunk->lines, sizeof(uint16_t) * (chunk->linecapacity));
+    }
+}
+
 void lit_iostream_initvars(LitIOStream* pr, LitIOStrMode mode)
 {
     pr->fromstack = false;
@@ -3023,7 +4333,7 @@ bool lit_iostream_writeescapedchar(LitIOStream* pr, int ch)
     return true;
 }
 
-bool lit_iostream_writequotedstring(LitIOStream* pr, const char* str, size_t len, bool withquot)
+bool lit_iostream_putquotedstring(LitIOStream* pr, const char* str, size_t len, bool withquot)
 {
     int bch;
     size_t i;
@@ -3080,644 +4390,6 @@ bool lit_iostream_printf(LitIOStream* pr, const char* fmt, ...)
     b = lit_iostream_vwritefmt(pr, fmt, va);
     va_end(va);
     return b;
-}
-
-bool lit_lexutil_isdigit(char c)
-{
-    return c >= '0' && c <= '9';
-}
-
-bool lit_lexutil_isalpha(char c)
-{
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-
-void* lit_reallocate(LitState* state, void* pointer, size_t oldsize, size_t newsize)
-{
-    state->bytes_allocated += (int64_t)newsize - (int64_t)oldsize;
-    if(newsize > oldsize)
-    {
-#ifdef LIT_CONFIG_STRESSTESTGC
-        lit_collect_garbage(state);
-#endif
-        if(state->bytes_allocated > state->gcnextgc)
-        {
-            lit_collect_garbage(state);
-        }
-    }
-    if(newsize == 0)
-    {
-        lit_sysmem_free(pointer);
-        return NULL;
-    }
-    void* ptr = lit_sysmem_realloc(pointer, newsize);
-    if(ptr == NULL)
-    {
-        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "fatal error: out of memory! aborting now\n");
-        abort();
-    }
-    return ptr;
-}
-
-void lit_free_object(LitState* state, LitObject* object)
-{
-#ifdef LIT_CONFIG_LOGALLOCATION
-    fprintf(stderr, "(%s) %p free %s\n", lit_value_objtypename(object->type), (void*)object, lit_value_objtypename(object->type));
-#endif
-    switch(object->type)
-    {
-        case LIT_OBJ_STRING:
-        {
-            LitString* string = (LitString*)object;
-            lit_strbuf_destroyfromstack(&string->strbuf);
-            LIT_GC_FREEOBJECT(state, LitString, object);
-            break;
-        }
-        case LIT_OBJ_FUNCSCRIPT:
-        {
-            LitFunction* function = (LitFunction*)object;
-            lit_chunk_destroy(&function->chunk);
-            LIT_GC_FREEOBJECT(state, LitFunction, object);
-            break;
-        }
-        case LIT_OBJ_FUNCNATIVE:
-        {
-            LIT_GC_FREEOBJECT(state, LitFuncNative, object);
-            break;
-        }
-        case LIT_OBJ_FUNCNATMETHOD:
-        {
-            LIT_GC_FREEOBJECT(state, LitFuncNative, object);
-            break;
-        }
-        case LIT_OBJ_FIBER:
-        {
-            LitFiber* fiber = (LitFiber*)object;
-            lit_sysmem_free(fiber->framevals);
-            lit_sysmem_free(fiber->registeritems);
-            LIT_GC_FREEOBJECT(state, LitFiber, object);
-            break;
-        }
-        case LIT_OBJ_MODULE:
-        {
-            LitModule* module = (LitModule*)object;
-            lit_sysmem_free(module->privatevalues);
-            LIT_GC_FREEOBJECT(state, LitModule, object);
-            break;
-        }
-        case LIT_OBJ_FUNCCLOSURE:
-        {
-            LitFuncClosure* closure = (LitFuncClosure*)object;
-            lit_sysmem_free(closure->upvalues);
-            LIT_GC_FREEOBJECT(state, LitFuncClosure, object);
-            break;
-        }
-        case LIT_OBJ_CLSPROTOTYPE:
-        {
-            LitClsPrototype* clsproto = (LitClsPrototype*)object;
-            lit_sysmem_free(clsproto->indexes);
-            lit_sysmem_free(clsproto->local);
-            LIT_GC_FREEOBJECT(state, LitClsPrototype, object);
-            break;
-        }
-        case LIT_OBJ_UPVALUE:
-        {
-            LIT_GC_FREEOBJECT(state, LitUpvalue, object);
-            break;
-        }
-        case LIT_OBJ_CLASS:
-        {
-            LitClass* klass = (LitClass*)object;
-            lit_free_table(&klass->mthtable);
-            lit_free_table(&klass->staticstable);
-            LIT_GC_FREEOBJECT(state, LitClass, object);
-            break;
-        }
-        case LIT_OBJ_INSTANCE:
-        {
-            lit_free_table(&((LitInstance*)object)->fields);
-            LIT_GC_FREEOBJECT(state, LitInstance, object);
-            break;
-        }
-        case LIT_OBJ_FUNCBOUNDMETHOD:
-        {
-            LIT_GC_FREEOBJECT(state, LitBoundMethod, object);
-            break;
-        }
-        case LIT_OBJ_ARRAY:
-        {
-            lit_vallist_destroy(&((LitArray*)object)->innerlist);
-            LIT_GC_FREEOBJECT(state, LitArray, object);
-            break;
-        }
-        case LIT_OBJ_VARARGARRAY:
-        {
-            lit_vallist_destroy(&((LitVarargArray*)object)->innerarray.innerlist);
-            LIT_GC_FREEOBJECT(state, LitVarargArray, object);
-            break;
-        }
-        case LIT_OBJ_MAP:
-        {
-            lit_free_table(&((LitMap*)object)->innertable);
-            LIT_GC_FREEOBJECT(state, LitMap, object);
-            break;
-        }
-        case LIT_OBJ_USERDATA:
-        {
-            LitUserdata* data = (LitUserdata*)object;
-            if(data->oncleanupfn != NULL)
-            {
-                data->oncleanupfn(state, data, false);
-            }
-            if(data->size > 0)
-            {
-                lit_sysmem_free(data->data);
-            }
-            LIT_GC_FREEOBJECT(state, LitUserdata, object);
-            break;
-        }
-        case LIT_OBJ_RANGE:
-        {
-            LIT_GC_FREEOBJECT(state, LitRange, object);
-            break;
-        }
-        case LIT_OBJ_FIELD:
-        {
-            LIT_GC_FREEOBJECT(state, LitField, object);
-            break;
-        }
-        case LIT_OBJ_REFERENCE:
-        {
-            LIT_GC_FREEOBJECT(state, LitReference, object);
-            break;
-        }
-        default:
-        {
-            UNREACHABLE
-        }
-    }
-}
-
-void lit_free_objects(LitState* state, LitObject* objects)
-{
-    LitObject* object = objects;
-    while(object != NULL)
-    {
-        LitObject* next = object->next;
-        lit_free_object(state, object);
-        object = next;
-    }
-    lit_sysmem_free(state->vmstate.gcgraystack);
-    state->vmstate.gcgraycapacity = 0;
-}
-
-void lit_gcmem_markobject(LitState* state, LitObject* object)
-{
-    if(object == NULL || object->marked)
-    {
-        return;
-    }
-    object->marked = true;
-#ifdef LIT_CONFIG_LOGMARKING
-    fprintf(stderr, "%p mark ", (void*)object);
-    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object), true);
-    fprintf(stderr, "\n");
-#endif
-    if(state->vmstate.gcgraycapacity < state->vmstate.gcgraycount + 1)
-    {
-        state->vmstate.gcgraycapacity = LIT_GROW_CAPACITY(state->vmstate.gcgraycapacity);
-        state->vmstate.gcgraystack = (LitObject**)lit_sysmem_realloc(state->vmstate.gcgraystack, sizeof(LitObject*) * state->vmstate.gcgraycapacity);
-    }
-    state->vmstate.gcgraystack[state->vmstate.gcgraycount++] = object;
-}
-
-void lit_gcmem_markvalue(LitState* state, LitValue value)
-{
-    if(lit_value_isobject(value))
-    {
-        lit_gcmem_markobject(state, lit_value_asobject(value));
-    }
-}
-
-void lit_gcmem_markroots(LitState* state)
-{
-    size_t i;
-    for(i = 0; i < state->root_count; i++)
-    {
-        lit_gcmem_markvalue(state, state->roots[i]);
-    }
-    lit_gcmem_markobject(state, (LitObject*)state->vmstate.fiber);
-    lit_gcmem_markobject(state, (LitObject*)state->stdclassclass);
-    lit_gcmem_markobject(state, (LitObject*)state->stdobjectclass);
-    lit_gcmem_markobject(state, (LitObject*)state->number_class);
-    lit_gcmem_markobject(state, (LitObject*)state->string_class);
-    lit_gcmem_markobject(state, (LitObject*)state->bool_class);
-    lit_gcmem_markobject(state, (LitObject*)state->function_class);
-    lit_gcmem_markobject(state, (LitObject*)state->fiber_class);
-    lit_gcmem_markobject(state, (LitObject*)state->module_class);
-    lit_gcmem_markobject(state, (LitObject*)state->array_class);
-    lit_gcmem_markobject(state, (LitObject*)state->map_class);
-    lit_gcmem_markobject(state, (LitObject*)state->range_class);
-    lit_gcmem_markobject(state, (LitObject*)state->apiname);
-    lit_gcmem_markobject(state, (LitObject*)state->apifunction);
-    lit_table_markentries(&state->vmstate.modules->innertable);
-    lit_table_markentries(&state->vmstate.globals->innertable);
-}
-
-void lit_gcmem_markarray(LitState* state, LitDynListVal* list)
-{
-    size_t i;
-    for(i = 0; i < list->listcount; i++)
-    {
-        lit_gcmem_markvalue(state, list->listitems[i]);
-    }
-}
-
-void lit_gcmem_blackenobject(LitState* state, LitObject* object)
-{
-#ifdef LIT_CONFIG_LOGBLACKING
-    fprintf(stderr, "%p blacken ", (void*)object);
-    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object), true);
-    fprintf(stderr, "\n");
-#endif
-    switch(object->type)
-    {
-        case LIT_OBJ_FUNCNATIVE:
-        case LIT_OBJ_FUNCNATMETHOD:
-        case LIT_OBJ_RANGE:
-        case LIT_OBJ_STRING:
-        {
-            break;
-        }
-        case LIT_OBJ_USERDATA:
-        {
-            LitUserdata* data = (LitUserdata*)object;
-            if(data->oncleanupfn != NULL)
-            {
-                data->oncleanupfn(state, data, true);
-            }
-            break;
-        }
-        case LIT_OBJ_FUNCSCRIPT:
-        {
-            LitFunction* function = (LitFunction*)object;
-            lit_gcmem_markobject(state, (LitObject*)function->name);
-            lit_gcmem_markarray(state, &function->chunk.constantlist);
-            break;
-        }
-        case LIT_OBJ_FIBER:
-        {
-            size_t i;
-            LitFiber* fiber;
-            LitUpvalue* upvalue;
-            fiber = (LitFiber*)object;
-            for(i = 0; i < fiber->registersallocated; i++)
-            {
-                lit_gcmem_markvalue(state, fiber->registeritems[i]);
-            }
-            for(i = 0; i < fiber->framecount; i++)
-            {
-                LitCallFrame* frame = &fiber->framevals[i];
-                if(frame->closure != NULL)
-                {
-                    lit_gcmem_markobject(state, (LitObject*)frame->closure);
-                }
-                else
-                {
-                    lit_gcmem_markobject(state, (LitObject*)frame->function);
-                }
-            }
-            for(upvalue = fiber->openupvalues; upvalue != NULL; upvalue = upvalue->next)
-            {
-                lit_gcmem_markobject(state, (LitObject*)upvalue);
-            }
-            lit_gcmem_markvalue(state, fiber->error);
-            lit_gcmem_markobject(state, (LitObject*)fiber->module);
-            lit_gcmem_markobject(state, (LitObject*)fiber->parent);
-            break;
-        }
-        case LIT_OBJ_MODULE:
-        {
-            size_t i;
-            LitModule* module;
-            module = (LitModule*)object;
-            lit_gcmem_markvalue(state, module->returnvalue);
-            lit_gcmem_markobject(state, (LitObject*)module->name);
-            lit_gcmem_markobject(state, (LitObject*)module->mainfunction);
-            lit_gcmem_markobject(state, (LitObject*)module->mainfiber);
-            lit_gcmem_markobject(state, (LitObject*)module->privatenames);
-            for(i = 0; i < module->privatecount; i++)
-            {
-                lit_gcmem_markvalue(state, module->privatevalues[i]);
-            }
-            break;
-        }
-        case LIT_OBJ_FUNCCLOSURE:
-        {
-            size_t i;
-            LitFuncClosure* closure = (LitFuncClosure*)object;
-            lit_gcmem_markobject(state, (LitObject*)closure->function);
-            /* Check for NULL is needed for a really specific gc-case */
-            if(closure->upvalues != NULL)
-            {
-                for(i = 0; i < closure->upvaluecount; i++)
-                {
-                    lit_gcmem_markobject(state, (LitObject*)closure->upvalues[i]);
-                }
-            }
-            break;
-        }
-        case LIT_OBJ_CLSPROTOTYPE:
-        {
-            lit_gcmem_markobject(state, (LitObject*)((LitFuncClosure*)object)->function);
-            break;
-        }
-        case LIT_OBJ_UPVALUE:
-        {
-            lit_gcmem_markvalue(state, ((LitUpvalue*)object)->closed);
-            break;
-        }
-        case LIT_OBJ_CLASS:
-        {
-            LitClass* klass = (LitClass*)object;
-            lit_gcmem_markobject(state, (LitObject*)klass->name);
-            lit_gcmem_markobject(state, (LitObject*)klass->super);
-            lit_table_markentries(&klass->mthtable);
-            lit_table_markentries(&klass->staticstable);
-            break;
-        }
-        case LIT_OBJ_INSTANCE:
-        {
-            LitInstance* instance = (LitInstance*)object;
-            lit_gcmem_markobject(state, (LitObject*)instance->klass);
-            lit_table_markentries(&instance->fields);
-            break;
-        }
-        case LIT_OBJ_FUNCBOUNDMETHOD:
-        {
-            LitBoundMethod* boundmethod = (LitBoundMethod*)object;
-            lit_gcmem_markvalue(state, boundmethod->receiver);
-            lit_gcmem_markvalue(state, boundmethod->method);
-            break;
-        }
-        case LIT_OBJ_ARRAY:
-        {
-            lit_gcmem_markarray(state, &((LitArray*)object)->innerlist);
-            break;
-        }
-        case LIT_OBJ_VARARGARRAY:
-        {
-            lit_gcmem_markarray(state, &((LitVarargArray*)object)->innerarray.innerlist);
-            break;
-        }
-        case LIT_OBJ_MAP:
-        {
-            lit_table_markentries(&((LitMap*)object)->innertable);
-            break;
-        }
-        case LIT_OBJ_FIELD:
-        {
-            LitField* field = (LitField*)object;
-            lit_gcmem_markobject(state, (LitObject*)field->getter);
-            lit_gcmem_markobject(state, (LitObject*)field->setter);
-            break;
-        }
-        case LIT_OBJ_REFERENCE:
-        {
-            lit_gcmem_markvalue(state, *((LitReference*)object)->slot);
-            break;
-        }
-        default:
-        {
-            lit_vm_raisefatalerror(state, "unknown object with type %i", object->type);
-            break;
-        }
-    }
-}
-
-void lit_gcmem_tracereferences(LitState* state)
-{
-    while(state->vmstate.gcgraycount > 0)
-    {
-        LitObject* object = state->vmstate.gcgraystack[--state->vmstate.gcgraycount];
-        lit_gcmem_blackenobject(state, object);
-    }
-}
-
-void lit_gcmem_sweep(LitState* state)
-{
-    LitObject* previous = NULL;
-    LitObject* object = state->vmstate.objects;
-    while(object != NULL)
-    {
-        if(object->marked)
-        {
-            object->marked = false;
-            previous = object;
-            object = object->next;
-        }
-        else
-        {
-            LitObject* unreached = object;
-            object = object->next;
-            if(previous != NULL)
-            {
-                previous->next = object;
-            }
-            else
-            {
-                state->vmstate.objects = object;
-            }
-            lit_free_object(state, unreached);
-        }
-    }
-}
-
-uint64_t lit_collect_garbage(LitState* state)
-{
-    if(!state->gcallowgc)
-    {
-        return 0;
-    }
-    state->gcallowgc = false;
-    uint64_t before = state->bytes_allocated;
-#ifdef LIT_CONFIG_LOGGC
-    fprintf(stderr, "-- gc begin\n");
-    clock_t t = clock();
-#endif
-    lit_gcmem_markroots(state);
-    lit_gcmem_tracereferences(state);
-    lit_table_removewhite(&state->vmstate.strings);
-    lit_gcmem_sweep(state);
-    state->gcnextgc = state->bytes_allocated * LIT_GC_HEAP_GROW_FACTOR;
-    state->gcallowgc = true;
-    uint64_t collected = before - state->bytes_allocated;
-#ifdef LIT_CONFIG_LOGGC
-    fprintf(stderr, "-- gc end. Collected %imb (%ib) in %gms\n", ((int)((collected / 1024.0 + 0.5) / 10)) * 10, collected, (double)(clock() - t) / CLOCKS_PER_SEC * 1000);
-#endif
-    return collected;
-}
-
-/* http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float */
-int lit_util_closestpoweroftwo(int n)
-{
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    n++;
-    return n;
-}
-
-int lit_strutil_utfgetcountdecode(uint8_t byte)
-{
-    if((byte & 0xc0) == 0x80)
-    {
-        return 0;
-    }
-    if((byte & 0xf8) == 0xf0)
-    {
-        return 4;
-    }
-    if((byte & 0xf0) == 0xe0)
-    {
-        return 3;
-    }
-    if((byte & 0xe0) == 0xc0)
-    {
-        return 2;
-    }
-    return 1;
-}
-
-int lit_strutil_utfgetcountencode(int value)
-{
-    if(value <= 0x7f)
-    {
-        return 1;
-    }
-    if(value <= 0x7ff)
-    {
-        return 2;
-    }
-    if(value <= 0xffff)
-    {
-        return 3;
-    }
-    if(value <= 0x10ffff)
-    {
-        return 4;
-    }
-    return 0;
-}
-
-int lit_strutil_utfencode(int value, uint8_t* bytes)
-{
-    if(value <= 0x7f)
-    {
-        *bytes = value & 0x7f;
-        return 1;
-    }
-    else if(value <= 0x7ff)
-    {
-        *bytes = 0xc0 | ((value & 0x7c0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
-        return 2;
-    }
-    else if(value <= 0xffff)
-    {
-        *bytes = 0xe0 | ((value & 0xf000) >> 12);
-        bytes++;
-        *bytes = 0x80 | ((value & 0xfc0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
-        return 3;
-    }
-    else if(value <= 0x10ffff)
-    {
-        *bytes = 0xf0 | ((value & 0x1c0000) >> 18);
-        bytes++;
-        *bytes = 0x80 | ((value & 0x3f000) >> 12);
-        bytes++;
-        *bytes = 0x80 | ((value & 0xfc0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
-        return 4;
-    }
-    UNREACHABLE
-    return 0;
-}
-
-int lit_strutil_utfdecode(const uint8_t* bytes, uint32_t length)
-{
-    if(*bytes <= 0x7f)
-    {
-        return *bytes;
-    }
-    int value;
-    uint32_t remainingbytes;
-    if((*bytes & 0xe0) == 0xc0)
-    {
-        value = *bytes & 0x1f;
-        remainingbytes = 1;
-    }
-    else if((*bytes & 0xf0) == 0xe0)
-    {
-        value = *bytes & 0x0f;
-        remainingbytes = 2;
-    }
-    else if((*bytes & 0xf8) == 0xf0)
-    {
-        value = *bytes & 0x07;
-        remainingbytes = 3;
-    }
-    else
-    {
-        return -1;
-    }
-    if(remainingbytes > length - 1)
-    {
-        return -1;
-    }
-    while(remainingbytes > 0)
-    {
-        bytes++;
-        remainingbytes--;
-        if((*bytes & 0xc0) != 0x80)
-        {
-            return -1;
-        }
-        value = value << 6 | (*bytes & 0x3f);
-    }
-    return value;
-}
-
-int lit_util_isutfbyte(int c)
-{
-    return (((c) & 0xC0) != 0x80);
-}
-
-int lit_strutil_utfucharoffset(const char* str, int index)
-{
-    int offset = 0;
-    while(index > 0 && str[offset])
-    {
-        if(!lit_util_isutfbyte(str[++offset]))
-        {
-            if(!lit_util_isutfbyte(str[++offset]))
-            {
-                if(!lit_util_isutfbyte(str[++offset]))
-                {
-                    ++offset;
-                }
-            }
-        }
-        index--;
-    }
-    return offset;
 }
 
 
@@ -3820,6 +4492,11 @@ bool lit_value_asbool(LitValue v)
     return (v.as.boolval);
 }
 
+LitObjType lit_value_objtype(LitValue value)
+{
+    return lit_value_asobject(value)->type;
+}
+
 LitObject* lit_value_asobject(LitValue v)
 {
     return (v.as.obj);
@@ -3830,9 +4507,9 @@ LitString* lit_value_asstring(LitValue value)
     return ((LitString*)lit_value_asobject(value));
 }
 
-LitFunction* lit_value_asfuncscript(LitValue value)
+LitFuncScript* lit_value_asfuncscript(LitValue value)
 {
-    return ((LitFunction*)lit_value_asobject(value));
+    return ((LitFuncScript*)lit_value_asobject(value));
 }
 
 LitFuncNative* lit_value_asfuncnative(LitValue value)
@@ -3885,9 +4562,9 @@ LitMap* lit_value_asmap(LitValue value)
     return ((LitMap*)lit_value_asobject(value));
 }
 
-LitBoundMethod* lit_value_asfuncboundmethod(LitValue value)
+LitFuncBound* lit_value_asfuncboundmethod(LitValue value)
 {
-    return ((LitBoundMethod*)lit_value_asobject(value));
+    return ((LitFuncBound*)lit_value_asobject(value));
 }
 
 LitUserdata* lit_value_asuserdata(LitValue value)
@@ -3953,294 +4630,6 @@ LitValue lit_value_fromobject_actual(LitObject* obj)
     return rt;
 }
 
-
-LitString* lit_string_makewithstrbuf(LitState* state, LitStrBuffer sb)
-{
-    LitString* string = (LitString*)lit_object_allocobject(state, sizeof(LitString), LIT_OBJ_STRING);
-    string->strbuf = sb;
-    return string;
-}
-
-LitString* lit_string_makeemptystring(LitState* state, size_t length, bool preallocated)
-{
-    LitStrBuffer sb;
-    lit_strbuf_initbasicempty(&sb, length, false, preallocated);
-    return lit_string_makewithstrbuf(state, sb);
-}
-
-void lit_string_register(LitState* state, LitString* string)
-{
-    lit_state_pushroot(state, (LitObject*)string);
-    lit_table_set(&state->vmstate.strings, string, lit_value_makenull());
-    lit_state_poproot(state);
-}
-
-LitString* lit_string_makestringfrom(LitState* state, char* chars, size_t length, uint32_t hash, bool preallocated)
-{
-    LitString* string;
-    string = lit_string_makeemptystring(state, length, preallocated);
-    if(preallocated)
-    {
-        lit_strbuf_setdata(&string->strbuf, chars);
-        lit_strbuf_setlength(&string->strbuf, length);
-    }
-    else
-    {
-        lit_strbuf_appendstrn(&string->strbuf, chars, length);
-    }
-    string->strhash = hash;
-    lit_string_register(state, string);
-    return string;
-}
-
-uint32_t lit_string_hash(const char* key, size_t length)
-{
-    size_t i;
-    uint32_t hash;
-    hash = 2166136261u;
-    for(i = 0; i < length; i++)
-    {
-        hash ^= key[i];
-        hash *= 16777619;
-    }
-    return hash;
-}
-
-LitString* lit_string_take(LitState* state, const char* chars, size_t length)
-{
-    uint32_t hash = lit_string_hash(chars, length);
-    LitString* interned = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
-    if(interned != NULL)
-    {
-        return interned;
-    }
-    return lit_string_makestringfrom(state, (char*)chars, length, hash, true);
-}
-
-#define lit_string_copylen(state, chars, length) \
-    lit_string_copylen_real(state, chars, length, __FILE__, __LINE__)
-
-#define lit_string_copy(state, chars) \
-    lit_string_copy_real(state, chars, __FILE__, __LINE__)
-
-LitString* lit_string_copylen_real(LitState* state, const char* chars, size_t length, const char* srcfilename, int srcline)
-{
-    uint32_t hash;
-    char* heapchars;
-    LitString* res;
-    if(chars == NULL)
-    {
-        fprintf(stderr, "***ERROR at %s:%d: chars are NULL!*****\n", srcfilename, srcline);
-        abort();
-    }
-    hash = lit_string_hash(chars, length);
-    res = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
-    if(res != NULL)
-    {
-        return res;
-    }
-    heapchars = (char*)lit_sysmem_malloc((length + 1) * sizeof(char));
-    memcpy(heapchars, chars, length);
-    heapchars[length] = '\0';
-#ifdef LIT_CONFIG_LOGALLOCATION
-    printf("allocated new string '%s'\n", chars);
-#endif
-    return lit_string_makestringfrom(state, heapchars, length, hash, true);
-}
-
-LitString* lit_string_copy_real(LitState* state, const char* chars, const char* srcfilename, int srcline)
-{
-    return lit_string_copylen_real(state, chars, strlen(chars), srcfilename, srcline);
-}
-
-size_t lit_string_getlength(LitString* string)
-{
-    return string->strbuf.length;
-}
-
-char* lit_string_getdata(LitString* string)
-{
-    return string->strbuf.data;
-}
-
-LitString* lit_string_clone(LitState* state, LitString* string)
-{
-    size_t slen;
-    const char* sdata;
-    slen = string->strbuf.length;
-    sdata = string->strbuf.data;
-    return lit_string_copylen(state, sdata, slen);
-}
-
-size_t lit_string_utflength(LitString* string)
-{
-    size_t i;
-    size_t length;
-    length = 0;
-    for(i=0; i < string->strbuf.length;)
-    {
-        i += lit_strutil_utfgetcountdecode(string->strbuf.data[i]);
-        length++;
-    }
-    return length;
-}
-
-int lit_string_codepointcodeat(LitState* state, LitString* string, uint32_t index)
-{
-    int codepoint;
-    (void)state;
-    if(index >= string->strbuf.length)
-    {
-        return 0;
-    }
-    codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
-    if(codepoint == -1)
-    {
-        return string->strbuf.data[index];
-    }
-    return codepoint;
-}
-
-LitString* lit_string_codepointstringat(LitState* state, LitString* string, uint32_t index)
-{
-    if(index >= string->strbuf.length)
-    {
-        return NULL;
-    }
-    int codepoint = lit_strutil_utfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
-    if(codepoint == -1)
-    {
-        char bytes[2];
-        bytes[0] = string->strbuf.data[index];
-        bytes[1] = '\0';
-        return lit_string_copylen(state, bytes, 1);
-    }
-    return lit_string_fromcodepoint(state, codepoint);
-}
-
-
-LitString* lit_string_fromcodepoint(LitState* state, int value)
-{
-    int length;
-    LitString* res;
-    length = lit_strutil_utfgetcountencode(value);
-    res = lit_string_makeemptystring(state, length, false);
-    lit_strutil_utfencode(value, (uint8_t*)res->strbuf.data);
-    res->strbuf.length = length;
-    return res;
-}
-
-LitString* lit_string_fromrange(LitState* state, LitString* source, int start, uint32_t count)
-{
-    int index;
-    int length;
-    int codepoint;
-    uint32_t i;
-    uint8_t* to;
-    uint8_t* from;
-    LitString* res;
-    from = (uint8_t*)source->strbuf.data;
-    length = 0;
-    for(i = 0; i < count; i++)
-    {
-        length += lit_strutil_utfgetcountdecode(from[start + i]);
-    }
-    res = lit_string_makeemptystring(state, length, false);
-    to = (uint8_t*)res->strbuf.data;
-    for(i = 0; i < count; i++)
-    {
-        index = start + i;
-        codepoint = lit_strutil_utfdecode(from + index, source->strbuf.length - index);
-        if(codepoint != -1)
-        {
-            to += lit_strutil_utfencode(codepoint, to);
-        }
-    }
-    res->strbuf.length = length;
-    return res;
-}
-
-void lit_string_appendlen(LitString* dest, const char* str, size_t len)
-{
-    lit_strbuf_appendstrn(&dest->strbuf, str, len);
-}
-
-void lit_string_append(LitString* dest, const char* str)
-{
-    return lit_string_appendlen(dest, str, strlen(str));
-}
-
-void lit_string_appendbyte(LitString* dest, int b)
-{
-    char c;
-    c = b;
-    return lit_string_appendlen(dest, &c, 1);
-}
-
-LitValue lit_string_numbertostring(LitState* state, double value)
-{
-    LitIOStream pr;
-    lit_iostream_makestackstring(&pr);
-    lit_value_printnumber(&pr, value);
-    return lit_value_fromobject(lit_iostream_takestring(state, &pr));
-}
-
-LitValue lit_string_valformat(LitState* state, const char* format, ...)
-{
-    va_list arglist;    
-    bool wasallowed;
-    const char* c;
-    LitString* result;
-    wasallowed = state->gcallowgc;
-    state->gcallowgc = false;
-    result = lit_string_makeemptystring(state, 10, false);
-    va_start(arglist, format);
-    for(c = format; *c != '\0'; c++)
-    {
-        switch(*c)
-        {
-            case '$':
-            {
-                const char* string = va_arg(arglist, const char*);
-                if(string != NULL)
-                {
-                    size_t length = strlen(string);
-                    lit_string_appendlen(result, string, length);
-                    break;
-                }
-                goto defaultendingcopying;
-            }
-            case '@':
-            {
-                LitString* string = lit_value_asstring(va_arg(arglist, LitValue));
-                if(string != NULL)
-                {
-                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
-                    break;
-                }
-                goto defaultendingcopying;
-            }
-            case '#':
-            {
-                LitString* string = lit_value_asstring(lit_string_numbertostring(state, va_arg(arglist, double)));
-                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
-                break;
-            }
-            default:
-            {
-            defaultendingcopying:
-                lit_string_appendbyte(result, *c);
-                break;
-            }
-        }
-    }
-    va_end(arglist);
-    result->strhash = lit_string_hash(result->strbuf.data, result->strbuf.length);
-    lit_string_register(state, result);
-    state->gcallowgc = wasallowed;
-    return lit_value_fromobject(result);
-}
-
 bool lit_is_falsey(LitValue value)
 {
     if(lit_value_isbool(value))
@@ -4261,6 +4650,9 @@ bool lit_is_falsey(LitValue value)
 bool lit_value_compare(LitState* state, LitValue a, LitValue b)
 {
     LitValue tmpargs[2];
+    LitString* as;
+    LitString* bs;
+
     if(a.type == b.type)
     {
         if(lit_value_isnumber(a))
@@ -4281,8 +4673,8 @@ bool lit_value_compare(LitState* state, LitValue a, LitValue b)
         }
         if(lit_value_isstring(a) && lit_value_isstring(b))
         {
-            LitString* as = lit_value_asstring(a);
-            LitString* bs = lit_value_asstring(b);
+            as = lit_value_asstring(a);
+            bs = lit_value_asstring(b);
             return as->strbuf.length == bs->strbuf.length && memcmp(as->strbuf.data, bs->strbuf.data, as->strbuf.length) == 0;
         }
     }
@@ -4302,7 +4694,7 @@ bool lit_value_compare(LitState* state, LitValue a, LitValue b)
         }
     }
     tmpargs[0] = b;
-    return !lit_is_falsey(lit_state_findandcallmethod(state, a, lit_string_copy(state, "=="), tmpargs, 1).result);
+    return !lit_is_falsey(lit_state_findandcallmethod(state, a, state->strings.stropequal, tmpargs, 1).result);
 }
 
 const char* lit_value_objtypename(int t)
@@ -4377,7 +4769,785 @@ const char* lit_value_valtypename(LitValue val)
     return lit_value_valtypefromtype(val.type);
 }
 
-void lit_value_printobjmap(LitIOStream* pr, LitObject* self, LitTable* tab)
+void lit_gcmem_deallocobject(LitState* state, size_t typesz, void* pointer)
+{
+    lit_gcmem_allocate(state, pointer, typesz, 0);
+}
+
+void* lit_gcmem_allocate(LitState* state, void* pointer, size_t oldsize, size_t newsize)
+{
+    state->bytesallocated += (int64_t)newsize - (int64_t)oldsize;
+    if(newsize > oldsize)
+    {
+#ifdef LIT_CONFIG_STRESSTESTGC
+        lit_collect_garbage(state);
+#endif
+        if(state->bytesallocated > state->gcnextgc)
+        {
+            lit_collect_garbage(state);
+        }
+    }
+    if(newsize == 0)
+    {
+        lit_sysmem_free(pointer);
+        return NULL;
+    }
+    void* ptr = lit_sysmem_realloc(pointer, newsize);
+    if(ptr == NULL)
+    {
+        lit_state_raiseerror(state, "fatal error: out of memory! aborting now\n");
+        abort();
+    }
+    return ptr;
+}
+
+void lit_gcmem_freeobject(LitState* state, LitObject* object)
+{
+#ifdef LIT_CONFIG_LOGALLOCATION
+    fprintf(stderr, "(%s) %p free %s\n", lit_value_objtypename(object->type), (void*)object, lit_value_objtypename(object->type));
+#endif
+    switch(object->type)
+    {
+        case LIT_OBJ_STRING:
+        {
+            LitString* string = (LitString*)object;
+            lit_strbuf_destroyfromstack(&string->strbuf);
+            lit_gcmem_deallocobject(state, sizeof(LitString), object);
+            break;
+        }
+        case LIT_OBJ_FUNCSCRIPT:
+        {
+            LitFuncScript* function = (LitFuncScript*)object;
+            lit_chunk_destroy(&function->chunk);
+            lit_gcmem_deallocobject(state, sizeof(LitFuncScript), object);
+            break;
+        }
+        case LIT_OBJ_FUNCNATIVE:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitFuncNative), object);
+            break;
+        }
+        case LIT_OBJ_FUNCNATMETHOD:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitFuncNative), object);
+            break;
+        }
+        case LIT_OBJ_FIBER:
+        {
+            LitFiber* fiber = (LitFiber*)object;
+            lit_sysmem_free(fiber->framevals);
+            lit_sysmem_free(fiber->registeritems);
+            if(fiber->handleritems != NULL)
+            {
+                lit_sysmem_free(fiber->handleritems);
+            }
+            lit_gcmem_deallocobject(state, sizeof(LitFiber), object);
+            break;
+        }
+        case LIT_OBJ_MODULE:
+        {
+            LitModule* module = (LitModule*)object;
+            lit_sysmem_free(module->privatevalues);
+            lit_gcmem_deallocobject(state, sizeof(LitModule), object);
+            break;
+        }
+        case LIT_OBJ_FUNCCLOSURE:
+        {
+            LitFuncClosure* closure = (LitFuncClosure*)object;
+            lit_sysmem_free(closure->closureupvalueitems);
+            lit_gcmem_deallocobject(state, sizeof(LitFuncClosure), object);
+            break;
+        }
+        case LIT_OBJ_CLSPROTOTYPE:
+        {
+            LitClsPrototype* clsproto = (LitClsPrototype*)object;
+            lit_sysmem_free(clsproto->indexes);
+            lit_sysmem_free(clsproto->local);
+            lit_gcmem_deallocobject(state, sizeof(LitClsPrototype), object);
+            break;
+        }
+        case LIT_OBJ_UPVALUE:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitUpvalue), object);
+            break;
+        }
+        case LIT_OBJ_CLASS:
+        {
+            LitClass* klass = (LitClass*)object;
+            lit_free_table(&klass->mthtable);
+            lit_free_table(&klass->staticstable);
+            lit_gcmem_deallocobject(state, sizeof(LitClass), object);
+            break;
+        }
+        case LIT_OBJ_INSTANCE:
+        {
+            lit_free_table(&((LitInstance*)object)->fields);
+            lit_gcmem_deallocobject(state, sizeof(LitInstance), object);
+            break;
+        }
+        case LIT_OBJ_FUNCBOUNDMETHOD:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitFuncBound), object);
+            break;
+        }
+        case LIT_OBJ_ARRAY:
+        {
+            lit_dynlistval_destroy(&((LitArray*)object)->innerlist);
+            lit_gcmem_deallocobject(state, sizeof(LitArray), object);
+            break;
+        }
+        case LIT_OBJ_VARARGARRAY:
+        {
+            lit_dynlistval_destroy(&((LitVarargArray*)object)->innerarray.innerlist);
+            lit_gcmem_deallocobject(state, sizeof(LitVarargArray), object);
+            break;
+        }
+        case LIT_OBJ_MAP:
+        {
+            lit_free_table(&((LitMap*)object)->innertable);
+            lit_gcmem_deallocobject(state, sizeof(LitMap), object);
+            break;
+        }
+        case LIT_OBJ_USERDATA:
+        {
+            LitUserdata* data = (LitUserdata*)object;
+            if(data->oncleanupfn != NULL)
+            {
+                data->oncleanupfn(state, data, false);
+            }
+            if(data->size > 0)
+            {
+                lit_sysmem_free(data->data);
+            }
+            lit_gcmem_deallocobject(state, sizeof(LitUserdata), object);
+            break;
+        }
+        case LIT_OBJ_RANGE:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitRange), object);
+            break;
+        }
+        case LIT_OBJ_FIELD:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitField), object);
+            break;
+        }
+        case LIT_OBJ_REFERENCE:
+        {
+            lit_gcmem_deallocobject(state, sizeof(LitReference), object);
+            break;
+        }
+        default:
+        {
+            UNREACHABLE
+        }
+    }
+}
+
+void lit_gcmem_freeobjlist(LitState* state, LitObject* objects)
+{
+    LitObject* object = objects;
+    while(object != NULL)
+    {
+        LitObject* next = object->next;
+        lit_gcmem_freeobject(state, object);
+        object = next;
+    }
+    lit_sysmem_free(state->vmstate.gcgraystack);
+    state->vmstate.gcgraycapacity = 0;
+}
+
+void lit_gcmem_markobject(LitState* state, LitObject* object)
+{
+    if(object == NULL || object->marked)
+    {
+        return;
+    }
+    object->marked = true;
+#ifdef LIT_CONFIG_LOGMARKING
+    fprintf(stderr, "%p mark ", (void*)object);
+    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object), true);
+    fprintf(stderr, "\n");
+#endif
+    if(state->vmstate.gcgraycapacity < state->vmstate.gcgraycount + 1)
+    {
+        state->vmstate.gcgraycapacity = LIT_GROW_CAPACITY(state->vmstate.gcgraycapacity);
+        state->vmstate.gcgraystack = (LitObject**)lit_sysmem_realloc(state->vmstate.gcgraystack, sizeof(LitObject*) * state->vmstate.gcgraycapacity);
+    }
+    state->vmstate.gcgraystack[state->vmstate.gcgraycount++] = object;
+}
+
+void lit_gcmem_markvalue(LitState* state, LitValue value)
+{
+    if(lit_value_isobject(value))
+    {
+        lit_gcmem_markobject(state, lit_value_asobject(value));
+    }
+}
+
+void lit_gcmem_markroots(LitState* state)
+{
+    size_t i;
+    for(i = 0; i < state->rootcount; i++)
+    {
+        lit_gcmem_markvalue(state, state->rootvalues[i]);
+    }
+    lit_gcmem_markobject(state, (LitObject*)state->vmstate.fiber);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassclass);
+    lit_gcmem_markobject(state, (LitObject*)state->stdobjectclass);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassnumber);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassstring);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassbool);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassfunction);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassfiber);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassmodule);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassarray);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassmap);
+    lit_gcmem_markobject(state, (LitObject*)state->stdclassrange);
+    lit_gcmem_markobject(state, (LitObject*)state->apiname);
+    lit_gcmem_markobject(state, (LitObject*)state->apifunction);
+    lit_table_markentries(&state->vmstate.modules->innertable);
+    lit_table_markentries(&state->vmstate.globals->innertable);
+}
+
+void lit_gcmem_markarray(LitState* state, LitDynListVal* list)
+{
+    size_t i;
+    for(i = 0; i < list->listcount; i++)
+    {
+        lit_gcmem_markvalue(state, list->listitems[i]);
+    }
+}
+
+void lit_gcmem_blackenobject(LitState* state, LitObject* object)
+{
+#ifdef LIT_CONFIG_LOGBLACKING
+    fprintf(stderr, "%p blacken ", (void*)object);
+    lit_value_printvalue(state->streamstderr, lit_value_fromobject(object), true);
+    fprintf(stderr, "\n");
+#endif
+    switch(object->type)
+    {
+        case LIT_OBJ_FUNCNATIVE:
+        case LIT_OBJ_FUNCNATMETHOD:
+        case LIT_OBJ_RANGE:
+        case LIT_OBJ_STRING:
+        {
+            break;
+        }
+        case LIT_OBJ_USERDATA:
+        {
+            LitUserdata* data = (LitUserdata*)object;
+            if(data->oncleanupfn != NULL)
+            {
+                data->oncleanupfn(state, data, true);
+            }
+            break;
+        }
+        case LIT_OBJ_FUNCSCRIPT:
+        {
+            LitFuncScript* function = (LitFuncScript*)object;
+            lit_gcmem_markobject(state, (LitObject*)function->name);
+            lit_gcmem_markarray(state, &function->chunk.constantlist);
+            break;
+        }
+        case LIT_OBJ_FIBER:
+        {
+            size_t i;
+            LitFiber* fiber;
+            LitUpvalue* upvalue;
+            fiber = (LitFiber*)object;
+            for(i = 0; i < fiber->registersallocated; i++)
+            {
+                lit_gcmem_markvalue(state, fiber->registeritems[i]);
+            }
+            for(i = 0; i < fiber->framecount; i++)
+            {
+                LitCallFrame* frame = &fiber->framevals[i];
+                if(frame->closure != NULL)
+                {
+                    lit_gcmem_markobject(state, (LitObject*)frame->closure);
+                }
+                else
+                {
+                    lit_gcmem_markobject(state, (LitObject*)frame->function);
+                }
+            }
+            for(upvalue = fiber->openupvalues; upvalue != NULL; upvalue = upvalue->next)
+            {
+                lit_gcmem_markobject(state, (LitObject*)upvalue);
+            }
+            lit_gcmem_markvalue(state, fiber->error);
+            lit_gcmem_markobject(state, (LitObject*)fiber->module);
+            lit_gcmem_markobject(state, (LitObject*)fiber->parent);
+            break;
+        }
+        case LIT_OBJ_MODULE:
+        {
+            size_t i;
+            LitModule* module;
+            module = (LitModule*)object;
+            lit_gcmem_markvalue(state, module->returnvalue);
+            lit_gcmem_markobject(state, (LitObject*)module->name);
+            lit_gcmem_markobject(state, (LitObject*)module->mainfunction);
+            lit_gcmem_markobject(state, (LitObject*)module->mainfiber);
+            lit_gcmem_markobject(state, (LitObject*)module->privatenames);
+            for(i = 0; i < module->privatecount; i++)
+            {
+                lit_gcmem_markvalue(state, module->privatevalues[i]);
+            }
+            break;
+        }
+        case LIT_OBJ_FUNCCLOSURE:
+        {
+            size_t i;
+            LitFuncClosure* closure = (LitFuncClosure*)object;
+            lit_gcmem_markobject(state, (LitObject*)closure->function);
+            /* Check for NULL is needed for a really specific gc-case */
+            if(closure->closureupvalueitems != NULL)
+            {
+                for(i = 0; i < closure->upvaluecount; i++)
+                {
+                    lit_gcmem_markobject(state, (LitObject*)closure->closureupvalueitems[i]);
+                }
+            }
+            break;
+        }
+        case LIT_OBJ_CLSPROTOTYPE:
+        {
+            lit_gcmem_markobject(state, (LitObject*)((LitFuncClosure*)object)->function);
+            break;
+        }
+        case LIT_OBJ_UPVALUE:
+        {
+            lit_gcmem_markvalue(state, ((LitUpvalue*)object)->closed);
+            break;
+        }
+        case LIT_OBJ_CLASS:
+        {
+            LitClass* klass = (LitClass*)object;
+            lit_gcmem_markobject(state, (LitObject*)klass->name);
+            lit_gcmem_markobject(state, (LitObject*)klass->super);
+            lit_table_markentries(&klass->mthtable);
+            lit_table_markentries(&klass->staticstable);
+            break;
+        }
+        case LIT_OBJ_INSTANCE:
+        {
+            LitInstance* instance = (LitInstance*)object;
+            lit_gcmem_markobject(state, (LitObject*)instance->klass);
+            lit_table_markentries(&instance->fields);
+            break;
+        }
+        case LIT_OBJ_FUNCBOUNDMETHOD:
+        {
+            LitFuncBound* boundmethod = (LitFuncBound*)object;
+            lit_gcmem_markvalue(state, boundmethod->receiver);
+            lit_gcmem_markvalue(state, boundmethod->method);
+            break;
+        }
+        case LIT_OBJ_ARRAY:
+        {
+            lit_gcmem_markarray(state, &((LitArray*)object)->innerlist);
+            break;
+        }
+        case LIT_OBJ_VARARGARRAY:
+        {
+            lit_gcmem_markarray(state, &((LitVarargArray*)object)->innerarray.innerlist);
+            break;
+        }
+        case LIT_OBJ_MAP:
+        {
+            lit_table_markentries(&((LitMap*)object)->innertable);
+            break;
+        }
+        case LIT_OBJ_FIELD:
+        {
+            LitField* field = (LitField*)object;
+            lit_gcmem_markobject(state, (LitObject*)field->getter);
+            lit_gcmem_markobject(state, (LitObject*)field->setter);
+            break;
+        }
+        case LIT_OBJ_REFERENCE:
+        {
+            lit_gcmem_markvalue(state, *((LitReference*)object)->slot);
+            break;
+        }
+        default:
+        {
+            lit_vm_raisefatalerror(state, "unknown object with type %i", object->type);
+            break;
+        }
+    }
+}
+
+void lit_gcmem_tracereferences(LitState* state)
+{
+    LitObject* object;
+    while(state->vmstate.gcgraycount > 0)
+    {
+        object = state->vmstate.gcgraystack[--state->vmstate.gcgraycount];
+        lit_gcmem_blackenobject(state, object);
+    }
+}
+
+void lit_gcmem_sweep(LitState* state)
+{
+    LitObject* object;
+    LitObject* previous;
+    LitObject* unreached;
+    previous = NULL;
+    object = state->vmstate.objects;
+    while(object != NULL)
+    {
+        if(object->marked)
+        {
+            object->marked = false;
+            previous = object;
+            object = object->next;
+        }
+        else
+        {
+            unreached = object;
+            object = object->next;
+            if(previous != NULL)
+            {
+                previous->next = object;
+            }
+            else
+            {
+                state->vmstate.objects = object;
+            }
+            lit_gcmem_freeobject(state, unreached);
+        }
+    }
+}
+
+uint64_t lit_collect_garbage(LitState* state)
+{
+    uint64_t before;
+    uint64_t collected;
+#ifdef LIT_CONFIG_LOGGC
+    clock_t t;
+#endif
+    if(!state->gcallowgc)
+    {
+        return 0;
+    }
+    state->gcallowgc = false;
+    before = state->bytesallocated;
+#ifdef LIT_CONFIG_LOGGC
+    fprintf(stderr, "-- gc begin\n");
+    t = clock();
+#endif
+    lit_gcmem_markroots(state);
+    lit_gcmem_tracereferences(state);
+    lit_table_removewhite(&state->vmstate.strings);
+    lit_gcmem_sweep(state);
+    state->gcnextgc = state->bytesallocated * LIT_GC_HEAP_GROW_FACTOR;
+    state->gcallowgc = true;
+    collected = before - state->bytesallocated;
+#ifdef LIT_CONFIG_LOGGC
+    fprintf(stderr, "-- gc end. Collected %imb (%ib) in %gms\n", ((int)((collected / 1024.0 + 0.5) / 10)) * 10, collected, (double)(clock() - t) / CLOCKS_PER_SEC * 1000);
+#endif
+    return collected;
+}
+
+LitString* lit_string_makewithstrbuf(LitState* state, LitStrBuffer sb)
+{
+    LitString* string = (LitString*)lit_object_allocobject(state, sizeof(LitString), LIT_OBJ_STRING);
+    string->strbuf = sb;
+    return string;
+}
+
+LitString* lit_string_makeemptystring(LitState* state, size_t length, bool preallocated)
+{
+    LitStrBuffer sb;
+    lit_strbuf_initbasicempty(&sb, length, false, preallocated);
+    return lit_string_makewithstrbuf(state, sb);
+}
+
+void lit_string_register(LitState* state, LitString* string)
+{
+    lit_state_pushroot(state, (LitObject*)string);
+    lit_table_set(&state->vmstate.strings, string, lit_value_makenull());
+    lit_state_poproot(state);
+}
+
+LitString* lit_string_makestringfrom(LitState* state, char* chars, size_t length, uint32_t hash, bool preallocated)
+{
+    LitString* string;
+    string = lit_string_makeemptystring(state, length, preallocated);
+    if(preallocated)
+    {
+        lit_strbuf_setdata(&string->strbuf, chars);
+        lit_strbuf_setlength(&string->strbuf, length);
+    }
+    else
+    {
+        lit_strbuf_appendstrn(&string->strbuf, chars, length);
+    }
+    string->strhash = hash;
+    lit_string_register(state, string);
+    return string;
+}
+
+LIT_INLINE uint32_t lit_string_hash(const char* key, size_t length)
+{
+    size_t i;
+    uint32_t hash;
+    hash = 2166136261u;
+    for(i = 0; i < length; i++)
+    {
+        hash ^= key[i];
+        hash *= 16777619;
+    }
+    return hash;
+}
+
+LitString* lit_string_take(LitState* state, const char* chars, size_t length)
+{
+    uint32_t hash;
+    LitString* interned;
+    hash = lit_string_hash(chars, length);
+    interned = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
+    if(interned != NULL)
+    {
+        return interned;
+    }
+    return lit_string_makestringfrom(state, (char*)chars, length, hash, true);
+}
+
+#define lit_string_copylen(state, chars, length) \
+    lit_string_copylen_real(state, chars, length, __FILE__, __LINE__)
+
+#define lit_string_copy(state, chars) \
+    lit_string_copy_real(state, chars, __FILE__, __LINE__)
+
+LitString* lit_string_copylen_real(LitState* state, const char* chars, size_t length, const char* srcfilename, int srcline)
+{
+    uint32_t hash;
+    char* heapchars;
+    LitString* res;
+    if(chars == NULL)
+    {
+        fprintf(stderr, "***ERROR at %s:%d: chars are NULL!*****\n", srcfilename, srcline);
+        abort();
+    }
+    hash = lit_string_hash(chars, length);
+    res = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
+    if(res != NULL)
+    {
+        return res;
+    }
+    heapchars = (char*)lit_sysmem_malloc((length + 1) * sizeof(char));
+    memcpy(heapchars, chars, length);
+    heapchars[length] = '\0';
+#ifdef LIT_CONFIG_LOGALLOCATION
+    printf("allocated new string '%s'\n", chars);
+#endif
+    return lit_string_makestringfrom(state, heapchars, length, hash, true);
+}
+
+LitString* lit_string_copy_real(LitState* state, const char* chars, const char* srcfilename, int srcline)
+{
+    return lit_string_copylen_real(state, chars, strlen(chars), srcfilename, srcline);
+}
+
+LIT_INLINE size_t lit_string_getlength(LitString* string)
+{
+    return string->strbuf.length;
+}
+
+LIT_INLINE char* lit_string_getdata(LitString* string)
+{
+    return string->strbuf.data;
+}
+
+LitString* lit_string_clone(LitState* state, LitString* string)
+{
+    size_t slen;
+    const char* sdata;
+    slen = string->strbuf.length;
+    sdata = string->strbuf.data;
+    return lit_string_copylen(state, sdata, slen);
+}
+
+size_t lit_string_utflength(LitString* string)
+{
+    size_t i;
+    size_t length;
+    length = 0;
+    for(i=0; i < string->strbuf.length;)
+    {
+        i += lit_util_stringutfgetcountdecode(string->strbuf.data[i]);
+        length++;
+    }
+    return length;
+}
+
+int lit_string_codepointcodeat(LitState* state, LitString* string, uint32_t index)
+{
+    int codepoint;
+    (void)state;
+    if(index >= string->strbuf.length)
+    {
+        return 0;
+    }
+    codepoint = lit_util_stringutfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
+    if(codepoint == -1)
+    {
+        return string->strbuf.data[index];
+    }
+    return codepoint;
+}
+
+LitString* lit_string_codepointstringat(LitState* state, LitString* string, uint32_t index)
+{
+    int codepoint;
+    if(index >= string->strbuf.length)
+    {
+        return NULL;
+    }
+    codepoint = lit_util_stringutfdecode((uint8_t*)string->strbuf.data + index, string->strbuf.length - index);
+    if(codepoint == -1)
+    {
+        char bytes[2];
+        bytes[0] = string->strbuf.data[index];
+        bytes[1] = '\0';
+        return lit_string_copylen(state, bytes, 1);
+    }
+    return lit_string_fromcodepoint(state, codepoint);
+}
+
+LitString* lit_string_fromcodepoint(LitState* state, int value)
+{
+    int length;
+    LitString* res;
+    length = lit_util_stringutfgetcountencode(value);
+    res = lit_string_makeemptystring(state, length, false);
+    lit_util_stringutfencode(value, (uint8_t*)res->strbuf.data);
+    res->strbuf.length = length;
+    return res;
+}
+
+LitString* lit_string_fromrange(LitState* state, LitString* source, int start, uint32_t count)
+{
+    int index;
+    int length;
+    int codepoint;
+    uint32_t i;
+    uint8_t* to;
+    uint8_t* from;
+    LitString* res;
+    from = (uint8_t*)source->strbuf.data;
+    length = 0;
+    for(i = 0; i < count; i++)
+    {
+        length += lit_util_stringutfgetcountdecode(from[start + i]);
+    }
+    res = lit_string_makeemptystring(state, length, false);
+    to = (uint8_t*)res->strbuf.data;
+    for(i = 0; i < count; i++)
+    {
+        index = start + i;
+        codepoint = lit_util_stringutfdecode(from + index, source->strbuf.length - index);
+        if(codepoint != -1)
+        {
+            to += lit_util_stringutfencode(codepoint, to);
+        }
+    }
+    res->strbuf.length = length;
+    return res;
+}
+
+void lit_string_appendlen(LitString* dest, const char* str, size_t len)
+{
+    lit_strbuf_appendstrn(&dest->strbuf, str, len);
+}
+
+void lit_string_append(LitString* dest, const char* str)
+{
+    return lit_string_appendlen(dest, str, strlen(str));
+}
+
+void lit_string_appendbyte(LitString* dest, int b)
+{
+    char c;
+    c = b;
+    return lit_string_appendlen(dest, &c, 1);
+}
+
+LitValue lit_string_numbertostring(LitState* state, double value)
+{
+    LitIOStream pr;
+    lit_iostream_makestackstring(&pr);
+    lit_value_printnumber(&pr, value);
+    return lit_value_fromobject(lit_iostream_takestring(state, &pr));
+}
+
+LitValue lit_string_valformat(LitState* state, const char* format, ...)
+{
+    va_list arglist;    
+    bool wasallowed;
+    const char* c;
+    LitString* result;
+    wasallowed = state->gcallowgc;
+    state->gcallowgc = false;
+    result = lit_string_makeemptystring(state, 10, false);
+    va_start(arglist, format);
+    for(c = format; *c != '\0'; c++)
+    {
+        switch(*c)
+        {
+            case '$':
+            {
+                const char* string;
+                size_t length;
+                string = va_arg(arglist, const char*);
+                if(string != NULL)
+                {
+                    length = strlen(string);
+                    lit_string_appendlen(result, string, length);
+                    break;
+                }
+                goto defaultendingcopying;
+            }
+            case '@':
+            {
+                LitString* string;
+                string = lit_value_asstring(va_arg(arglist, LitValue));
+                if(string != NULL)
+                {
+                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                    break;
+                }
+                goto defaultendingcopying;
+            }
+            case '#':
+            {
+                LitString* string;
+                string = lit_value_asstring(lit_string_numbertostring(state, va_arg(arglist, double)));
+                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                break;
+            }
+            default:
+            {
+            defaultendingcopying:
+                lit_string_appendbyte(result, *c);
+                break;
+            }
+        }
+    }
+    va_end(arglist);
+    result->strhash = lit_string_hash(result->strbuf.data, result->strbuf.length);
+    lit_string_register(state, result);
+    state->gcallowgc = wasallowed;
+    return lit_value_fromobject(result);
+}
+
+
+void lit_value_printobjtable(LitIOStream* pr, LitObject* self, LitTable* tab)
 {
     bool didprint;
     size_t i;
@@ -4429,6 +5599,7 @@ void lit_value_printobjinstance(LitIOStream* pr, LitClass* klass, LitInstance* s
 {
     LitString* sr;
     LitState* state;
+    (void)state;
     state = ((LitObject*)self)->pstate;
     sr = NULL;
     #if 0
@@ -4441,7 +5612,7 @@ void lit_value_printobjinstance(LitIOStream* pr, LitClass* klass, LitInstance* s
     else
     {
         lit_iostream_printf(pr, "<instance of %s: ", klass->name->strbuf.data);
-        lit_value_printobjmap(pr, (LitObject*)self, &self->fields);
+        lit_value_printobjtable(pr, (LitObject*)self, &self->fields);
         lit_iostream_printf(pr, "  >");
     }
 }
@@ -4479,78 +5650,100 @@ void lit_value_printobjarray(LitIOStream* pr, LitArray* self)
 
 void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
 {
-    switch(OBJECT_TYPE(value))
+    LitState* state;
+    LitObject* object;
+    (void)state;
+    object = lit_value_asobject(value);
+    if(object == NULL)
+    {
+        lit_iostream_puts(pr, "<!!NULLOBJECT!!>");
+        return;
+    }
+    state = object->pstate;
+    switch(object->type)
     {
         case LIT_OBJ_STRING:
-        {
-            LitString* str;
-            str = lit_value_asstring(value);
-            if(reprmode)
             {
-                lit_iostream_writequotedstring(pr, str->strbuf.data, str->strbuf.length, true);
+                LitString* str;
+                str = lit_value_asstring(value);
+                if(reprmode)
+                {
+                    lit_iostream_putquotedstring(pr, str->strbuf.data, str->strbuf.length, true);
+                }
+                else
+                {
+                    lit_iostream_putlen(pr, str->strbuf.data, str->strbuf.length);
+                }
             }
-            else
-            {
-                lit_iostream_putlen(pr, str->strbuf.data, str->strbuf.length);
-            }
-        }
-        break;
+            break;
         case LIT_OBJ_FUNCSCRIPT:
-        {
-            lit_iostream_printf(pr, "function %s", lit_value_asfuncscript(value)->name->strbuf.data);
-        }
-        break;
+            {
+                LitFuncScript* fn;
+                fn = lit_value_asfuncscript(value);
+                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_FUNCCLOSURE:
-        {
-            lit_iostream_printf(pr, "closure %s", lit_value_asfuncclosure(value)->function->name->strbuf.data);
-        }
-        break;
+            {
+                LitFuncClosure* fn;
+                fn = lit_value_asfuncclosure(value);
+                lit_iostream_printf(pr, "closure %s", fn->function->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_CLSPROTOTYPE:
-        {
-            lit_iostream_printf(pr, "closure %s", lit_value_asclsproto(value)->function->name->strbuf.data);
-        }
-        break;
+            {
+                LitClsPrototype* fnprot;
+                fnprot = lit_value_asclsproto(value);
+                lit_iostream_printf(pr, "closure %s", fnprot->function->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_FUNCNATIVE:
-        {
-            lit_iostream_printf(pr, "function %s", lit_value_asfuncnative(value)->name->strbuf.data);
-        }
-        break;
+            {
+                LitFuncNative* fn;
+                fn = lit_value_asfuncnative(value);
+                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_FUNCNATMETHOD:
-        {
-            lit_iostream_printf(pr, "function %s", lit_value_asfuncmethod(value)->name->strbuf.data);
-        }
-        break;
+            {
+                LitFuncNative* fn;
+                fn = lit_value_asfuncmethod(value);
+                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_FIBER:
             {
-                
+                LitFiber* fiber;
+                (void)fiber;
+                fiber = lit_value_asfiber(value);
                 lit_iostream_printf(pr, "<fiber>");
             }
             break;
         case LIT_OBJ_MODULE:
-        {
-            LitModule* mod;
-            mod = lit_value_asmodule(value);
-            lit_iostream_printf(pr, "<module %s>", mod->name->strbuf.data);
-        }
-        break;
+            {
+                LitModule* mod;
+                mod = lit_value_asmodule(value);
+                lit_iostream_printf(pr, "<module %s>", mod->name->strbuf.data);
+            }
+            break;
         case LIT_OBJ_UPVALUE:
-        {
-            LitUpvalue* upvalue;
-            upvalue = lit_value_asupvalue(value);
-            lit_iostream_puts(pr, "<upvalue to ");
-            if(upvalue->location == NULL)
             {
-                lit_iostream_puts(pr, " closed ");
-                lit_value_printvalue(pr, upvalue->closed, reprmode);
+                LitUpvalue* upvalue;
+                upvalue = lit_value_asupvalue(value);
+                lit_iostream_puts(pr, "<upvalue to ");
+                if(upvalue->location == NULL)
+                {
+                    lit_iostream_puts(pr, " closed ");
+                    lit_value_printvalue(pr, upvalue->closed, reprmode);
+                }
+                else
+                {
+                    lit_iostream_puts(pr, " location ");
+                    lit_value_printobject(pr, *upvalue->location, reprmode);
+                }
+                lit_iostream_puts(pr, ">");
             }
-            else
-            {
-                lit_iostream_puts(pr, " location ");
-                lit_value_printobject(pr, *upvalue->location, reprmode);
-            }
-            lit_iostream_puts(pr, ">");
-        }
-        break;
+            break;
         case LIT_OBJ_CLASS:
             {
                 LitClass* klass;
@@ -4567,7 +5760,9 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
             break;
         case LIT_OBJ_FUNCBOUNDMETHOD:
             {
-                lit_value_printvalue(pr, lit_value_asfuncboundmethod(value)->method, reprmode);
+                LitFuncBound* fn;
+                fn = lit_value_asfuncboundmethod(value);
+                lit_value_printvalue(pr, fn->method, reprmode);
             }
             break;
         case LIT_OBJ_VARARGARRAY:
@@ -4581,12 +5776,15 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
             {
                 LitMap* map;
                 map = lit_value_asmap(value);
-                lit_value_printobjmap(pr, (LitObject*)map, &map->innertable);
+                lit_value_printobjtable(pr, (LitObject*)map, &map->innertable);
             }
             break;
 
         case LIT_OBJ_USERDATA:
             {
+                LitUserdata* ud;
+                (void)ud;
+                ud = lit_value_asuserdata(value);
                 lit_iostream_printf(pr, "<userdata>");
             }
             break;
@@ -4598,44 +5796,45 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
             }
             break;
         case LIT_OBJ_FIELD:
-        {
-            LitField* field;
-            field = lit_value_asfield(value);
-            lit_iostream_printf(pr, "<field ");
-            lit_value_printvalue(pr, lit_value_fromobject(&field->innerobject), true);
-            if(field->getter != NULL)
             {
-                lit_iostream_puts(pr, " getter=");
-                lit_value_printvalue(pr, lit_value_fromobject(field->getter), true);
+                LitField* field;
+                field = lit_value_asfield(value);
+                lit_iostream_printf(pr, "<field ");
+                lit_value_printvalue(pr, lit_value_fromobject(&field->innerobject), true);
+                if(field->getter != NULL)
+                {
+                    lit_iostream_puts(pr, " getter=");
+                    lit_value_printvalue(pr, lit_value_fromobject(field->getter), true);
+                }
+                if(field->setter != NULL)
+                {
+                    lit_iostream_puts(pr, " setter=");
+                    lit_value_printvalue(pr, lit_value_fromobject(field->getter), true);
+                }
+                lit_iostream_puts(pr, ">");
             }
-            if(field->setter != NULL)
-            {
-                lit_iostream_puts(pr, " setter=");
-                lit_value_printvalue(pr, lit_value_fromobject(field->getter), true);
-            }
-            lit_iostream_puts(pr, ">");
-        }
-        break;
+            break;
         case LIT_OBJ_REFERENCE:
-        {
-            lit_iostream_printf(pr, "<reference to ");
-            LitValue* slot = lit_value_asreference(value)->slot;
-            if(slot == NULL)
             {
-                lit_iostream_printf(pr, "null");
+                LitValue* slot;
+                lit_iostream_printf(pr, "<reference to ");
+                slot = lit_value_asreference(value)->slot;
+                if(slot == NULL)
+                {
+                    lit_iostream_printf(pr, "null");
+                }
+                else
+                {
+                    lit_value_printvalue(pr, *slot, true);
+                }
+                lit_iostream_puts(pr, ">");
             }
-            else
-            {
-                lit_value_printvalue(pr, *slot, true);
-            }
-            lit_iostream_puts(pr, ">");
-        }
-        break;
+            break;
         default:
-        {
-            lit_iostream_printf(pr, "[unknown object %p %i]", &value, OBJECT_TYPE(value));
-        }
-        break;
+            {
+                lit_iostream_printf(pr, "[unknown object %p %i]", &value, lit_value_objtype(value));
+            }
+            break;
     }
 }
 
@@ -4693,29 +5892,7 @@ void lit_value_printvalue(LitIOStream* pr, LitValue value, bool reprmode)
     }
 }
 
-void lit_dynlistval_ensuresize(LitDynListVal* list, size_t size)
-{
-    lit_dynlistval_ensureactualsize(list, size);
-    if(list->listcount < size)
-    {
-        list->listcount = size;
-    }
-}
 
-void lit_dynlistval_ensureactualsize(LitDynListVal* list, size_t size)
-{
-    size_t i;
-    if(list->listcapacity < size)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = size;
-        list->listitems = (LitValue*)lit_sysmem_realloc(list->listitems, sizeof(LitValue) * (size));
-        for(i = oldcapacity; i < size; i++)
-        {
-            list->listitems[i] = lit_value_makenull();
-        }
-    }
-}
 
 LitClass* lit_class_make(LitState* state, const char* name, LitClass* super)
 {
@@ -4764,9 +5941,9 @@ void lit_class_bindconstructor(LitClass* selfclass, LitNativeFunctionFn fn)
     LitFuncNative* meth;
     LitState* state;
     state = ((LitObject*)selfclass)->pstate;
-    meth = lit_object_makenativemethod(state, fn, state->conststrconstructor);
+    meth = lit_object_makenativemethod(state, fn, state->strings.strconstructor);
     selfclass->mthconstructor = (LitObject*)meth;
-    lit_table_set(&selfclass->mthtable, state->conststrconstructor, lit_value_fromobject(meth));
+    lit_table_set(&selfclass->mthtable, state->strings.strconstructor, lit_value_fromobject(meth));
 }
 
 void lit_class_bindstaticmethod(LitClass* selfclass, const char* name, LitNativeFunctionFn fn)
@@ -4813,7 +5990,7 @@ LitValue lit_instance_getthis(LitInstance* selfinst)
     LitValue res;
     LitState* state;
     state = ((LitObject*)selfinst)->pstate;
-    if(lit_table_getentry(&selfinst->fields, state->conststrthis, &res))
+    if(lit_table_getentry(&selfinst->fields, state->strings.strthis, &res))
     {
         return res;
     }
@@ -4834,7 +6011,7 @@ void lit_api_destroy(LitState* state)
 
 bool lit_state_getglobaltovalue(LitState* state, LitString* name, LitValue* dest)
 {
-    return lit_table_getentry(&state->vmstate.globals->innertable, name, dest);
+    return lit_map_get(state->vmstate.globals, name, dest);
 }
 
 bool lit_state_globalexists(LitState* state, LitString* name)
@@ -4853,7 +6030,7 @@ LitValue lit_state_getglobal(LitState* state, LitString* name)
     return global;
 }
 
-LitFunction* lit_state_getglobalfunction(LitState* state, LitString* name)
+LitFuncScript* lit_state_getglobalfunction(LitState* state, LitString* name)
 {
     LitValue val;
     if(!lit_state_getglobaltovalue(state, name, &val))
@@ -4871,7 +6048,7 @@ void lit_state_setglobal(LitState* state, LitString* name, LitValue value)
 {
     lit_state_pushroot(state, (LitObject*)name);
     lit_state_pushvalueroot(state, value);
-    lit_table_set(&state->vmstate.globals->innertable, name, value);
+    lit_map_set(state->vmstate.globals, name, value);
     lit_state_poproots(state, 2);
 }
 
@@ -4879,7 +6056,7 @@ void lit_state_defnative(LitState* state, const char* name, LitNativeFunctionFn 
 {
     lit_state_pushroot(state, (LitObject*)lit_string_copy(state, name));
     lit_state_pushroot(state, (LitObject*)lit_object_makenativefunc(state, native, lit_value_asstring(lit_state_peekroot(state, 0))));
-    lit_table_set(&state->vmstate.globals->innertable, lit_value_asstring(lit_state_peekroot(state, 1)), lit_state_peekroot(state, 0));
+    lit_map_set(state->vmstate.globals, lit_value_asstring(lit_state_peekroot(state, 1)), lit_state_peekroot(state, 0));
     lit_state_poproots(state, 2);
 }
 
@@ -4920,438 +6097,6 @@ LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc,
     return lit_value_asstring(args[id]);
 }
 
-void lit_table_init(LitState* state, LitTable* table)
-{
-    table->pstate = state;
-    lit_table_resetvars(table);
-}
-
-void lit_table_resetvars(LitTable* table)
-{
-    table->htcapacity = -1;
-    table->htcount = 0;
-    table->htentries = NULL;
-}
-
-void lit_free_table(LitTable* table)
-{
-    if(table->htcapacity > 0)
-    {
-        lit_sysmem_free(table->htentries);
-    }
-    lit_table_resetvars(table);
-}
-
-LitTabEntry* lit_table_findentry(LitTabEntry* entries, int capacity, LitString* key)
-{
-    uint32_t index = key->strhash % capacity;
-    LitTabEntry* tombstone = NULL;
-    while(true)
-    {
-        LitTabEntry* entry = &entries[index];
-        if(entry->entkey == NULL)
-        {
-            if(lit_value_isnull(entry->entvalue))
-            {
-                return tombstone != NULL ? tombstone : entry;
-            }
-            else if(tombstone == NULL)
-            {
-                tombstone = entry;
-            }
-        }
-        if(entry->entkey == key)
-        {
-            return entry;
-        }
-        index = (index + 1) % capacity;
-    }
-}
-
-void lit_table_adjustcapacity(LitTable* table, int capacity)
-{
-    int i;
-    LitTabEntry* entry;
-    LitTabEntry* entries;
-    LitTabEntry* destination;
-    entries = (LitTabEntry*)lit_sysmem_malloc((capacity + 1) * sizeof(LitTabEntry));
-    for(i = 0; i <= capacity; i++)
-    {
-        entries[i].entkey = NULL;
-        entries[i].entvalue = lit_value_makenull();
-    }
-    table->htcount = 0;
-    for(i = 0; i <= table->htcapacity; i++)
-    {
-        entry = &table->htentries[i];
-        if(entry->entkey == NULL)
-        {
-            continue;
-        }
-        destination = lit_table_findentry(entries, capacity, entry->entkey);
-        destination->entkey = entry->entkey;
-        destination->entvalue = entry->entvalue;
-        table->htcount++;
-    }
-    lit_sysmem_free(table->htentries);
-    table->htcapacity = capacity;
-    table->htentries = entries;
-}
-
-bool lit_table_set(LitTable* table, LitString* key, LitValue value)
-{
-    if(table->htcount + 1 > (table->htcapacity + 1) * LIT_CONFIG_TABLEMAXLOAD)
-    {
-        int capacity = LIT_GROW_CAPACITY(table->htcapacity + 1) - 1;
-        lit_table_adjustcapacity(table, capacity);
-    }
-    LitTabEntry* entry = lit_table_findentry(table->htentries, table->htcapacity, key);
-    bool isnew = entry->entkey == NULL;
-    if(isnew && lit_value_isnull(entry->entvalue))
-    {
-        table->htcount++;
-    }
-    entry->entkey = key;
-    entry->entvalue = value;
-    return isnew;
-}
-
-bool lit_table_getentry(LitTable* table, LitString* key, LitValue* value)
-{
-    if(table->htcount == 0)
-    {
-        return false;
-    }
-    LitTabEntry* entry = lit_table_findentry(table->htentries, table->htcapacity, key);
-    if(entry->entkey == NULL)
-    {
-        return false;
-    }
-    *value = entry->entvalue;
-    return true;
-}
-
-bool lit_table_getslot(LitTable* table, LitString* key, LitValue** value)
-{
-    if(table->htcount == 0)
-    {
-        return false;
-    }
-    LitTabEntry* entry = lit_table_findentry(table->htentries, table->htcapacity, key);
-    if(entry->entkey == NULL)
-    {
-        return false;
-    }
-    *value = &entry->entvalue;
-    return true;
-}
-
-bool lit_table_delete(LitTable* table, LitString* key)
-{
-    if(table->htcount == 0)
-    {
-        return false;
-    }
-    LitTabEntry* entry = lit_table_findentry(table->htentries, table->htcapacity, key);
-    if(entry->entkey == NULL)
-    {
-        return false;
-    }
-    entry->entkey = NULL;
-    entry->entvalue = lit_value_makebool(true);
-    return true;
-}
-
-LitString* lit_table_findstring(LitTable* table, const char* chars, size_t length, uint32_t hash)
-{
-    size_t entlen;
-    const char* entstr;
-    uint32_t enthash;
-    (void)enthash;
-    if(chars == NULL)
-    {
-        return NULL;
-    }
-    if(length == 0)
-    {
-        return NULL;
-    }
-    if(table->htcount == 0)
-    {
-        return NULL;
-    }
-    uint32_t index = hash % table->htcapacity;
-    while(true)
-    {
-        LitTabEntry* entry = &table->htentries[index];
-        if(entry->entkey == NULL)
-        {
-            if(lit_value_isnull(entry->entvalue))
-            {
-                return NULL;
-            }
-        }
-        else
-        {
-            entlen = entry->entkey->strbuf.length;
-            enthash = entry->entkey->strhash;
-            entstr = entry->entkey->strbuf.data;
-            if(entlen == length && /* enthash == hash && */ memcmp(entstr, chars, length) == 0)
-            {
-                return entry->entkey;
-            }
-        }
-        index = (index + 1) % table->htcapacity;
-    }
-}
-
-void lit_table_addall(LitTable* from, LitTable* to)
-{
-    int i;
-    LitTabEntry* entry;
-    for(i = 0; i <= from->htcapacity; i++)
-    {
-        entry = &from->htentries[i];
-        if(entry->entkey != NULL)
-        {
-            lit_table_set(to, entry->entkey, entry->entvalue);
-        }
-    }
-}
-
-void lit_table_addallignoring(LitTable* from, LitTable* to)
-{
-    int i;
-    LitValue fake;
-    LitTabEntry* entry;
-    for(i = 0; i <= from->htcapacity; i++)
-    {
-        entry = &from->htentries[i];
-        if(entry->entkey != NULL && !lit_table_getentry(to, entry->entkey, &fake))
-        {
-            lit_table_set(to, entry->entkey, entry->entvalue);
-        }
-    }
-}
-
-void lit_table_removewhite(LitTable* table)
-{
-    int i;
-    LitObject* obj;
-    LitTabEntry* entry;
-    for(i = 0; i <= table->htcapacity; i++)
-    {
-        entry = &table->htentries[i];
-        if(entry->entkey != NULL)
-        {
-            obj = (LitObject*)entry->entkey;
-            if(!obj->marked)
-            {
-                lit_table_delete(table, entry->entkey);
-            }
-        }
-    }
-}
-
-void lit_table_markentries(LitTable* table)
-{
-    int i;
-    LitState* state;
-    LitTabEntry* entry;
-    state = table->pstate;
-    for(i = 0; i <= table->htcapacity; i++)
-    {
-        entry = &table->htentries[i];
-        lit_gcmem_markobject(state, (LitObject*)entry->entkey);
-        lit_gcmem_markvalue(state, entry->entvalue);
-    }
-}
-
-void lit_chunk_init(LitChunk* chunk)
-{
-    lit_chunk_reset(chunk);
-    lit_vallist_init(&chunk->constantlist);
-}
-
-void lit_chunk_reset(LitChunk* chunk)
-{
-    chunk->compiledcodecount = 0;
-    chunk->capacity = 0;
-    chunk->compiledcodechunk = NULL;
-    chunk->haslineinfo = true;
-    chunk->linecount = 0;
-    chunk->linecapacity = 0;
-    chunk->lines = NULL;
-}
-
-void lit_chunk_destroy(LitChunk* chunk)
-{
-    lit_sysmem_free(chunk->compiledcodechunk);
-    lit_sysmem_free(chunk->lines);
-    lit_vallist_destroy(&chunk->constantlist);
-    lit_chunk_reset(chunk);
-}
-
-void lit_chunk_push(LitChunk* chunk, uint64_t word, uint16_t line)
-{
-    if(chunk->capacity < chunk->compiledcodecount + 1)
-    {
-        size_t oldcapacity = chunk->capacity;
-        chunk->capacity = LIT_GROW_CAPACITY(oldcapacity);
-        chunk->compiledcodechunk = (uint64_t*)lit_sysmem_realloc(chunk->compiledcodechunk, sizeof(uint64_t) * (chunk->capacity));
-    }
-    chunk->compiledcodechunk[chunk->compiledcodecount] = word;
-    chunk->compiledcodecount++;
-    if(!chunk->haslineinfo)
-    {
-        return;
-    }
-    if(chunk->linecapacity < chunk->linecount + 4)
-    {
-        size_t oldcapacity = chunk->linecapacity;
-        chunk->linecapacity = LIT_GROW_CAPACITY(chunk->linecapacity);
-        chunk->lines = (uint16_t*)lit_sysmem_realloc(chunk->lines, sizeof(uint16_t) * (chunk->linecapacity));
-        if(oldcapacity == 0)
-        {
-            chunk->lines[0] = 0;
-            chunk->lines[1] = 0;
-        }
-    }
-    size_t lineindex = chunk->linecount;
-    size_t value = chunk->lines[lineindex];
-    if(value != 0 && value != line)
-    {
-        chunk->linecount += 2;
-        lineindex = chunk->linecount;
-        chunk->lines[lineindex + 1] = 0;
-    }
-    chunk->lines[lineindex] = line;
-    chunk->lines[lineindex + 1]++;
-}
-
-size_t lit_chunk_addconstant(LitState* state, LitChunk* chunk, LitValue constant)
-{
-    lit_state_pushvalueroot(state, constant);
-    lit_vallist_push(&chunk->constantlist, constant);
-    lit_state_poproot(state);
-    return chunk->constantlist.listcount - 1;
-}
-
-size_t lit_chunk_getline(LitChunk* chunk, size_t offset)
-{
-    size_t i;
-    size_t rle;
-    size_t line;
-    size_t index;
-    if(!chunk->haslineinfo)
-    {
-        return 0;
-    }
-    if(chunk->linecapacity == 0)
-    {
-        return 0;
-    }
-    rle = 0;
-    line = 0;
-    index = 0;
-    for(i = 0; i <= offset; i++)
-    {
-        if(rle > 0)
-        {
-            rle--;
-            continue;
-        }
-        line = 0;
-        rle = 0;
-        if(index <= chunk->linecapacity)
-        {
-            line = chunk->lines[index];
-            if((index + 1) < chunk->linecapacity)
-            {
-                rle = chunk->lines[index + 1];
-                if(rle > 0)
-                {
-                    rle--;
-                }
-            }
-        }
-        else
-        {
-            goto finishup;
-        }
-        index += 2;
-    }
-finishup:
-    return line;
-}
-
-void lit_chunk_shrink(LitChunk* chunk)
-{
-    size_t oldcapacity;
-    (void)oldcapacity;
-    if(chunk->capacity > chunk->compiledcodecount)
-    {
-        oldcapacity = chunk->capacity;
-        chunk->capacity = chunk->compiledcodecount;
-        chunk->compiledcodechunk = (uint64_t*)lit_sysmem_realloc(chunk->compiledcodechunk, sizeof(uint64_t) * (chunk->capacity));
-    }
-    if(chunk->linecapacity > chunk->linecount)
-    {
-        oldcapacity = chunk->linecapacity;
-        chunk->linecapacity = chunk->linecount + 2;
-        chunk->lines = (uint16_t*)lit_sysmem_realloc(chunk->lines, sizeof(uint16_t) * (chunk->linecapacity));
-    }
-}
-
-void lit_exprlist_init(LitDynListExpr* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_exprlist_destroy(LitDynListExpr* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_exprlist_init(list);
-}
-
-void lit_exprlist_push(LitDynListExpr* list, LitAstExpression* value)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (LitAstExpression**)lit_sysmem_realloc(list->listitems, sizeof(LitAstExpression*) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = value;
-    list->listcount++;
-}
-
-void lit_paramlist_init(LitDynListParam* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_paramlist_destroy(LitDynListParam* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_paramlist_init(list);
-}
-
-void lit_paramlist_push(LitDynListParam* list, LitAstFuncParamExpr value)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (LitAstFuncParamExpr*)lit_sysmem_realloc(list->listitems, sizeof(LitAstFuncParamExpr) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = value;
-    list->listcount++;
-}
 
 void lit_ast_destroyparamlist(LitState* state, LitDynListParam* parameters)
 {
@@ -5360,7 +6105,7 @@ void lit_ast_destroyparamlist(LitState* state, LitDynListParam* parameters)
     {
         lit_ast_destroyexpression(state, parameters->listitems[i].defaultval);
     }
-    lit_paramlist_destroy(parameters);
+    lit_dynlistparam_destroy(parameters);
 }
 
 void lit_ast_destroyexprlist(LitState* state, LitDynListExpr* expressions)
@@ -5374,7 +6119,7 @@ void lit_ast_destroyexprlist(LitState* state, LitDynListExpr* expressions)
     {
         lit_ast_destroyexpression(state, expressions->listitems[i]);
     }
-    lit_exprlist_destroy(expressions);
+    lit_dynlistexpr_destroy(expressions);
 }
 
 void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
@@ -5393,7 +6138,7 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         case LIT_ASTEXPRTYP_BINARY:
         {
             LitAstBinaryExpr* expr = (LitAstBinaryExpr*)topexpr;
-            if(!expr->ignore_left)
+            if(!expr->ignoreleft)
             {
                 lit_ast_destroyexpression(state, expr->left);
             }
@@ -5460,7 +6205,7 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         case LIT_ASTEXPRTYP_OBJECT:
         {
             LitAstLiteralObjectExpr* map = (LitAstLiteralObjectExpr*)topexpr;
-            lit_vallist_destroy(&map->objexkeys);
+            lit_dynlistval_destroy(&map->objexkeys);
             lit_ast_destroyexprlist(state, &map->objexvalues);
             lit_sysmem_free(topexpr);
             break;
@@ -5606,9 +6351,24 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
             lit_sysmem_free(topexpr);
             break;
         }
+        case LIT_ASTEXPRTYP_TRY:
+        {
+            LitAstTryExpr* expr = (LitAstTryExpr*)topexpr;
+            lit_ast_destroyexpression(state, expr->tryblock);
+            if(expr->catchblock) lit_ast_destroyexpression(state, expr->catchblock);
+            if(expr->finallyblock) lit_ast_destroyexpression(state, expr->finallyblock);
+            lit_sysmem_free(topexpr);
+            break;
+        }
+        case LIT_ASTEXPRTYP_THROW:
+        {
+            lit_ast_destroyexpression(state, ((LitAstThrowExpr*)topexpr)->exvalue);
+            lit_sysmem_free(topexpr);
+            break;
+        }
         default:
         {
-            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "unknown expression type %d", (int)topexpr->type);
+            lit_state_raiseerror(state, "unknown expression type %d", (int)topexpr->type);
             break;
         }
     }
@@ -5635,7 +6395,7 @@ LitAstBinaryExpr* lit_ast_makebinaryexpr(size_t line, LitAstExpression* left, Li
     expr->left = left;
     expr->right = right;
     expr->op = op;
-    expr->ignore_left = false;
+    expr->ignoreleft = false;
     return expr;
 }
 
@@ -5660,7 +6420,7 @@ LitAstCallExpr* lit_ast_makecallexpr(size_t line, LitAstExpression* callee)
     LitAstCallExpr* expr = (LitAstCallExpr*)lit_ast_allocexpression(line, sizeof(LitAstCallExpr), LIT_ASTEXPRTYP_CALL);
     expr->excallee = callee;
     expr->init = NULL;
-    lit_exprlist_init(&expr->callargs);
+    lit_dynlistexpr_init(&expr->callargs);
     return expr;
 }
 
@@ -5670,7 +6430,7 @@ LitAstIndexGetExpr* lit_ast_makegetexpr(size_t line, LitAstExpression* where, co
     expr->where = where;
     expr->name = name;
     expr->length = length;
-    expr->ignore_emit = false;
+    expr->ignoreemit = false;
     expr->jump = questionable ? 0 : -1;
     expr->ignoreresult = ignresult;
     return expr;
@@ -5689,15 +6449,15 @@ LitAstIndexSetExpr* lit_ast_makesetexpr(size_t line, LitAstExpression* where, co
 LitAstLiteralArrayExpr* lit_ast_makearrayexpr(size_t line)
 {
     LitAstLiteralArrayExpr* expr = (LitAstLiteralArrayExpr*)lit_ast_allocexpression(line, sizeof(LitAstLiteralArrayExpr), LIT_ASTEXPRTYP_ARRAY);
-    lit_exprlist_init(&expr->exvalues);
+    lit_dynlistexpr_init(&expr->exvalues);
     return expr;
 }
 
 LitAstLiteralObjectExpr* lit_ast_makeobjectexpr(size_t line)
 {
     LitAstLiteralObjectExpr* expr = (LitAstLiteralObjectExpr*)lit_ast_allocexpression(line, sizeof(LitAstLiteralObjectExpr), LIT_ASTEXPRTYP_OBJECT);
-    lit_vallist_init(&expr->objexkeys);
-    lit_exprlist_init(&expr->objexvalues);
+    lit_dynlistval_init(&expr->objexkeys);
+    lit_dynlistexpr_init(&expr->objexvalues);
     return expr;
 }
 
@@ -5718,7 +6478,7 @@ LitAstSuperExpr* lit_ast_makesuperexpr(size_t line, LitString* method, bool ignr
 {
     LitAstSuperExpr* expr = (LitAstSuperExpr*)lit_ast_allocexpression(line, sizeof(LitAstSuperExpr), LIT_ASTEXPRTYP_SUPER);
     expr->methodname = method;
-    expr->ignore_emit = false;
+    expr->ignoreemit = false;
     expr->ignoreresult = ignresult;
     return expr;
 }
@@ -5731,19 +6491,19 @@ LitAstRangeExpr* lit_ast_makerangeexpr(size_t line, LitAstExpression* from, LitA
     return expr;
 }
 
-LitAstTernaryExpr* lit_ast_maketernaryexpr(size_t line, LitAstExpression* condition, LitAstExpression* if_branch, LitAstExpression* else_branch)
+LitAstTernaryExpr* lit_ast_maketernaryexpr(size_t line, LitAstExpression* condition, LitAstExpression* ifbranch, LitAstExpression* elsebranch)
 {
     LitAstTernaryExpr* expr = (LitAstTernaryExpr*)lit_ast_allocexpression(line, sizeof(LitAstTernaryExpr), LIT_ASTEXPRTYP_TERNARY);
     expr->condition = condition;
-    expr->branchif = if_branch;
-    expr->branchelse = else_branch;
+    expr->branchif = ifbranch;
+    expr->branchelse = elsebranch;
     return expr;
 }
 
 LitAstStrTemplateExpr* lit_ast_makeinterpolationexpr(size_t line)
 {
     LitAstStrTemplateExpr* expr = (LitAstStrTemplateExpr*)lit_ast_allocexpression(line, sizeof(LitAstStrTemplateExpr), LIT_ASTEXPRTYP_INTERPOLATION);
-    lit_exprlist_init(&expr->expressions);
+    lit_dynlistexpr_init(&expr->expressions);
     return expr;
 }
 
@@ -5765,7 +6525,7 @@ LitAstExprStmtExpr* lit_ast_makeexprstmt(size_t line, LitAstExpression* exv)
 LitAstBlockExpr* lit_ast_makeblockstmt(size_t line)
 {
     LitAstBlockExpr* expr = (LitAstBlockExpr*)lit_ast_allocexpression(line, sizeof(LitAstBlockExpr), LIT_ASTEXPRTYP_BLOCK);
-    lit_exprlist_init(&expr->statements);
+    lit_dynlistexpr_init(&expr->statements);
     return expr;
 }
 
@@ -5787,14 +6547,14 @@ LitAstVarDeclExpr* lit_ast_makevardeclstmt(size_t line, const char* name, size_t
     return expr;
 }
 
-LitAstIfExpr* lit_ast_makeifstatement(size_t line, LitAstExpression* condition, LitAstExpression* if_branch, LitAstExpression* else_branch, LitDynListExpr* elseif_conditions, LitDynListExpr* elseif_branches)
+LitAstIfExpr* lit_ast_makeifstatement(size_t line, LitAstExpression* condition, LitAstExpression* ifbranch, LitAstExpression* elsebranch, LitDynListExpr* elseifconditions, LitDynListExpr* elseifbranches)
 {
     LitAstIfExpr* expr = (LitAstIfExpr*)lit_ast_allocexpression(line, sizeof(LitAstIfExpr), LIT_ASTEXPRTYP_IF);
     expr->condition = condition;
-    expr->branchif = if_branch;
-    expr->branchelse = else_branch;
-    expr->elseifcondlist = elseif_conditions;
-    expr->branchelseiflist = elseif_branches;
+    expr->branchif = ifbranch;
+    expr->branchelse = elsebranch;
+    expr->elseifcondlist = elseifconditions;
+    expr->branchelseiflist = elseifbranches;
     return expr;
 }
 
@@ -5834,7 +6594,7 @@ LitAstFunctionExpr* lit_ast_makefuncdefstmt(size_t line, const char* name, size_
     function->name = name;
     function->length = length;
     function->body = NULL;
-    lit_paramlist_init(&function->parameters);
+    lit_dynlistparam_init(&function->parameters);
     return function;
 }
 
@@ -5842,7 +6602,7 @@ LitAstFunctionExpr* lit_ast_makelambdaexpr(size_t line)
 {
     LitAstFunctionExpr* expr = (LitAstFunctionExpr*)lit_ast_allocexpression(line, sizeof(LitAstFunctionExpr), LIT_ASTEXPRTYP_FUNCANON);
     expr->body = NULL;
-    lit_paramlist_init(&expr->parameters);
+    lit_dynlistparam_init(&expr->parameters);
     return expr;
 }
 
@@ -5854,13 +6614,13 @@ LitAstReturnExpr* lit_ast_makereturnstmt(size_t line, LitAstExpression* exv)
     return expr;
 }
 
-LitAstMethodExpr* lit_ast_makemethoddefstmt(size_t line, LitString* name, bool is_static)
+LitAstMethodExpr* lit_ast_makemethoddefstmt(size_t line, LitString* name, bool isstatic)
 {
     LitAstMethodExpr* expr = (LitAstMethodExpr*)lit_ast_allocexpression(line, sizeof(LitAstMethodExpr), LIT_ASTEXPRTYP_METHOD);
     expr->name = name;
     expr->body = NULL;
-    expr->is_static = is_static;
-    lit_paramlist_init(&expr->parameters);
+    expr->isstatic = isstatic;
+    lit_dynlistparam_init(&expr->parameters);
     return expr;
 }
 
@@ -5869,24 +6629,42 @@ LitAstClassExpr* lit_ast_makeclassdefstmt(size_t line, LitString* name, LitStrin
     LitAstClassExpr* expr = (LitAstClassExpr*)lit_ast_allocexpression(line, sizeof(LitAstClassExpr), LIT_ASTEXPRTYP_CLASS);
     expr->name = name;
     expr->parent = parent;
-    lit_exprlist_init(&expr->staticfields);
+    lit_dynlistexpr_init(&expr->staticfields);
     return expr;
 }
 
-LitAstFieldExpr* lit_ast_makefieldstmt(size_t line, LitString* name, LitAstExpression* getter, LitAstExpression* setter, bool is_static)
+LitAstFieldExpr* lit_ast_makefieldstmt(size_t line, LitString* name, LitAstExpression* getter, LitAstExpression* setter, bool isstatic)
 {
     LitAstFieldExpr* expr = (LitAstFieldExpr*)lit_ast_allocexpression(line, sizeof(LitAstFieldExpr), LIT_ASTEXPRTYP_FIELD);
     expr->name = name;
     expr->getter = getter;
     expr->setter = setter;
-    expr->is_static = is_static;
+    expr->isstatic = isstatic;
+    return expr;
+}
+
+LitAstTryExpr* lit_ast_maketrystmt(size_t line, LitAstExpression* tryblock, LitAstExpression* catchblock, LitAstExpression* finallyblock, const char* catchvarstr, size_t catchvarlen)
+{
+    LitAstTryExpr* expr = (LitAstTryExpr*)lit_ast_allocexpression(line, sizeof(LitAstTryExpr), LIT_ASTEXPRTYP_TRY);
+    expr->tryblock = tryblock;
+    expr->catchblock = catchblock;
+    expr->finallyblock = finallyblock;
+    expr->catchvarstr = catchvarstr;
+    expr->catchvarlen = catchvarlen;
+    return expr;
+}
+
+LitAstThrowExpr* lit_ast_makethrowstmt(size_t line, LitAstExpression* exvalue)
+{
+    LitAstThrowExpr* expr = (LitAstThrowExpr*)lit_ast_allocexpression(line, sizeof(LitAstThrowExpr), LIT_ASTEXPRTYP_THROW);
+    expr->exvalue = exvalue;
     return expr;
 }
 
 LitDynListExpr* lit_ast_allocexprlist()
 {
     LitDynListExpr* expressions = (LitDynListExpr*)lit_sysmem_malloc(sizeof(LitDynListExpr));
-    lit_exprlist_init(expressions);
+    lit_dynlistexpr_init(expressions);
     return expressions;
 }
 
@@ -5901,14 +6679,14 @@ void lit_ast_destroyallocatedexprlist(LitState* state, LitDynListExpr* expressio
     {
         lit_ast_destroyexpression(state, expressions->listitems[i]);
     }
-    lit_exprlist_destroy(expressions);
+    lit_dynlistexpr_destroy(expressions);
     lit_sysmem_free(expressions);
 }
 
 LitDynListExpr* lit_ast_allocstmtlist()
 {
     LitDynListExpr* statements = (LitDynListExpr*)lit_sysmem_malloc(sizeof(LitDynListExpr));
-    lit_exprlist_init(statements);
+    lit_dynlistexpr_init(statements);
     return statements;
 }
 
@@ -5923,7 +6701,7 @@ void lit_ast_destroyallocatedstmtlist(LitState* state, LitDynListExpr* statement
     {
         lit_ast_destroyexpression(state, statements->listitems[i]);
     }
-    lit_exprlist_destroy(statements);
+    lit_dynlistexpr_destroy(statements);
     lit_sysmem_free(statements);
 }
 
@@ -5935,7 +6713,7 @@ void lit_astlex_init(LitState* state, LitAstLexer* lex, const char* filename, co
     lex->sourcefilename = filename;
     lex->pstate = state;
     lex->bracecount = 0;
-    lex->had_error = false;
+    lex->haderror = false;
 }
 
 LitAstToken lit_astlex_maketoken(LitAstLexer* lex, LitAstTokType type)
@@ -5950,7 +6728,7 @@ LitAstToken lit_astlex_maketoken(LitAstLexer* lex, LitAstTokType type)
 
 LitAstToken lit_astlex_makeerrortoken(LitAstLexer* lex, const char* fmt, ...)
 {
-    lex->had_error = true;
+    lex->haderror = true;
     va_list args;
     va_start(args, fmt);
     LitString* result = lit_state_errorfmtv(lex->pstate, lex->sourcecurrentline, fmt, args);
@@ -6014,9 +6792,10 @@ char lit_astlex_peeknext(LitAstLexer* lex)
 
 bool lit_astlex_skipwhitespace(LitAstLexer* lex)
 {
+    char c;
     while(true)
     {
-        char c = lit_astlex_peek(lex);
+        c = lit_astlex_peek(lex);
         switch(c)
         {
             case 1:
@@ -6079,7 +6858,7 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
     LitState* state;
     state = lex->pstate;
     stringtype = LIT_ASTTOKTYP_STRING;
-    lit_bytelist_init(&bytes);
+    lit_dynlistbyte_init(&bytes);
     while(true)
     {
         currch = lit_astlex_advance(lex);
@@ -6091,10 +6870,10 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
         {
             if(lex->bracecount >= LIT_INTERPOLATION_NESTING_MAX)
             {
-                lit_bytelist_destroy(&bytes);
+                lit_dynlistbyte_destroy(&bytes);
                 return lit_astlex_makeerrortoken(lex, "interpolation nesting is too deep, maximum is %i", LIT_INTERPOLATION_NESTING_MAX);
             }
-            stringtype = LIT_ASTTOKTYP_INTERPOLATION;
+            stringtype = LIT_ASTTOKTYP_STRTEMPLATE;
             lex->bracevalues[lex->bracecount++] = 1;
             break;
         }
@@ -6104,14 +6883,14 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
             {
                 case '\0':
                 {
-                    lit_bytelist_destroy(&bytes);
+                    lit_dynlistbyte_destroy(&bytes);
                     return lit_astlex_makeerrortoken(lex, "unterminated string");
                 }
                 break;
                 case '\n':
                 {
                     lex->sourcecurrentline++;
-                    lit_bytelist_push(&bytes, currch);
+                    lit_dynlistbyte_push(&bytes, currch);
                 }
                 break;
                 case '\\':
@@ -6123,51 +6902,51 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
                     }
                     if(nextch == endch)
                     {
-                        lit_bytelist_push(&bytes, endch);
+                        lit_dynlistbyte_push(&bytes, endch);
                     }
                     else
                     {
                         switch(nextch)
                         {
                             case '\"':
-                                lit_bytelist_push(&bytes, '\"');
+                                lit_dynlistbyte_push(&bytes, '\"');
                                 break;
                             case '\\':
-                                lit_bytelist_push(&bytes, '\\');
+                                lit_dynlistbyte_push(&bytes, '\\');
                                 break;
                             case '0':
-                                lit_bytelist_push(&bytes, '\0');
+                                lit_dynlistbyte_push(&bytes, '\0');
                                 break;
                             case '{':
-                                lit_bytelist_push(&bytes, '{');
+                                lit_dynlistbyte_push(&bytes, '{');
                                 break;
                             case 'a':
-                                lit_bytelist_push(&bytes, '\a');
+                                lit_dynlistbyte_push(&bytes, '\a');
                                 break;
                             case 'b':
-                                lit_bytelist_push(&bytes, '\b');
+                                lit_dynlistbyte_push(&bytes, '\b');
                                 break;
                             case 'f':
-                                lit_bytelist_push(&bytes, '\f');
+                                lit_dynlistbyte_push(&bytes, '\f');
                                 break;
                             case 'n':
-                                lit_bytelist_push(&bytes, '\n');
+                                lit_dynlistbyte_push(&bytes, '\n');
                                 break;
                             case 'r':
-                                lit_bytelist_push(&bytes, '\r');
+                                lit_dynlistbyte_push(&bytes, '\r');
                                 break;
                             case 't':
-                                lit_bytelist_push(&bytes, '\t');
+                                lit_dynlistbyte_push(&bytes, '\t');
                                 break;
                             case 'v':
-                                lit_bytelist_push(&bytes, '\v');
+                                lit_dynlistbyte_push(&bytes, '\v');
                                 break;
                             case 'e':
-                                lit_bytelist_push(&bytes, 27);
+                                lit_dynlistbyte_push(&bytes, 27);
                                 break;
                             default:
                             {
-                                lit_bytelist_destroy(&bytes);
+                                lit_dynlistbyte_destroy(&bytes);
                                 return lit_astlex_makeerrortoken(lex, "invalid escape character '%c'", lex->sourcedatacurrent[-1]);
                             }
                             break;
@@ -6177,14 +6956,14 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
                 break;
                 default:
                 {
-                    lit_bytelist_push(&bytes, currch);
+                    lit_dynlistbyte_push(&bytes, currch);
                 }
                 break;
             }
         }
         else
         {
-            lit_bytelist_push(&bytes, currch);
+            lit_dynlistbyte_push(&bytes, currch);
         }
     }
     LitAstToken token = lit_astlex_maketoken(lex, stringtype);
@@ -6202,7 +6981,7 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool interpolation, bool use
         }
         token.tokvalue = lit_value_fromobject(lit_string_copylen(state, cstr, bytes.listcount));
     }
-    lit_bytelist_destroy(&bytes);
+    lit_dynlistbyte_destroy(&bytes);
     return token;
 }
 
@@ -6238,8 +7017,9 @@ int lit_astlex_scanbinarydigit(LitAstLexer* lex)
 
 LitAstToken lit_astlex_makenumbertoken(LitAstLexer* lex, bool ishex, bool isbinary)
 {
-    errno = 0;
     LitValue value;
+    LitAstToken token;
+    errno = 0;
     if(ishex)
     {
         value = lit_value_makenumber((double)strtoll(lex->sourcedatastart, NULL, 16));
@@ -6257,7 +7037,7 @@ LitAstToken lit_astlex_makenumbertoken(LitAstLexer* lex, bool ishex, bool isbina
         errno = 0;
         return lit_astlex_makeerrortoken(lex, "number is too big to be represented by a single literal");
     }
-    LitAstToken token = lit_astlex_maketoken(lex, LIT_ASTTOKTYP_NUMBER);
+    token = lit_astlex_maketoken(lex, LIT_ASTTOKTYP_NUMBER);
     token.tokvalue = value;
     return token;
 }
@@ -6280,16 +7060,16 @@ LitAstToken lit_astlex_scannumber(LitAstLexer* lex)
         }
         return lit_astlex_makenumbertoken(lex, false, true);
     }
-    while(lit_lexutil_isdigit(lit_astlex_peek(lex)))
+    while(lit_util_charisdigit(lit_astlex_peek(lex)))
     {
         lit_astlex_advance(lex);
     }
     /* look for a fractional part */
-    if(lit_astlex_peek(lex) == '.' && lit_lexutil_isdigit(lit_astlex_peeknext(lex)))
+    if(lit_astlex_peek(lex) == '.' && lit_util_charisdigit(lit_astlex_peeknext(lex)))
     {
         /* consume the '.' */
         lit_astlex_advance(lex);
-        while(lit_lexutil_isdigit(lit_astlex_peek(lex)))
+        while(lit_util_charisdigit(lit_astlex_peek(lex)))
         {
             lit_astlex_advance(lex);
         }
@@ -6305,29 +7085,33 @@ LitAstTokType lit_astlex_scanidenttype(LitAstLexer* lex)
         LitAstTokType type;
         const char* kw;
     } keywords[] = {
-        { LIT_ASTTOKTYP_CLASS, "class" },
-        { LIT_ASTTOKTYP_ELSE, "else" },
-        { LIT_ASTTOKTYP_FALSE, "false" },
-        { LIT_ASTTOKTYP_FOR, "for" },
-        { LIT_ASTTOKTYP_FUNCTION, "function" },
-        { LIT_ASTTOKTYP_IF, "if" },
-        { LIT_ASTTOKTYP_NULL, "null" },
-        { LIT_ASTTOKTYP_RETURN, "return" },
-        { LIT_ASTTOKTYP_SUPER, "super" },
-        { LIT_ASTTOKTYP_THIS, "this" },
-        { LIT_ASTTOKTYP_TRUE, "true" },
-        { LIT_ASTTOKTYP_VAR, "var" },
-        { LIT_ASTTOKTYP_WHILE, "while" },
-        { LIT_ASTTOKTYP_CONTINUE, "continue" },
-        { LIT_ASTTOKTYP_BREAK, "break" },
-        { LIT_ASTTOKTYP_NEW, "new" },
-        { LIT_ASTTOKTYP_EXPORT, "export" },
-        { LIT_ASTTOKTYP_IS, "is" },
-        { LIT_ASTTOKTYP_STATIC, "static" },
-        { LIT_ASTTOKTYP_OPERATOR, "operator" },
-        { LIT_ASTTOKTYP_IN, "in" },
-        { LIT_ASTTOKTYP_CONST, "const" },
-        { LIT_ASTTOKTYP_REF, "ref" },
+        { LIT_ASTTOKTYP_KWCLASS, "class" },
+        { LIT_ASTTOKTYP_KWELSE, "else" },
+        { LIT_ASTTOKTYP_KWFALSE, "false" },
+        { LIT_ASTTOKTYP_KWFOR, "for" },
+        { LIT_ASTTOKTYP_KWFUNCTION, "function" },
+        { LIT_ASTTOKTYP_KWIF, "if" },
+        { LIT_ASTTOKTYP_KWNULL, "null" },
+        { LIT_ASTTOKTYP_KWRETURN, "return" },
+        { LIT_ASTTOKTYP_KWSUPER, "super" },
+        { LIT_ASTTOKTYP_KWTHIS, "this" },
+        { LIT_ASTTOKTYP_KWTRUE, "true" },
+        { LIT_ASTTOKTYP_KWVAR, "var" },
+        { LIT_ASTTOKTYP_KWWHILE, "while" },
+        { LIT_ASTTOKTYP_KWCONTINUE, "continue" },
+        { LIT_ASTTOKTYP_KWBREAK, "break" },
+        { LIT_ASTTOKTYP_KWNEW, "new" },
+        { LIT_ASTTOKTYP_KWEXPORT, "export" },
+        { LIT_ASTTOKTYP_KWIS, "is" },
+        { LIT_ASTTOKTYP_KWSTATIC, "static" },
+        { LIT_ASTTOKTYP_KWOPERATOR, "operator" },
+        { LIT_ASTTOKTYP_KWIN, "in" },
+        { LIT_ASTTOKTYP_KWCONST, "const" },
+        { LIT_ASTTOKTYP_KWREF, "ref" },
+        { LIT_ASTTOKTYP_KWTRY, "try" },
+        { LIT_ASTTOKTYP_KWCATCH, "catch" },
+        { LIT_ASTTOKTYP_KWFINALLY, "finally" },
+        { LIT_ASTTOKTYP_KWTHROW, "throw" },
         { (LitAstTokType)0, NULL },
     };
     /* clang-format on */
@@ -6350,7 +7134,7 @@ LitAstTokType lit_astlex_scanidenttype(LitAstLexer* lex)
 
 LitAstToken lit_astlex_scanident(LitAstLexer* lex)
 {
-    while(lit_lexutil_isalpha(lit_astlex_peek(lex)) || lit_lexutil_isdigit(lit_astlex_peek(lex)))
+    while(lit_util_charisalpha(lit_astlex_peek(lex)) || lit_util_charisdigit(lit_astlex_peek(lex)))
     {
         lit_astlex_advance(lex);
     }
@@ -6363,7 +7147,7 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
     LitAstToken token;
     if(lit_astlex_skipwhitespace(lex))
     {
-        token = lit_astlex_maketoken(lex, LIT_ASTTOKTYP_NEWLINE);
+        token = lit_astlex_maketoken(lex, LIT_ASTTOKTYP_LINEFEED);
         lex->sourcecurrentline++;
         return token;
     }
@@ -6373,16 +7157,21 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
         return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_EOF);
     }
     c = lit_astlex_advance(lex);
-    if(lit_lexutil_isdigit(c))
+    if(lit_util_charisdigit(c))
     {
         return lit_astlex_scannumber(lex);
     }
-    if(lit_lexutil_isalpha(c))
+    if(lit_util_charisalpha(c))
     {
         return lit_astlex_scanident(lex);
     }
     switch(c)
     {
+        case '@':
+            {
+                return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_REFSYM);
+            }
+            break;
         case '(':
             {
                 return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_LEFTPAREN);
@@ -6489,12 +7278,12 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
 }
 
 static jmp_buf jumpbuffer;
-static LitAstRule g_astparserules[LIT_ASTTOKTYP_EOF + 1];
+static LitAstRule gastparserules[LIT_ASTTOKTYP_EOF + 1];
 static bool didsetuprules;
 
 void lit_astparser_compilerinit(LitAstParser* prs, LitAstCompiler* ccx)
 {
-    ccx->scope_depth = 0;
+    ccx->scopedepth = 0;
     ccx->function = NULL;
     ccx->enclosing = (struct LitAstCompiler*)prs->compiler;
     prs->compiler = ccx;
@@ -6507,17 +7296,17 @@ void lit_astparser_compilerend(LitAstParser* prs, LitAstCompiler* ccx)
 
 void lit_astparser_scopebegin(LitAstParser* prs)
 {
-    prs->compiler->scope_depth++;
+    prs->compiler->scopedepth++;
 }
 
 void lit_astparser_scopeend(LitAstParser* prs)
 {
-    prs->compiler->scope_depth--;
+    prs->compiler->scopedepth--;
 }
 
 LitAstRule* lit_astparser_getrule(LitAstTokType type)
 {
-    return &g_astparserules[type];
+    return &gastparserules[type];
 }
 
 bool lit_astparser_isatend(LitAstParser* prs)
@@ -6533,8 +7322,8 @@ void lit_astparser_init(LitState* state, LitAstParser* prs)
         lit_astparser_setuprules();
     }
     prs->pstate = state;
-    prs->had_error = false;
-    prs->panic_mode = false;
+    prs->haderror = false;
+    prs->panicmode = false;
 }
 
 void lit_astparser_destroy(LitAstParser* prs)
@@ -6545,12 +7334,12 @@ void lit_astparser_destroy(LitAstParser* prs)
 void lit_astparser_failactual(LitAstParser* prs, LitAstToken* token, const char* message)
 {
     (void)token;
-    if(prs->panic_mode)
+    if(prs->panicmode)
     {
         return;
     }
-    lit_state_raiseerror(prs->pstate, LIT_ERROR_COMPILEERROR, message);
-    prs->had_error = true;
+    lit_state_raiseerror(prs->pstate, message);
+    prs->haderror = true;
     lit_astparser_sync(prs);
 }
 
@@ -6580,7 +7369,7 @@ void lit_astparser_advance(LitAstParser* prs)
     prs->previous = prs->current;
     while(true)
     {
-        prs->current = lit_astlex_scantoken(prs->pstate->lexer);
+        prs->current = lit_astlex_scantoken(prs->pstate->activelexer);
         if(prs->current.type != LIT_ASTTOKTYP_ERROR)
         {
             break;
@@ -6606,7 +7395,9 @@ bool lit_astparser_match(LitAstParser* prs, LitAstTokType type)
 
 bool lit_astparser_matchident(LitAstParser* prs, const char* type)
 {
-    if(prs->current.type == LIT_ASTTOKTYP_IDENTIFIER || prs->current.type == LIT_ASTTOKTYP_CLASS)
+    LitAstTokType ctp;
+    ctp = prs->current.type;
+    if(ctp == LIT_ASTTOKTYP_IDENTIFIER || ctp == LIT_ASTTOKTYP_KWCLASS || ctp == LIT_ASTTOKTYP_KWTRY)
     {
         if(memcmp(prs->previous.start, type, fmax(strlen(type), prs->previous.length)))
         {
@@ -6619,22 +7410,23 @@ bool lit_astparser_matchident(LitAstParser* prs, const char* type)
 
 void lit_astparser_consume(LitAstParser* prs, LitAstTokType type, const char* error)
 {
+    bool line;
     if(prs->current.type == type)
     {
         lit_astparser_advance(prs);
         return;
     }
-    bool line = prs->previous.type == LIT_ASTTOKTYP_NEWLINE;
+    line = prs->previous.type == LIT_ASTTOKTYP_LINEFEED;
     lit_astparser_failactual(prs, &prs->current, lit_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got '%.*s'", error, line ? 8 : prs->previous.length, line ? "new line" : prs->previous.start)->strbuf.data);
 }
 
 bool lit_astparser_matchlinefeed(LitAstParser* prs)
 {
-    if(!lit_astparser_match(prs, LIT_ASTTOKTYP_NEWLINE))
+    if(!lit_astparser_match(prs, LIT_ASTTOKTYP_LINEFEED))
     {
         return false;
     }
-    while(lit_astparser_match(prs, LIT_ASTTOKTYP_NEWLINE))
+    while(lit_astparser_match(prs, LIT_ASTTOKTYP_LINEFEED))
     {
     }
     return true;
@@ -6653,7 +7445,7 @@ LitAstExpression* lit_astparser_parseblock(LitAstParser* prs)
     lit_astparser_ignorelinefeeds(prs);
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE) && !lit_astparser_check(prs, LIT_ASTTOKTYP_EOF))
     {
-        lit_exprlist_push(&expr->statements, lit_astparser_parsestmt(prs));
+        lit_dynlistexpr_push(&expr->statements, lit_astparser_parsestmt(prs));
         lit_astparser_ignorelinefeeds(prs);
     }
     lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}'");
@@ -6664,19 +7456,26 @@ LitAstExpression* lit_astparser_parseblock(LitAstParser* prs)
 LitAstExpression* lit_astparser_parseprec(LitAstParser* prs, LitPrecedence precedence, bool err)
 {
     LitAstToken previous;
+    LitPrefixParseFn prefixrule;
+    LitInfixParseFn infixrule;
+    LitAstExpression* expr;
+    bool canassign;
+    bool prevnewline;
+    bool parserprevnewline;
+    int exlen;
+    int gotlen;
+    const char* gotstr;
+    const char* exstr;
+
     previous = prs->previous;
     lit_astparser_ignorelinefeeds(prs);
     lit_astparser_advance(prs);
-    LitPrefixParseFn prefixrule = lit_astparser_getrule(prs->previous.type)->prefix;
+    prefixrule = lit_astparser_getrule(prs->previous.type)->prefix;
     if(prefixrule == NULL)
     {
         /* todo: file start */
-        bool prevnewline = ((previous.start != NULL) && (*previous.start == '\n'));
-        bool parserprevnewline = ((prs->previous.start != NULL) && (*prs->previous.start == '\n'));
-        int exlen;
-        int gotlen;
-        const char* gotstr;
-        const char* exstr;
+        prevnewline = ((previous.start != NULL) && (*previous.start == '\n'));
+        parserprevnewline = ((prs->previous.start != NULL) && (*prs->previous.start == '\n'));
         exlen = 8;
         gotlen = 8;
         exstr = "new line";
@@ -6694,13 +7493,13 @@ LitAstExpression* lit_astparser_parseprec(LitAstParser* prs, LitPrecedence prece
         lit_astparser_failfmt(prs, "expected expression after '%.*s', got '%.*s'", exlen, exstr, gotlen, gotstr);
         return NULL;
     }
-    bool canassign = precedence <= LIT_ASTPREC_ASSIGNMENT;
-    LitAstExpression* expr = prefixrule(prs, canassign);
+    canassign = precedence <= LIT_ASTPREC_ASSIGNMENT;
+    expr = prefixrule(prs, canassign);
     lit_astparser_ignorelinefeeds(prs);
     while(precedence <= lit_astparser_getrule(prs->current.type)->precedence)
     {
         lit_astparser_advance(prs);
-        LitInfixParseFn infixrule = lit_astparser_getrule(prs->previous.type)->infix;
+        infixrule = lit_astparser_getrule(prs->previous.type)->infix;
         if(infixrule == NULL)
         {
             break;
@@ -6745,7 +7544,7 @@ void lit_astparser_parseparams(LitAstParser* prs, LitDynListParam* parameters)
         /* variadic argument ... */
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_DOTDOTDOT))
         {
-            lit_paramlist_push(parameters, lit_astparser_makeparameter("...", 3, 0, NULL));
+            lit_dynlistparam_push(parameters, lit_astparser_makeparameter("...", 3, 0, NULL));
             return;
         }
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "argument name");
@@ -6761,7 +7560,7 @@ void lit_astparser_parseparams(LitAstParser* prs, LitDynListParam* parameters)
         {
             lit_astparser_failfmt(prs, "default arguments must always be in the end of the argument list.");
         }
-        lit_paramlist_push(parameters, lit_astparser_makeparameter(argname, arglength, 0, defval));
+        lit_dynlistparam_push(parameters, lit_astparser_makeparameter(argname, arglength, 0, defval));
         if(!lit_astparser_match(prs, LIT_ASTTOKTYP_COMMA))
         {
             break;
@@ -6771,37 +7570,54 @@ void lit_astparser_parseparams(LitAstParser* prs, LitDynListParam* parameters)
 
 LitAstExpression* lit_astparser_rulegroupingorlambda(LitAstParser* prs, bool canassign)
 {
+    const char* start;
+    const char* firstargstart;
+    const char* argname;
+    size_t line;
+    size_t firstarglength;
+    size_t arglength;
+    LitState* state;
+    LitAstLexer* lex;
+    LitAstFunctionExpr* lambda;
+    LitAstExpression* defvalue;
+    LitAstExpression* defval;
+    LitAstExpression* expr;
+    bool hadarrow;
+    bool hadvararg;
+    bool haddefault;
+    bool stop;
+
     (void)canassign;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_RIGHTPAREN))
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_ARROW, "=> after lambda arguments");
         return lit_astparser_parselambda(prs, lit_ast_makelambdaexpr(prs->previous.line));
     }
-    const char* start = prs->previous.start;
-    size_t line = prs->previous.line;
+    start = prs->previous.start;
+    line = prs->previous.line;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_IDENTIFIER) || lit_astparser_match(prs, LIT_ASTTOKTYP_DOTDOTDOT))
     {
-        LitState* state = prs->pstate;
-        const char* firstargstart = prs->previous.start;
-        size_t firstarglength = prs->previous.length;
+        state = prs->pstate;
+        firstargstart = prs->previous.start;
+        firstarglength = prs->previous.length;
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_COMMA) || (lit_astparser_match(prs, LIT_ASTTOKTYP_RIGHTPAREN) && lit_astparser_match(prs, LIT_ASTTOKTYP_ARROW)))
         {
-            bool hadarrow = prs->previous.type == LIT_ASTTOKTYP_ARROW;
-            bool hadvararg = prs->previous.type == LIT_ASTTOKTYP_DOTDOTDOT;
+            hadarrow = prs->previous.type == LIT_ASTTOKTYP_ARROW;
+            hadvararg = prs->previous.type == LIT_ASTTOKTYP_DOTDOTDOT;
             /* this is a lambda */
-            LitAstFunctionExpr* lambda = lit_ast_makelambdaexpr(line);
-            LitAstExpression* defvalue = NULL;
-            bool haddefault = lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL);
+            lambda = lit_ast_makelambdaexpr(line);
+            defvalue = NULL;
+            haddefault = lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL);
             if(haddefault)
             {
                 defvalue = lit_astparser_parseexpr(prs);
             }
-            lit_paramlist_push(&lambda->parameters, lit_astparser_makeparameter(firstargstart, firstarglength, 0, defvalue));
+            lit_dynlistparam_push(&lambda->parameters, lit_astparser_makeparameter(firstargstart, firstarglength, 0, defvalue));
             if(!hadvararg && prs->previous.type == LIT_ASTTOKTYP_COMMA)
             {
                 do
                 {
-                    bool stop = false;
+                    stop = false;
                     if(lit_astparser_match(prs, LIT_ASTTOKTYP_DOTDOTDOT))
                     {
                         stop = true;
@@ -6810,9 +7626,9 @@ LitAstExpression* lit_astparser_rulegroupingorlambda(LitAstParser* prs, bool can
                     {
                         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "argument name");
                     }
-                    const char* argname = prs->previous.start;
-                    size_t arglength = prs->previous.length;
-                    LitAstExpression* defval = NULL;
+                    argname = prs->previous.start;
+                    arglength = prs->previous.length;
+                    defval = NULL;
                     if(lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
                     {
                         defval = lit_astparser_parseexpr(prs);
@@ -6822,7 +7638,7 @@ LitAstExpression* lit_astparser_rulegroupingorlambda(LitAstParser* prs, bool can
                     {
                         lit_astparser_failfmt(prs, "default arguments must always be in the end of the argument list.");
                     }
-                    lit_paramlist_push(&lambda->parameters, lit_astparser_makeparameter(argname, arglength, 0, defval));
+                    lit_dynlistparam_push(&lambda->parameters, lit_astparser_makeparameter(argname, arglength, 0, defval));
                     if(stop)
                     {
                         break;
@@ -6839,26 +7655,29 @@ LitAstExpression* lit_astparser_rulegroupingorlambda(LitAstParser* prs, bool can
         else
         {
             /* ouch, this was a grouping with a single identifier */
-            LitAstLexer* lex = state->lexer;
+            lex = state->activelexer;
             lex->sourcedatacurrent = start;
             lex->sourcecurrentline = line;
             prs->current = lit_astlex_scantoken(lex);
             lit_astparser_advance(prs);
         }
     }
-    LitAstExpression* expr = lit_astparser_parseexpr(prs);
+    expr = lit_astparser_parseexpr(prs);
     lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after grouping expression");
     return expr;
 }
 
 LitAstExpression* lit_astparser_parsecall(LitAstParser* prs, LitAstExpression* prev, bool canassign)
 {
+    LitAstExpression* e;
+    LitAstCallExpr* expr;
+
     (void)canassign;
-    LitAstCallExpr* expr = lit_ast_makecallexpr(prs->previous.line, prev);
+    expr = lit_ast_makecallexpr(prs->previous.line, prev);
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTPAREN))
     {
-        LitAstExpression* e = lit_astparser_parseexpr(prs);
-        lit_exprlist_push(&expr->callargs, e);
+        e = lit_astparser_parseexpr(prs);
+        lit_dynlistexpr_push(&expr->callargs, e);
         if(!lit_astparser_match(prs, LIT_ASTTOKTYP_COMMA))
         {
             break;
@@ -6881,28 +7700,73 @@ LitAstExpression* lit_astparser_parsecall(LitAstParser* prs, LitAstExpression* p
     return (LitAstExpression*)expr;
 }
 
+/*
+{
+    size_t line;
+    LitAstRefExpr* expr;
+    (void)canassign;
+    line = prs->previous.line;
+    lit_astparser_ignorelinefeeds(prs);
+    expr = lit_ast_makerefexpr(line, lit_astparser_parseprec(prs, LIT_ASTPREC_CALL, false));
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
+    {
+        return (LitAstExpression*)lit_ast_makeassignexpr(line, (LitAstExpression*)expr, lit_astparser_parseexpr(prs));
+    }
+    return (LitAstExpression*)expr;
+}
+*/
 LitAstExpression* lit_astparser_ruleunary(LitAstParser* prs, bool canassign)
 {
+    bool isrefsym;
+    size_t line;
+    LitAstTokType op;
+    LitAstRefExpr* refexp;
+    LitAstExpression* targetexpr;
     (void)canassign;
-    LitAstTokType op = prs->previous.type;
-    size_t line = prs->previous.line;
-    LitAstExpression* expr = lit_astparser_parseprec(prs, LIT_ASTPREC_UNARY, true);
-    return (LitAstExpression*)lit_ast_makeunaryexpr(line, expr, op);
+    op = prs->previous.type;
+    line = prs->previous.line;
+    isrefsym = (prs->previous.start[0] == '@');
+    #if 1
+    if(isrefsym)
+    {
+        targetexpr = lit_astparser_parseprec(prs, LIT_ASTPREC_CALL, false);
+    }
+    else
+    #endif
+    {
+        targetexpr = lit_astparser_parseprec(prs, LIT_ASTPREC_UNARY, true);
+    }
+    if(isrefsym)
+    {
+        refexp = lit_ast_makerefexpr(line, targetexpr);
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
+        {
+            return (LitAstExpression*)lit_ast_makeassignexpr(line, (LitAstExpression*)refexp, lit_astparser_parseexpr(prs));
+        }
+        return (LitAstExpression*)refexp;
+    }
+    return (LitAstExpression*)lit_ast_makeunaryexpr(line, targetexpr, op);
 }
 
 LitAstExpression* lit_astparser_rulebinary(LitAstParser* prs, LitAstExpression* prev, bool canassign)
 {
+    bool invert;
+    LitAstTokType op;
+    size_t line;
+    LitAstRule* rule;
+    LitAstExpression* expr;
+
     (void)canassign;
-    bool invert = prs->previous.type == LIT_ASTTOKTYP_BANG;
+    invert = prs->previous.type == LIT_ASTTOKTYP_BANG;
     if(invert)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_IS, "'is' after '!'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWIS, "'is' after '!'");
     }
-    LitAstTokType op = prs->previous.type;
-    size_t line = prs->previous.line;
-    LitAstRule* rule = lit_astparser_getrule(op);
+    op = prs->previous.type;
+    line = prs->previous.line;
+    rule = lit_astparser_getrule(op);
     lit_astparser_ignorelinefeeds(prs);
-    LitAstExpression* expr = lit_astparser_parseprec(prs, (LitPrecedence)(rule->precedence + 1), true);
+    expr = lit_astparser_parseprec(prs, (LitPrecedence)(rule->precedence + 1), true);
     lit_astparser_ignorelinefeeds(prs);
     expr = (LitAstExpression*)lit_ast_makebinaryexpr(line, prev, expr, op);
     if(invert)
@@ -6914,25 +7778,34 @@ LitAstExpression* lit_astparser_rulebinary(LitAstParser* prs, LitAstExpression* 
 
 LitAstExpression* lit_astparser_rulelogicaland(LitAstParser* prs, LitAstExpression* prev, bool canassign)
 {
+    LitAstTokType op;
+    size_t line;
+
     (void)canassign;
-    LitAstTokType op = prs->previous.type;
-    size_t line = prs->previous.line;
+    op = prs->previous.type;
+    line = prs->previous.line;
     return (LitAstExpression*)lit_ast_makebinaryexpr(line, prev, lit_astparser_parseprec(prs, LIT_ASTPREC_AND, true), op);
 }
 
 LitAstExpression* lit_astparser_rulelogicalor(LitAstParser* prs, LitAstExpression* prev, bool canassign)
 {
+    LitAstTokType op;
+    size_t line;
+
     (void)canassign;
-    LitAstTokType op = prs->previous.type;
-    size_t line = prs->previous.line;
+    op = prs->previous.type;
+    line = prs->previous.line;
     return (LitAstExpression*)lit_ast_makebinaryexpr(line, prev, lit_astparser_parseprec(prs, LIT_ASTPREC_OR, true), op);
 }
 
 LitAstExpression* lit_astparser_rulenullfilter(LitAstParser* prs, LitAstExpression* prev, bool canassign)
 {
+    LitAstTokType op;
+    size_t line;
+
     (void)canassign;
-    LitAstTokType op = prs->previous.type;
-    size_t line = prs->previous.line;
+    op = prs->previous.type;
+    line = prs->previous.line;
     return (LitAstExpression*)lit_ast_makebinaryexpr(line, prev, lit_astparser_parseprec(prs, LIT_ASTPREC_NULL, true), op);
 }
 
@@ -6987,7 +7860,7 @@ LitAstExpression* lit_astparser_rulecompound(LitAstParser* prs, LitAstExpression
     }
     LitAstBinaryExpr* binary = lit_ast_makebinaryexpr(line, prev, expr, lit_astparser_convertcompoundop(op));
     /* to make sure we don't free it twice */
-    binary->ignore_left = true;
+    binary->ignoreleft = true;
     return (LitAstExpression*)lit_ast_makeassignexpr(line, prev, (LitAstExpression*)binary);
 }
 
@@ -6997,15 +7870,15 @@ LitAstExpression* lit_astparser_ruleliteral(LitAstParser* prs, bool canassign)
     size_t line = prs->previous.line;
     switch(prs->previous.type)
     {
-        case LIT_ASTTOKTYP_TRUE:
+        case LIT_ASTTOKTYP_KWTRUE:
         {
             return (LitAstExpression*)lit_ast_makeliteralexpr(line, lit_value_makebool(true));
         }
-        case LIT_ASTTOKTYP_FALSE:
+        case LIT_ASTTOKTYP_KWFALSE:
         {
             return (LitAstExpression*)lit_ast_makeliteralexpr(line, lit_value_makebool(false));
         }
-        case LIT_ASTTOKTYP_NULL:
+        case LIT_ASTTOKTYP_KWNULL:
         {
             return (LitAstExpression*)lit_ast_makeliteralexpr(line, lit_value_makenull());
         }
@@ -7036,18 +7909,18 @@ LitAstExpression* lit_astparser_ruleinterpolation(LitAstParser* prs, bool canass
         {
             if(str->strbuf.length > 0)
             {
-                lit_exprlist_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
+                lit_dynlistexpr_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
             }
         }
-        lit_exprlist_push(&expr->expressions, lit_astparser_parseexpr(prs));
-    } while(lit_astparser_match(prs, LIT_ASTTOKTYP_INTERPOLATION));
+        lit_dynlistexpr_push(&expr->expressions, lit_astparser_parseexpr(prs));
+    } while(lit_astparser_match(prs, LIT_ASTTOKTYP_STRTEMPLATE));
     lit_astparser_consume(prs, LIT_ASTTOKTYP_STRING, "end of interpolation");
     str = lit_value_asstring(prs->previous.tokvalue);
     if(str != NULL)
     {
         if(str->strbuf.length > 0)
         {
-            lit_exprlist_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
+            lit_dynlistexpr_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
         }
     }
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACKET))
@@ -7064,7 +7937,7 @@ LitAstExpression* lit_astparser_rulearray(LitAstParser* prs, bool canassign)
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACKET))
     {
         lit_astparser_ignorelinefeeds(prs);
-        lit_exprlist_push(&array->exvalues, lit_astparser_parseexpr(prs));
+        lit_dynlistexpr_push(&array->exvalues, lit_astparser_parseexpr(prs));
         lit_astparser_ignorelinefeeds(prs);
         if(!lit_astparser_match(prs, LIT_ASTTOKTYP_COMMA))
         {
@@ -7085,8 +7958,10 @@ LitAstExpression* lit_astparser_rulearray(LitAstParser* prs, bool canassign)
 LitAstExpression* lit_astparser_ruleobject(LitAstParser* prs, bool canassign)
 {
     LitString* keystr;
+    LitAstLiteralObjectExpr* object;
+
     (void)canassign;
-    LitAstLiteralObjectExpr* object = lit_ast_makeobjectexpr(prs->previous.line);
+    object = lit_ast_makeobjectexpr(prs->previous.line);
     lit_astparser_ignorelinefeeds(prs);
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE))
     {
@@ -7105,11 +7980,11 @@ LitAstExpression* lit_astparser_ruleobject(LitAstParser* prs, bool canassign)
             lit_astparser_failherefmt(prs, "expected identifier or string");
             return NULL;
         }
-        lit_vallist_push(&object->objexkeys, lit_value_fromobject(keystr));
+        lit_dynlistval_push(&object->objexkeys, lit_value_fromobject(keystr));
         lit_astparser_ignorelinefeeds(prs);
         lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after key string");
         lit_astparser_ignorelinefeeds(prs);
-        lit_exprlist_push(&object->objexvalues, lit_astparser_parseexpr(prs));
+        lit_dynlistexpr_push(&object->objexvalues, lit_astparser_parseexpr(prs));
         if(!lit_astparser_match(prs, LIT_ASTTOKTYP_COMMA))
         {
             break;
@@ -7123,11 +7998,15 @@ LitAstExpression* lit_astparser_ruleobject(LitAstParser* prs, bool canassign)
 
 LitAstExpression* lit_astparser_parsevarexprbase(LitAstParser* prs, bool canassign, bool isnew)
 {
-    LitAstExpression* expr = (LitAstExpression*)lit_ast_makevargetexpr(prs->previous.line, prs->previous.start, prs->previous.length);
+    bool hadargs;
+    LitAstCallExpr* call;
+    LitAstExpression* expr;
+
+    expr = (LitAstExpression*)lit_ast_makevargetexpr(prs->previous.line, prs->previous.start, prs->previous.length);
     if(isnew)
     {
-        bool hadargs = lit_astparser_check(prs, LIT_ASTTOKTYP_LEFTPAREN);
-        LitAstCallExpr* call = NULL;
+        hadargs = lit_astparser_check(prs, LIT_ASTTOKTYP_LEFTPAREN);
+        call = NULL;
         if(hadargs)
         {
             lit_astparser_advance(prs);
@@ -7172,15 +8051,20 @@ LitAstExpression* lit_astparser_rulenewexpr(LitAstParser* prs, bool canassign)
 
 LitAstExpression* lit_astparser_ruledot(LitAstParser* prs, LitAstExpression* previous, bool canassign)
 {
-    size_t line = prs->previous.line;
-    bool ignored = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
+    const char* name;
+    size_t length;
+    size_t line;
+    bool ignored;
+
+    line = prs->previous.line;
+    ignored = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
     /* class and super are allowed field names */
-    if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_CLASS) || lit_astparser_match(prs, LIT_ASTTOKTYP_SUPER)))
+    if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCLASS) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWSUPER) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWTRY)))
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after '->'" : "property name after '.'");
     }
-    const char* name = prs->previous.start;
-    size_t length = prs->previous.length;
+    name = prs->previous.start;
+    length = prs->previous.length;
     if(!ignored && canassign && lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
     {
         return (LitAstExpression*)lit_ast_makesetexpr(line, previous, name, length, lit_astparser_parseexpr(prs));
@@ -7198,34 +8082,45 @@ LitAstExpression* lit_astparser_ruledot(LitAstParser* prs, LitAstExpression* pre
 
 LitAstExpression* lit_astparser_rulerange(LitAstParser* prs, LitAstExpression* previous, bool canassign)
 {
+    size_t line;
+
     (void)canassign;
-    size_t line = prs->previous.line;
+    line = prs->previous.line;
     return (LitAstExpression*)lit_ast_makerangeexpr(line, previous, lit_astparser_parseexpr(prs));
 }
 
 LitAstExpression* lit_astparser_ruleternaryorquestion(LitAstParser* prs, LitAstExpression* previous, bool canassign)
 {
+    size_t line;
+    bool ignored;
+    LitAstExpression* ifbranch;
+    LitAstExpression* elsebranch;
+
     (void)canassign;
-    size_t line = prs->previous.line;
+    line = prs->previous.line;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT) /* || lit_astparser_match(prs, LIT_ASTTOKTYP_SMALLARROW)*/)
     {
-        bool ignored = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
+        ignored = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after '->'" : "property name after '.'");
         return (LitAstExpression*)lit_ast_makegetexpr(line, previous, prs->previous.start, prs->previous.length, true, ignored);
     }
-    LitAstExpression* if_branch = lit_astparser_parseexpr(prs);
+    ifbranch = lit_astparser_parseexpr(prs);
     lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after expression");
-    LitAstExpression* else_branch = lit_astparser_parseexpr(prs);
-    return (LitAstExpression*)lit_ast_maketernaryexpr(line, previous, if_branch, else_branch);
+    elsebranch = lit_astparser_parseexpr(prs);
+    return (LitAstExpression*)lit_ast_maketernaryexpr(line, previous, ifbranch, elsebranch);
 }
 
 
 LitAstExpression* lit_astparser_parsesubscript(LitAstParser* prs, LitAstExpression* previous, bool canassign)
 {
-    size_t line = prs->previous.line;
-    LitAstExpression* index = lit_astparser_parseexpr(prs);
+    size_t line;
+    LitAstExpression* index;
+    LitAstExpression* expr;
+
+    line = prs->previous.line;
+    index = lit_astparser_parseexpr(prs);
     lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACKET, "']' after subscript");
-    LitAstExpression* expr = (LitAstExpression*)lit_ast_makesubscriptexpr(line, previous, index);
+    expr = (LitAstExpression*)lit_ast_makesubscriptexpr(line, previous, index);
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACKET))
     {
         return lit_astparser_parsesubscript(prs, expr, canassign);
@@ -7239,7 +8134,9 @@ LitAstExpression* lit_astparser_parsesubscript(LitAstParser* prs, LitAstExpressi
 
 LitAstExpression* lit_astparser_rulethis(LitAstParser* prs, bool canassign)
 {
-    LitAstExpression* expr = (LitAstExpression*)lit_ast_makethisexpr(prs->previous.line);
+    LitAstExpression* expr;
+
+    expr = (LitAstExpression*)lit_ast_makethisexpr(prs->previous.line);
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACKET))
     {
         return lit_astparser_parsesubscript(prs, expr, canassign);
@@ -7249,17 +8146,21 @@ LitAstExpression* lit_astparser_rulethis(LitAstParser* prs, bool canassign)
 
 LitAstExpression* lit_astparser_rulesuper(LitAstParser* prs, bool canassign)
 {
+    size_t line;
+    bool ignoring;
+    LitAstExpression* expr;
+
     (void)canassign;
-    size_t line = prs->previous.line;
+    line = prs->previous.line;
     if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT) || lit_astparser_match(prs, LIT_ASTTOKTYP_SMALLARROW)))
     {
-        LitAstExpression* expr = (LitAstExpression*)lit_ast_makesuperexpr(line, prs->pstate->conststrconstructor, false);
+        expr = (LitAstExpression*)lit_ast_makesuperexpr(line, prs->pstate->strings.strconstructor, false);
         lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after 'super'");
         return lit_astparser_parsecall(prs, expr, false);
     }
-    bool ignoring = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
+    ignoring = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
     lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignoring ? "super method name after '->'" : "super method name after '.'");
-    LitAstExpression* expr = (LitAstExpression*)lit_ast_makesuperexpr(line, lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length), ignoring);
+    expr = (LitAstExpression*)lit_ast_makesuperexpr(line, lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length), ignoring);
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN))
     {
         return lit_astparser_parsecall(prs, expr, false);
@@ -7282,10 +8183,13 @@ LitAstExpression* lit_astparser_rulefunction(LitAstParser* prs, bool canassign)
 
 LitAstExpression* lit_astparser_rulereference(LitAstParser* prs, bool canassign)
 {
+    size_t line;
+    LitAstRefExpr* expr;
+
     (void)canassign;
-    size_t line = prs->previous.line;
+    line = prs->previous.line;
     lit_astparser_ignorelinefeeds(prs);
-    LitAstRefExpr* expr = lit_ast_makerefexpr(line, lit_astparser_parseprec(prs, LIT_ASTPREC_CALL, false));
+    expr = lit_ast_makerefexpr(line, lit_astparser_parseprec(prs, LIT_ASTPREC_CALL, false));
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
     {
         return (LitAstExpression*)lit_ast_makeassignexpr(line, (LitAstExpression*)expr, lit_astparser_parseexpr(prs));
@@ -7301,12 +8205,19 @@ LitAstExpression* lit_astparser_parseexpr(LitAstParser* prs)
 
 LitAstExpression* lit_astparser_parsevardecl(LitAstParser* prs)
 {
-    bool constant = prs->previous.type == LIT_ASTTOKTYP_CONST;
-    size_t line = prs->previous.line;
+    const char* name;
+    size_t length;
+    LitAstExpression* init;
+    bool constant;
+    size_t line;
+
+    constant = prs->previous.type == LIT_ASTTOKTYP_KWCONST;
+    line = prs->previous.line;
+
+    init = NULL;
     lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "variable name");
-    const char* name = prs->previous.start;
-    size_t length = prs->previous.length;
-    LitAstExpression* init = NULL;
+    name = prs->previous.start;
+    length = prs->previous.length;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_EQUAL))
     {
         init = lit_astparser_parseexpr(prs);
@@ -7314,12 +8225,82 @@ LitAstExpression* lit_astparser_parsevardecl(LitAstParser* prs)
     return (LitAstExpression*)lit_ast_makevardeclstmt(line, name, length, init, constant);
 }
 
+LitAstExpression* lit_astparser_parsetry(LitAstParser* prs)
+{
+    size_t line;
+    LitAstExpression* tryblock;
+    LitAstExpression* catchblock;
+    LitAstExpression* finallyblock;
+    const char* catchvarstr;
+    size_t catchvarlen;
+
+    line = prs->previous.line;
+    lit_astparser_ignorelinefeeds(prs);
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect '{' after 'try'");
+    tryblock = lit_astparser_parseblock(prs);
+    catchblock = NULL;
+    finallyblock = NULL;
+    catchvarstr = NULL;
+    catchvarlen = 0;
+
+    lit_astparser_ignorelinefeeds(prs);
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCATCH))
+    {
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN))
+        {
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "expected identifier after 'catch('");
+            catchvarstr = prs->previous.start;
+            catchvarlen = prs->previous.length;
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "expected ')' after catch identifier");
+        }
+        lit_astparser_ignorelinefeeds(prs);
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected '{' after 'catch'");
+        catchblock = lit_astparser_parseblock(prs);
+    }
+
+    lit_astparser_ignorelinefeeds(prs);
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFINALLY))
+    {
+        lit_astparser_ignorelinefeeds(prs);
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected '{' after 'finally'");
+        finallyblock = lit_astparser_parseblock(prs);
+    }
+
+    if(catchblock == NULL && finallyblock == NULL)
+    {
+        lit_state_raiseerror(prs->pstate, "expected 'catch' or 'finally' after 'try'");
+    }
+
+    return (LitAstExpression*)lit_ast_maketrystmt(line, tryblock, catchblock, finallyblock, catchvarstr, catchvarlen);
+}
+
+LitAstExpression* lit_astparser_parsethrow(LitAstParser* prs)
+{
+    size_t line;
+    LitAstExpression* exvalue;
+
+    line = prs->previous.line;
+    exvalue = lit_astparser_parseexpr(prs);
+    return (LitAstExpression*)lit_ast_makethrowstmt(line, exvalue);
+}
+
 LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
 {
-    size_t line = prs->previous.line;
-    bool invert = lit_astparser_match(prs, LIT_ASTTOKTYP_BANG);
-    bool hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
-    LitAstExpression* condition = lit_astparser_parseexpr(prs);
+    LitAstExpression* ifbranch;
+    LitDynListExpr* elseifconditions;
+    LitDynListExpr* elseifbranches;
+    LitAstExpression* elsebranch;
+    LitAstExpression* condition;
+    LitAstExpression* e;
+    size_t line;
+    bool invert;
+    bool hadparen;
+
+    line = prs->previous.line;
+    invert = lit_astparser_match(prs, LIT_ASTTOKTYP_BANG);
+    hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
+
+    condition = lit_astparser_parseexpr(prs);
     if(hadparen)
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
@@ -7329,24 +8310,24 @@ LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
         condition = (LitAstExpression*)lit_ast_makeunaryexpr(condition->line, condition, LIT_ASTTOKTYP_BANG);
     }
     lit_astparser_ignorelinefeeds(prs);
-    LitAstExpression* if_branch = lit_astparser_parsestmt(prs);
-    LitDynListExpr* elseif_conditions = NULL;
-    LitDynListExpr* elseif_branches = NULL;
-    LitAstExpression* else_branch = NULL;
+    ifbranch = lit_astparser_parsestmt(prs);
+    elseifconditions = NULL;
+    elseifbranches = NULL;
+    elsebranch = NULL;
     lit_astparser_ignorelinefeeds(prs);
-    while(lit_astparser_match(prs, LIT_ASTTOKTYP_ELSE))
+    while(lit_astparser_match(prs, LIT_ASTTOKTYP_KWELSE))
     {
         /* else if */
-        if(lit_astparser_match(prs, LIT_ASTTOKTYP_IF))
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWIF))
         {
-            if(elseif_conditions == NULL)
+            if(elseifconditions == NULL)
             {
-                elseif_conditions = lit_ast_allocexprlist();
-                elseif_branches = lit_ast_allocstmtlist();
+                elseifconditions = lit_ast_allocexprlist();
+                elseifbranches = lit_ast_allocstmtlist();
             }
             invert = lit_astparser_match(prs, LIT_ASTTOKTYP_BANG);
             hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
-            LitAstExpression* e = lit_astparser_parseexpr(prs);
+            e = lit_astparser_parseexpr(prs);
             if(hadparen)
             {
                 lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
@@ -7355,31 +8336,40 @@ LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
             {
                 e = (LitAstExpression*)lit_ast_makeunaryexpr(condition->line, e, LIT_ASTTOKTYP_BANG);
             }
-            lit_exprlist_push(elseif_conditions, e);
+            lit_dynlistexpr_push(elseifconditions, e);
             lit_astparser_ignorelinefeeds(prs);
-            lit_exprlist_push(elseif_branches, lit_astparser_parsestmt(prs));
+            lit_dynlistexpr_push(elseifbranches, lit_astparser_parsestmt(prs));
             lit_astparser_ignorelinefeeds(prs);
             continue;
         }
         /* else */
-        if(else_branch != NULL)
+        if(elsebranch != NULL)
         {
             lit_astparser_failfmt(prs, "if-statement can have only one else-branch");
         }
-        else_branch = lit_astparser_parsestmt(prs);
+        elsebranch = lit_astparser_parsestmt(prs);
     }
-    return (LitAstExpression*)lit_ast_makeifstatement(line, condition, if_branch, else_branch, elseif_conditions, elseif_branches);
+    return (LitAstExpression*)lit_ast_makeifstatement(line, condition, ifbranch, elsebranch, elseifconditions, elseifbranches);
 }
 
 LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
 {
-    size_t line = prs->previous.line;
-    bool hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
-    LitAstExpression* var = NULL;
-    LitAstExpression* init = NULL;
+    LitAstExpression* var;
+    LitAstExpression* init;
+    LitAstExpression* condition;
+    LitAstExpression* increment;
+    size_t line;
+    bool hadparen;
+    bool cstyle;
+
+    line = prs->previous.line;
+    hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
+
+    var = NULL;
+    init = NULL;
     if(!lit_astparser_check(prs, LIT_ASTTOKTYP_SEMICOLON))
     {
-        if(lit_astparser_match(prs, LIT_ASTTOKTYP_VAR))
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWVAR))
         {
             var = lit_astparser_parsevardecl(prs);
         }
@@ -7388,9 +8378,9 @@ LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
             init = lit_astparser_parseexpr(prs);
         }
     }
-    bool cstyle = !lit_astparser_match(prs, LIT_ASTTOKTYP_IN);
-    LitAstExpression* condition = NULL;
-    LitAstExpression* increment = NULL;
+    cstyle = !lit_astparser_match(prs, LIT_ASTTOKTYP_KWIN);
+    condition = NULL;
+    increment = NULL;
     if(cstyle)
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_SEMICOLON, "';'");
@@ -7415,14 +8405,19 @@ LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
 
 LitAstExpression* lit_astparser_parsewhile(LitAstParser* prs)
 {
-    size_t line = prs->previous.line;
-    bool hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
-    LitAstExpression* condition = lit_astparser_parseexpr(prs);
+    size_t line;
+    bool hadparen;
+    LitAstExpression* condition;
+    LitAstExpression* body;
+
+    line = prs->previous.line;
+    hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
+    condition = lit_astparser_parseexpr(prs);
     if(hadparen)
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
     }
-    LitAstExpression* body = lit_astparser_parsestmt(prs);
+    body = lit_astparser_parsestmt(prs);
     return (LitAstExpression*)lit_ast_makewhilestmt(line, condition, body);
 }
 
@@ -7433,13 +8428,18 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
     bool isexport;
     bool noname;
     const char* fnname;
+    LitAstFunctionExpr* lambda;
+    LitAstIndexSetExpr* to;
+    LitAstCompiler stackcc;
+    LitAstFunctionExpr* function;
+
     noname = false;
     fnname = "anonymous";
     namelen = strlen(fnname);
-    isexport = prs->previous.type == LIT_ASTTOKTYP_EXPORT;
+    isexport = prs->previous.type == LIT_ASTTOKTYP_KWEXPORT;
     if(isexport)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_FUNCTION, "'function' after 'export'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWFUNCTION, "'function' after 'export'");
     }
     line = prs->previous.line;
     if(lit_astparser_check(prs, LIT_ASTTOKTYP_IDENTIFIER))
@@ -7455,10 +8455,9 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT))
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "function name");
-        LitAstFunctionExpr* lambda = lit_ast_makelambdaexpr(line);
-        LitAstIndexSetExpr* to = lit_ast_makesetexpr(line, (LitAstExpression*)lit_ast_makevargetexpr(line, fnname, namelen), prs->previous.start, prs->previous.length, (LitAstExpression*)lambda);
+        lambda = lit_ast_makelambdaexpr(line);
+        to = lit_ast_makesetexpr(line, (LitAstExpression*)lit_ast_makevargetexpr(line, fnname, namelen), prs->previous.start, prs->previous.length, (LitAstExpression*)lambda);
         lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after function name");
-        LitAstCompiler stackcc;
         lit_astparser_compilerinit(prs, &stackcc);
         lit_astparser_scopebegin(prs);
         lit_astparser_parseparams(prs, &lambda->parameters);
@@ -7472,7 +8471,6 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
         lit_astparser_compilerend(prs, &stackcc);
         return (LitAstExpression*)lit_ast_makeexprstmt(line, (LitAstExpression*)to);
     }
-    LitAstFunctionExpr* function;
 
     if(noname)
     {
@@ -7484,7 +8482,6 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
     }
     function->exported = isexport;
     lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after function name");
-    LitAstCompiler stackcc;
     lit_astparser_compilerinit(prs, &stackcc);
     lit_astparser_scopebegin(prs);
     lit_astparser_parseparams(prs, &function->parameters);
@@ -7503,14 +8500,14 @@ LitAstExpression* lit_astparser_parsereturn(LitAstParser* prs)
 {
     size_t line = prs->previous.line;
     LitAstExpression* expr = NULL;
-    if(!lit_astparser_check(prs, LIT_ASTTOKTYP_NEWLINE) && !lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE))
+    if(!lit_astparser_check(prs, LIT_ASTTOKTYP_LINEFEED) && !lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE))
     {
         expr = lit_astparser_parseexpr(prs);
     }
     return (LitAstExpression*)lit_ast_makereturnstmt(line, expr);
 }
 
-LitAstExpression* lit_astparser_parsefield(LitAstParser* prs, LitString* name, bool is_static)
+LitAstExpression* lit_astparser_parsefield(LitAstParser* prs, LitString* name, bool isstatic)
 {
     size_t line = prs->previous.line;
     LitAstExpression* getter = NULL;
@@ -7544,31 +8541,37 @@ LitAstExpression* lit_astparser_parsefield(LitAstParser* prs, LitString* name, b
         lit_astparser_ignorelinefeeds(prs);
         lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}' after field declaration");
     }
-    return (LitAstExpression*)lit_ast_makefieldstmt(line, name, getter, setter, is_static);
+    return (LitAstExpression*)lit_ast_makefieldstmt(line, name, getter, setter, isstatic);
 }
 
-static LitAstTokType operators[] = { LIT_ASTTOKTYP_PLUS,         LIT_ASTTOKTYP_MINUS, LIT_ASTTOKTYP_STAR,       LIT_ASTTOKTYP_PERCENT, LIT_ASTTOKTYP_SLASH,         LIT_ASTTOKTYP_SHARP,
+/* clang-format off */
+static LitAstTokType operators[] = {
+    LIT_ASTTOKTYP_PLUS, LIT_ASTTOKTYP_MINUS, LIT_ASTTOKTYP_STAR, LIT_ASTTOKTYP_PERCENT,
+    LIT_ASTTOKTYP_SLASH, LIT_ASTTOKTYP_SHARP, LIT_ASTTOKTYP_BANG, LIT_ASTTOKTYP_LESS,
+    LIT_ASTTOKTYP_LESSEQUAL, LIT_ASTTOKTYP_GREATER, LIT_ASTTOKTYP_GREATEREQUAL, LIT_ASTTOKTYP_EQUALEQUAL,
+    LIT_ASTTOKTYP_LEFTBRACKET, LIT_ASTTOKTYP_EOF
+};
+/* clang-format on */
 
-                                    LIT_ASTTOKTYP_BANG,         LIT_ASTTOKTYP_LESS,  LIT_ASTTOKTYP_LESSEQUAL, LIT_ASTTOKTYP_GREATER, LIT_ASTTOKTYP_GREATEREQUAL, LIT_ASTTOKTYP_EQUALEQUAL,
-
-                                    LIT_ASTTOKTYP_LEFTBRACKET,
-
-                                    LIT_ASTTOKTYP_EOF };
-
-LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool is_static)
+LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool isstatic)
 {
-    if(lit_astparser_match(prs, LIT_ASTTOKTYP_STATIC))
+    size_t i;
+    LitString* name;
+    LitAstMethodExpr* method;
+    LitAstCompiler stackcc;
+
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWSTATIC))
     {
-        is_static = true;
+        isstatic = true;
     }
-    LitString* name = NULL;
-    if(lit_astparser_match(prs, LIT_ASTTOKTYP_OPERATOR))
+    name = NULL;
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWOPERATOR))
     {
-        if(is_static)
+        if(isstatic)
         {
             lit_astparser_failfmt(prs, "operator methods can't be static or defined in static classes");
         }
-        size_t i = 0;
+        i = 0;
         while(operators[i] != LIT_ASTTOKTYP_EOF)
         {
             if(lit_astparser_match(prs, operators[i]))
@@ -7593,11 +8596,10 @@ LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool is_static)
         name = lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
         if(lit_astparser_check(prs, LIT_ASTTOKTYP_LEFTBRACE) || lit_astparser_check(prs, LIT_ASTTOKTYP_ARROW))
         {
-            return lit_astparser_parsefield(prs, name, is_static);
+            return lit_astparser_parsefield(prs, name, isstatic);
         }
     }
-    LitAstMethodExpr* method = lit_ast_makemethoddefstmt(prs->previous.line, name, is_static);
-    LitAstCompiler stackcc;
+    method = lit_ast_makemethoddefstmt(prs->previous.line, name, isstatic);
     lit_astparser_compilerinit(prs, &stackcc);
     lit_astparser_scopebegin(prs);
     lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after method name");
@@ -7615,19 +8617,29 @@ LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool is_static)
 
 LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
 {
+    size_t line;
+    bool isstatic;
+    LitString* name;
+    LitString* super;
+    LitAstClassExpr* klass;
+    bool finishedparsingfields;
+    bool fieldisstatic;
+    LitAstExpression* var;
+    LitAstExpression* method;
+
     if(setjmp(jumpbuffer))
     {
         return NULL;
     }
-    size_t line = prs->previous.line;
-    bool is_static = prs->previous.type == LIT_ASTTOKTYP_STATIC;
-    if(is_static)
+    line = prs->previous.line;
+    isstatic = prs->previous.type == LIT_ASTTOKTYP_KWSTATIC;
+    if(isstatic)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_CLASS, "'class' after 'static'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCLASS, "'class' after 'static'");
     }
     lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "class name after 'class'");
-    LitString* name = lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
-    LitString* super = NULL;
+    name = lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+    super = NULL;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_COLON))
     {
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "super class name after ':'");
@@ -7637,27 +8649,27 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
             lit_astparser_failfmt(prs, "class cannot inherit itself");
         }
     }
-    LitAstClassExpr* klass = lit_ast_makeclassdefstmt(line, name, super);
+    klass = lit_ast_makeclassdefstmt(line, name, super);
     lit_astparser_ignorelinefeeds(prs);
     lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "'{' before class body");
     lit_astparser_ignorelinefeeds(prs);
-    bool finishedparsingfields = false;
+    finishedparsingfields = false;
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE))
     {
-        bool fieldisstatic = false;
-        if(lit_astparser_match(prs, LIT_ASTTOKTYP_STATIC))
+        fieldisstatic = false;
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWSTATIC))
         {
             fieldisstatic = true;
-            if(lit_astparser_match(prs, LIT_ASTTOKTYP_VAR))
+            if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWVAR))
             {
                 if(finishedparsingfields)
                 {
                     lit_astparser_failfmt(prs, "all static fields must be defined before the methods");
                 }
-                LitAstExpression* var = lit_astparser_parsevardecl(prs);
+                var = lit_astparser_parsevardecl(prs);
                 if(var != NULL)
                 {
-                    lit_exprlist_push(&klass->staticfields, var);
+                    lit_dynlistexpr_push(&klass->staticfields, var);
                 }
                 lit_astparser_ignorelinefeeds(prs);
                 continue;
@@ -7667,10 +8679,10 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
                 finishedparsingfields = true;
             }
         }
-        LitAstExpression* method = lit_astparser_parsemethod(prs, is_static || fieldisstatic);
+        method = lit_astparser_parsemethod(prs, isstatic || fieldisstatic);
         if(method != NULL)
         {
-            lit_exprlist_push(&klass->staticfields, method);
+            lit_dynlistexpr_push(&klass->staticfields, method);
         }
         lit_astparser_ignorelinefeeds(prs);
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_SEMICOLON))
@@ -7684,26 +8696,26 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
 
 void lit_astparser_sync(LitAstParser* prs)
 {
-    prs->panic_mode = false;
+    prs->panicmode = false;
     while(prs->current.type != LIT_ASTTOKTYP_EOF)
     {
-        if(prs->previous.type == LIT_ASTTOKTYP_NEWLINE)
+        if(prs->previous.type == LIT_ASTTOKTYP_LINEFEED)
         {
             longjmp(jumpbuffer, 1);
             return;
         }
         switch(prs->current.type)
         {
-            case LIT_ASTTOKTYP_CLASS:
-            case LIT_ASTTOKTYP_FUNCTION:
-            case LIT_ASTTOKTYP_EXPORT:
-            case LIT_ASTTOKTYP_VAR:
-            case LIT_ASTTOKTYP_CONST:
-            case LIT_ASTTOKTYP_FOR:
-            case LIT_ASTTOKTYP_STATIC:
-            case LIT_ASTTOKTYP_IF:
-            case LIT_ASTTOKTYP_WHILE:
-            case LIT_ASTTOKTYP_RETURN:
+            case LIT_ASTTOKTYP_KWCLASS:
+            case LIT_ASTTOKTYP_KWFUNCTION:
+            case LIT_ASTTOKTYP_KWEXPORT:
+            case LIT_ASTTOKTYP_KWVAR:
+            case LIT_ASTTOKTYP_KWCONST:
+            case LIT_ASTTOKTYP_KWFOR:
+            case LIT_ASTTOKTYP_KWSTATIC:
+            case LIT_ASTTOKTYP_KWIF:
+            case LIT_ASTTOKTYP_KWWHILE:
+            case LIT_ASTTOKTYP_KWRETURN:
             {
                 longjmp(jumpbuffer, 1);
                 return;
@@ -7718,40 +8730,50 @@ void lit_astparser_sync(LitAstParser* prs)
 
 LitAstExpression* lit_astparser_parsestmt(LitAstParser* prs)
 {
+    LitAstExpression* expr;
+
     if(setjmp(jumpbuffer))
     {
         return NULL;
     }
     lit_astparser_ignorelinefeeds(prs);
-    if(lit_astparser_match(prs, LIT_ASTTOKTYP_VAR) || lit_astparser_match(prs, LIT_ASTTOKTYP_CONST))
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWVAR) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWCONST))
     {
         return lit_astparser_parsevardecl(prs);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_IF))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWIF))
     {
         return lit_astparser_parseif(prs);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_FOR))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWTRY))
+    {
+        return lit_astparser_parsetry(prs);
+    }
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWTHROW))
+    {
+        return lit_astparser_parsethrow(prs);
+    }
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFOR))
     {
         return lit_astparser_parsefor(prs);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_WHILE))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWWHILE))
     {
         return lit_astparser_parsewhile(prs);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_CONTINUE))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCONTINUE))
     {
         return (LitAstExpression*)lit_ast_makecontinuestmt(prs->previous.line);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_BREAK))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWBREAK))
     {
         return (LitAstExpression*)lit_ast_makebreakstmt(prs->previous.line);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_FUNCTION) || lit_astparser_match(prs, LIT_ASTTOKTYP_EXPORT))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFUNCTION) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWEXPORT))
     {
         return lit_astparser_parsefunction(prs);
     }
-    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_RETURN))
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWRETURN))
     {
         return lit_astparser_parsereturn(prs);
     }
@@ -7760,14 +8782,14 @@ LitAstExpression* lit_astparser_parsestmt(LitAstParser* prs)
         lit_astparser_ignorelinefeeds(prs);
         return lit_astparser_parseblock(prs);
     }
-    LitAstExpression* expr = lit_astparser_parseexpr(prs);
+    expr = lit_astparser_parseexpr(prs);
     return expr == NULL ? NULL : (LitAstExpression*)lit_ast_makeexprstmt(prs->previous.line, expr);
 }
 
 LitAstExpression* lit_astparser_parsedecl(LitAstParser* prs)
 {
     LitAstExpression* expr = NULL;
-    if(lit_astparser_match(prs, LIT_ASTTOKTYP_CLASS) || lit_astparser_match(prs, LIT_ASTTOKTYP_STATIC))
+    if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCLASS) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWSTATIC))
     {
         expr = lit_astparser_parseclass(prs);
     }
@@ -7780,10 +8802,12 @@ LitAstExpression* lit_astparser_parsedecl(LitAstParser* prs)
 
 bool lit_astparser_parsesource(LitAstParser* prs, const char* filename, const char* source, LitDynListExpr* statements)
 {
-    prs->had_error = false;
-    prs->panic_mode = false;
-    lit_astlex_init(prs->pstate, prs->pstate->lexer, filename, source);
     LitAstCompiler stackcc;
+    LitAstExpression* expr;
+
+    prs->haderror = false;
+    prs->panicmode = false;
+    lit_astlex_init(prs->pstate, prs->pstate->activelexer, filename, source);
     lit_astparser_compilerinit(prs, &stackcc);
     lit_astparser_advance(prs);
     lit_astparser_ignorelinefeeds(prs);
@@ -7791,10 +8815,10 @@ bool lit_astparser_parsesource(LitAstParser* prs, const char* filename, const ch
     {
         do
         {
-            LitAstExpression* expr = lit_astparser_parsedecl(prs);
+            expr = lit_astparser_parsedecl(prs);
             if(expr != NULL)
             {
-                lit_exprlist_push(statements, expr);
+                lit_dynlistexpr_push(statements, expr);
             }
             if(!lit_astparser_matchlinefeed(prs))
             {
@@ -7805,7 +8829,7 @@ bool lit_astparser_parsesource(LitAstParser* prs, const char* filename, const ch
             }
         } while(!lit_astparser_isatend(prs));
     }
-    return prs->had_error || prs->pstate->lexer->had_error;
+    return prs->haderror || prs->pstate->activelexer->haderror;
 }
 
 
@@ -7820,64 +8844,65 @@ LitAstRule lit_astparser_makerule(LitPrefixParseFn prefix, LitInfixParseFn infix
 
 void lit_astparser_setuprules()
 {
-    g_astparserules[LIT_ASTTOKTYP_LEFTPAREN] = lit_astparser_makerule(lit_astparser_rulegroupingorlambda, lit_astparser_parsecall, LIT_ASTPREC_CALL);
-    g_astparserules[LIT_ASTTOKTYP_PLUS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_TERM);
-    g_astparserules[LIT_ASTTOKTYP_MINUS] = lit_astparser_makerule(lit_astparser_ruleunary, lit_astparser_rulebinary, LIT_ASTPREC_TERM);
-    g_astparserules[LIT_ASTTOKTYP_BANG] = lit_astparser_makerule(lit_astparser_ruleunary, lit_astparser_rulebinary, LIT_ASTPREC_IS);
-    g_astparserules[LIT_ASTTOKTYP_STAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
-    g_astparserules[LIT_ASTTOKTYP_STARSTAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
-    g_astparserules[LIT_ASTTOKTYP_SLASH] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
-    g_astparserules[LIT_ASTTOKTYP_SHARP] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
-    g_astparserules[LIT_ASTTOKTYP_BAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BOR);
-    g_astparserules[LIT_ASTTOKTYP_AMPERSAND] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BAND);
-    g_astparserules[LIT_ASTTOKTYP_TILDE] = lit_astparser_makerule(lit_astparser_ruleunary, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_CARET] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BXOR);
-    g_astparserules[LIT_ASTTOKTYP_LESSLESS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_SHIFT);
-    g_astparserules[LIT_ASTTOKTYP_GREATERGREATER] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_SHIFT);
-    g_astparserules[LIT_ASTTOKTYP_PERCENT] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
-    g_astparserules[LIT_ASTTOKTYP_IS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_IS);
-    g_astparserules[LIT_ASTTOKTYP_NUMBER] = lit_astparser_makerule(lit_astparser_rulenumber, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_TRUE] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_FALSE] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_NULL] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_BANGEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_EQUALITY);
-    g_astparserules[LIT_ASTTOKTYP_EQUALEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_EQUALITY);
-    g_astparserules[LIT_ASTTOKTYP_GREATER] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
-    g_astparserules[LIT_ASTTOKTYP_GREATEREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
-    g_astparserules[LIT_ASTTOKTYP_LESS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
-    g_astparserules[LIT_ASTTOKTYP_LESSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
-    g_astparserules[LIT_ASTTOKTYP_STRING] = lit_astparser_makerule(lit_astparser_rulestring, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_INTERPOLATION] = lit_astparser_makerule(lit_astparser_ruleinterpolation, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_IDENTIFIER] = lit_astparser_makerule(lit_astparser_rulevarexpr, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_NEW] = lit_astparser_makerule(lit_astparser_rulenewexpr, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_PLUSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_MINUSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_STAREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_SLASHEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_SHARPEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_PERCENTEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_CARETEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_BAREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_AMPERSANDEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
-    g_astparserules[LIT_ASTTOKTYP_PLUSPLUS] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_COMPOUND);
-    g_astparserules[LIT_ASTTOKTYP_MINUSMINUS] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_COMPOUND);
-    g_astparserules[LIT_ASTTOKTYP_AMPERSANDAMPERSAND] = lit_astparser_makerule(NULL, lit_astparser_rulelogicaland, LIT_ASTPREC_AND);
-    g_astparserules[LIT_ASTTOKTYP_BARBAR] = lit_astparser_makerule(NULL, lit_astparser_rulelogicalor, LIT_ASTPREC_OR);
-    g_astparserules[LIT_ASTTOKTYP_QUESTIONQUESTION] = lit_astparser_makerule(NULL, lit_astparser_rulenullfilter, LIT_ASTPREC_NULL);
-    g_astparserules[LIT_ASTTOKTYP_DOT] = lit_astparser_makerule(NULL, lit_astparser_ruledot, LIT_ASTPREC_CALL);
+    gastparserules[LIT_ASTTOKTYP_LEFTPAREN] = lit_astparser_makerule(lit_astparser_rulegroupingorlambda, lit_astparser_parsecall, LIT_ASTPREC_CALL);
+    gastparserules[LIT_ASTTOKTYP_PLUS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_TERM);
+    gastparserules[LIT_ASTTOKTYP_MINUS] = lit_astparser_makerule(lit_astparser_ruleunary, lit_astparser_rulebinary, LIT_ASTPREC_TERM);
+    gastparserules[LIT_ASTTOKTYP_BANG] = lit_astparser_makerule(lit_astparser_ruleunary, lit_astparser_rulebinary, LIT_ASTPREC_IS);
+    gastparserules[LIT_ASTTOKTYP_STAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
+    gastparserules[LIT_ASTTOKTYP_STARSTAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
+    gastparserules[LIT_ASTTOKTYP_SLASH] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
+    gastparserules[LIT_ASTTOKTYP_SHARP] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
+    gastparserules[LIT_ASTTOKTYP_BAR] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BOR);
+    gastparserules[LIT_ASTTOKTYP_AMPERSAND] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BAND);
+    gastparserules[LIT_ASTTOKTYP_TILDE] = lit_astparser_makerule(lit_astparser_ruleunary, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_CARET] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_BXOR);
+    gastparserules[LIT_ASTTOKTYP_LESSLESS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_SHIFT);
+    gastparserules[LIT_ASTTOKTYP_GREATERGREATER] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_SHIFT);
+    gastparserules[LIT_ASTTOKTYP_PERCENT] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_FACTOR);
+    gastparserules[LIT_ASTTOKTYP_KWIS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_IS);
+    gastparserules[LIT_ASTTOKTYP_NUMBER] = lit_astparser_makerule(lit_astparser_rulenumber, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWTRUE] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWFALSE] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWNULL] = lit_astparser_makerule(lit_astparser_ruleliteral, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_BANGEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_EQUALITY);
+    gastparserules[LIT_ASTTOKTYP_EQUALEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_EQUALITY);
+    gastparserules[LIT_ASTTOKTYP_GREATER] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
+    gastparserules[LIT_ASTTOKTYP_GREATEREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
+    gastparserules[LIT_ASTTOKTYP_LESS] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
+    gastparserules[LIT_ASTTOKTYP_LESSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulebinary, LIT_ASTPREC_COMPARISON);
+    gastparserules[LIT_ASTTOKTYP_STRING] = lit_astparser_makerule(lit_astparser_rulestring, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_STRTEMPLATE] = lit_astparser_makerule(lit_astparser_ruleinterpolation, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_IDENTIFIER] = lit_astparser_makerule(lit_astparser_rulevarexpr, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWNEW] = lit_astparser_makerule(lit_astparser_rulenewexpr, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_PLUSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_MINUSEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_STAREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_SLASHEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_SHARPEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_PERCENTEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_CARETEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_BAREQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_AMPERSANDEQUAL] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_ASSIGNMENT);
+    gastparserules[LIT_ASTTOKTYP_PLUSPLUS] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_COMPOUND);
+    gastparserules[LIT_ASTTOKTYP_MINUSMINUS] = lit_astparser_makerule(NULL, lit_astparser_rulecompound, LIT_ASTPREC_COMPOUND);
+    gastparserules[LIT_ASTTOKTYP_AMPERSANDAMPERSAND] = lit_astparser_makerule(NULL, lit_astparser_rulelogicaland, LIT_ASTPREC_AND);
+    gastparserules[LIT_ASTTOKTYP_BARBAR] = lit_astparser_makerule(NULL, lit_astparser_rulelogicalor, LIT_ASTPREC_OR);
+    gastparserules[LIT_ASTTOKTYP_QUESTIONQUESTION] = lit_astparser_makerule(NULL, lit_astparser_rulenullfilter, LIT_ASTPREC_NULL);
+    gastparserules[LIT_ASTTOKTYP_DOT] = lit_astparser_makerule(NULL, lit_astparser_ruledot, LIT_ASTPREC_CALL);
 #if 0
-        g_astparserules[LIT_ASTTOKTYP_SMALLARROW] = lit_astparser_makerule(NULL, lit_astparser_ruledot, LIT_ASTPREC_CALL);
+        gastparserules[LIT_ASTTOKTYP_SMALLARROW] = lit_astparser_makerule(NULL, lit_astparser_ruledot, LIT_ASTPREC_CALL);
 #endif
-    g_astparserules[LIT_ASTTOKTYP_DOTDOT] = lit_astparser_makerule(NULL, lit_astparser_rulerange, LIT_ASTPREC_RANGE);
-    g_astparserules[LIT_ASTTOKTYP_DOTDOTDOT] = lit_astparser_makerule(lit_astparser_rulevarexpr, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_LEFTBRACKET] = lit_astparser_makerule(lit_astparser_rulearray, lit_astparser_parsesubscript, LIT_ASTPREC_CALL);
-    g_astparserules[LIT_ASTTOKTYP_LEFTBRACE] = lit_astparser_makerule(lit_astparser_ruleobject, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_THIS] = lit_astparser_makerule(lit_astparser_rulethis, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_SUPER] = lit_astparser_makerule(lit_astparser_rulesuper, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_QUESTION] = lit_astparser_makerule(NULL, lit_astparser_ruleternaryorquestion, LIT_ASTPREC_EQUALITY);
-    g_astparserules[LIT_ASTTOKTYP_REF] = lit_astparser_makerule(lit_astparser_rulereference, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_SEMICOLON] = lit_astparser_makerule(lit_astparser_rulenothing, NULL, LIT_ASTPREC_NONE);
-    g_astparserules[LIT_ASTTOKTYP_FUNCTION] = lit_astparser_makerule(lit_astparser_rulefunction, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_DOTDOT] = lit_astparser_makerule(NULL, lit_astparser_rulerange, LIT_ASTPREC_RANGE);
+    gastparserules[LIT_ASTTOKTYP_DOTDOTDOT] = lit_astparser_makerule(lit_astparser_rulevarexpr, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_LEFTBRACKET] = lit_astparser_makerule(lit_astparser_rulearray, lit_astparser_parsesubscript, LIT_ASTPREC_CALL);
+    gastparserules[LIT_ASTTOKTYP_LEFTBRACE] = lit_astparser_makerule(lit_astparser_ruleobject, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWTHIS] = lit_astparser_makerule(lit_astparser_rulethis, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWSUPER] = lit_astparser_makerule(lit_astparser_rulesuper, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_QUESTION] = lit_astparser_makerule(NULL, lit_astparser_ruleternaryorquestion, LIT_ASTPREC_EQUALITY);
+    gastparserules[LIT_ASTTOKTYP_KWREF] = lit_astparser_makerule(lit_astparser_rulereference, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_REFSYM] = lit_astparser_makerule(lit_astparser_ruleunary, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_SEMICOLON] = lit_astparser_makerule(lit_astparser_rulenothing, NULL, LIT_ASTPREC_NONE);
+    gastparserules[LIT_ASTTOKTYP_KWFUNCTION] = lit_astparser_makerule(lit_astparser_rulefunction, NULL, LIT_ASTPREC_NONE);
 }
 
 
@@ -7937,31 +8962,31 @@ const char* lit_astprint_tokname(int t)
         case LIT_ASTTOKTYP_SHARPEQUAL: return "LIT_ASTTOKTYP_SHARPEQUAL";
         case LIT_ASTTOKTYP_IDENTIFIER: return "LIT_ASTTOKTYP_IDENTIFIER";
         case LIT_ASTTOKTYP_STRING: return "LIT_ASTTOKTYP_STRING";
-        case LIT_ASTTOKTYP_INTERPOLATION: return "LIT_ASTTOKTYP_INTERPOLATION";
+        case LIT_ASTTOKTYP_STRTEMPLATE: return "LIT_ASTTOKTYP_STRTEMPLATE";
         case LIT_ASTTOKTYP_NUMBER: return "LIT_ASTTOKTYP_NUMBER";
-        case LIT_ASTTOKTYP_CLASS: return "LIT_ASTTOKTYP_CLASS";
-        case LIT_ASTTOKTYP_ELSE: return "LIT_ASTTOKTYP_ELSE";
-        case LIT_ASTTOKTYP_FALSE: return "LIT_ASTTOKTYP_FALSE";
-        case LIT_ASTTOKTYP_FOR: return "LIT_ASTTOKTYP_FOR";
-        case LIT_ASTTOKTYP_FUNCTION: return "LIT_ASTTOKTYP_FUNCTION";
-        case LIT_ASTTOKTYP_IF: return "LIT_ASTTOKTYP_IF";
-        case LIT_ASTTOKTYP_NULL: return "LIT_ASTTOKTYP_NULL";
-        case LIT_ASTTOKTYP_RETURN: return "LIT_ASTTOKTYP_RETURN";
-        case LIT_ASTTOKTYP_SUPER: return "LIT_ASTTOKTYP_SUPER";
-        case LIT_ASTTOKTYP_THIS: return "LIT_ASTTOKTYP_THIS";
-        case LIT_ASTTOKTYP_TRUE: return "LIT_ASTTOKTYP_TRUE";
-        case LIT_ASTTOKTYP_VAR: return "LIT_ASTTOKTYP_VAR";
-        case LIT_ASTTOKTYP_WHILE: return "LIT_ASTTOKTYP_WHILE";
-        case LIT_ASTTOKTYP_CONTINUE: return "LIT_ASTTOKTYP_CONTINUE";
-        case LIT_ASTTOKTYP_BREAK: return "LIT_ASTTOKTYP_BREAK";
-        case LIT_ASTTOKTYP_NEW: return "LIT_ASTTOKTYP_NEW";
-        case LIT_ASTTOKTYP_EXPORT: return "LIT_ASTTOKTYP_EXPORT";
-        case LIT_ASTTOKTYP_IS: return "LIT_ASTTOKTYP_IS";
-        case LIT_ASTTOKTYP_STATIC: return "LIT_ASTTOKTYP_STATIC";
-        case LIT_ASTTOKTYP_OPERATOR: return "LIT_ASTTOKTYP_OPERATOR";
-        case LIT_ASTTOKTYP_IN: return "LIT_ASTTOKTYP_IN";
-        case LIT_ASTTOKTYP_CONST: return "LIT_ASTTOKTYP_CONST";
-        case LIT_ASTTOKTYP_REF: return "LIT_ASTTOKTYP_REF";
+        case LIT_ASTTOKTYP_KWCLASS: return "LIT_ASTTOKTYP_KWCLASS";
+        case LIT_ASTTOKTYP_KWELSE: return "LIT_ASTTOKTYP_KWELSE";
+        case LIT_ASTTOKTYP_KWFALSE: return "LIT_ASTTOKTYP_KWFALSE";
+        case LIT_ASTTOKTYP_KWFOR: return "LIT_ASTTOKTYP_KWFOR";
+        case LIT_ASTTOKTYP_KWFUNCTION: return "LIT_ASTTOKTYP_KWFUNCTION";
+        case LIT_ASTTOKTYP_KWIF: return "LIT_ASTTOKTYP_KWIF";
+        case LIT_ASTTOKTYP_KWNULL: return "LIT_ASTTOKTYP_KWNULL";
+        case LIT_ASTTOKTYP_KWRETURN: return "LIT_ASTTOKTYP_KWRETURN";
+        case LIT_ASTTOKTYP_KWSUPER: return "LIT_ASTTOKTYP_KWSUPER";
+        case LIT_ASTTOKTYP_KWTHIS: return "LIT_ASTTOKTYP_KWTHIS";
+        case LIT_ASTTOKTYP_KWTRUE: return "LIT_ASTTOKTYP_KWTRUE";
+        case LIT_ASTTOKTYP_KWVAR: return "LIT_ASTTOKTYP_KWVAR";
+        case LIT_ASTTOKTYP_KWWHILE: return "LIT_ASTTOKTYP_KWWHILE";
+        case LIT_ASTTOKTYP_KWCONTINUE: return "LIT_ASTTOKTYP_KWCONTINUE";
+        case LIT_ASTTOKTYP_KWBREAK: return "LIT_ASTTOKTYP_KWBREAK";
+        case LIT_ASTTOKTYP_KWNEW: return "LIT_ASTTOKTYP_KWNEW";
+        case LIT_ASTTOKTYP_KWEXPORT: return "LIT_ASTTOKTYP_KWEXPORT";
+        case LIT_ASTTOKTYP_KWIS: return "LIT_ASTTOKTYP_KWIS";
+        case LIT_ASTTOKTYP_KWSTATIC: return "LIT_ASTTOKTYP_KWSTATIC";
+        case LIT_ASTTOKTYP_KWOPERATOR: return "LIT_ASTTOKTYP_KWOPERATOR";
+        case LIT_ASTTOKTYP_KWIN: return "LIT_ASTTOKTYP_KWIN";
+        case LIT_ASTTOKTYP_KWCONST: return "LIT_ASTTOKTYP_KWCONST";
+        case LIT_ASTTOKTYP_KWREF: return "LIT_ASTTOKTYP_KWREF";
         case LIT_ASTTOKTYP_ERROR: return "LIT_ASTTOKTYP_ERROR";
         case LIT_ASTTOKTYP_EOF: return "LIT_ASTTOKTYP_EOF";
 
@@ -7972,7 +8997,7 @@ const char* lit_astprint_tokopstring(int t)
 {
     switch(t)
     {
-        case LIT_ASTTOKTYP_NEWLINE: return "<linefeed>";
+        case LIT_ASTTOKTYP_LINEFEED: return "<linefeed>";
         case LIT_ASTTOKTYP_LEFTPAREN: return "(";
         case LIT_ASTTOKTYP_RIGHTPAREN: return ")";
         case LIT_ASTTOKTYP_LEFTBRACE: return "{";
@@ -8023,27 +9048,27 @@ const char* lit_astprint_tokopstring(int t)
         case LIT_ASTTOKTYP_DOTDOTDOT: return "...";
         case LIT_ASTTOKTYP_SHARP: return "#";
         case LIT_ASTTOKTYP_SHARPEQUAL: return "#=";
-        case LIT_ASTTOKTYP_CLASS: return "class";
-        case LIT_ASTTOKTYP_ELSE: return "else";
-        case LIT_ASTTOKTYP_FALSE: return "false";
-        case LIT_ASTTOKTYP_FOR: return "for";
-        case LIT_ASTTOKTYP_FUNCTION: return "function";
-        case LIT_ASTTOKTYP_IF: return "if";
-        case LIT_ASTTOKTYP_NULL: return "null";
-        case LIT_ASTTOKTYP_RETURN: return "return";
-        case LIT_ASTTOKTYP_SUPER: return "super";
-        case LIT_ASTTOKTYP_THIS: return "this";
-        case LIT_ASTTOKTYP_TRUE: return "true";
-        case LIT_ASTTOKTYP_VAR: return "var";
-        case LIT_ASTTOKTYP_WHILE: return "while";
-        case LIT_ASTTOKTYP_CONTINUE: return "continue";
-        case LIT_ASTTOKTYP_BREAK: return "break";
-        case LIT_ASTTOKTYP_NEW: return "new";
-        case LIT_ASTTOKTYP_EXPORT: return "export";
-        case LIT_ASTTOKTYP_IS: return "is";
-        case LIT_ASTTOKTYP_STATIC: return "statis";
-        case LIT_ASTTOKTYP_IN: return "in";
-        case LIT_ASTTOKTYP_CONST: return "const";
+        case LIT_ASTTOKTYP_KWCLASS: return "class";
+        case LIT_ASTTOKTYP_KWELSE: return "else";
+        case LIT_ASTTOKTYP_KWFALSE: return "false";
+        case LIT_ASTTOKTYP_KWFOR: return "for";
+        case LIT_ASTTOKTYP_KWFUNCTION: return "function";
+        case LIT_ASTTOKTYP_KWIF: return "if";
+        case LIT_ASTTOKTYP_KWNULL: return "null";
+        case LIT_ASTTOKTYP_KWRETURN: return "return";
+        case LIT_ASTTOKTYP_KWSUPER: return "super";
+        case LIT_ASTTOKTYP_KWTHIS: return "this";
+        case LIT_ASTTOKTYP_KWTRUE: return "true";
+        case LIT_ASTTOKTYP_KWVAR: return "var";
+        case LIT_ASTTOKTYP_KWWHILE: return "while";
+        case LIT_ASTTOKTYP_KWCONTINUE: return "continue";
+        case LIT_ASTTOKTYP_KWBREAK: return "break";
+        case LIT_ASTTOKTYP_KWNEW: return "new";
+        case LIT_ASTTOKTYP_KWEXPORT: return "export";
+        case LIT_ASTTOKTYP_KWIS: return "is";
+        case LIT_ASTTOKTYP_KWSTATIC: return "statis";
+        case LIT_ASTTOKTYP_KWIN: return "in";
+        case LIT_ASTTOKTYP_KWCONST: return "const";
         default:
             break;
     }
@@ -8381,6 +9406,40 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 lit_astprint_printexpression(apr, oex->body);
             }
             break;
+        case LIT_ASTEXPRTYP_TRY:
+            {
+                LitAstTryExpr* oex;
+
+                oex = (LitAstTryExpr*)expr;
+                lit_iostream_puts(apr->printer, "try\n");
+                lit_astprint_printexpression(apr, oex->tryblock);
+                if(oex->catchblock != NULL)
+                {
+                    lit_iostream_puts(apr->printer, "catch");
+                    if(oex->catchvarstr != NULL)
+                    {
+                        lit_iostream_printf(apr->printer, "(%.*s)", (int)oex->catchvarlen, oex->catchvarstr);
+                    }
+                    lit_iostream_puts(apr->printer, "\n");
+                    lit_astprint_printexpression(apr, oex->catchblock);
+                }
+                if(oex->finallyblock != NULL)
+                {
+                    lit_iostream_puts(apr->printer, "finally\n");
+                    lit_astprint_printexpression(apr, oex->finallyblock);
+                }
+            }
+            break;
+        case LIT_ASTEXPRTYP_THROW:
+            {
+                LitAstThrowExpr* oex;
+
+                oex = (LitAstThrowExpr*)expr;
+                lit_iostream_puts(apr->printer, "throw ");
+                lit_astprint_printexpression(apr, oex->exvalue);
+                lit_iostream_puts(apr->printer, ";\n");
+            }
+            break;
         case LIT_ASTEXPRTYP_VARDECL:
             {
                 LitAstVarDeclExpr* oex;
@@ -8455,7 +9514,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 bool notoper;
                 LitAstMethodExpr* oex;
                 oex = (LitAstMethodExpr*)expr;
-                notoper = lit_lexutil_isalpha(oex->name->strbuf.data[0]);
+                notoper = lit_util_charisalpha(oex->name->strbuf.data[0]);
                 if(!notoper)
                 {
                     lit_iostream_puts(apr->printer, "operator ");
@@ -8532,65 +9591,6 @@ void lit_astprint_printbeginone(FILE* ofh, LitAstExpression* expr)
     lit_iostream_destroy(apr.printer);
 }
 
-void lit_privlist_init(LitDynListPriv* list)
-{
-    lit_privlist_reset(list);
-}
-
-void lit_privlist_reset(LitDynListPriv* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_privlist_destroy(LitDynListPriv* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_privlist_reset(list);
-}
-
-void lit_privlist_push(LitDynListPriv* list, LitAstPrivate priv)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (LitAstPrivate*)lit_sysmem_realloc(list->listitems, sizeof(LitAstPrivate) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = priv;
-    list->listcount++;
-}
-
-void lit_loclist_init(LitDynListLoc* list)
-{
-    lit_loclist_reset(list);
-}
-
-void lit_loclist_reset(LitDynListLoc* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_loclist_destroy(LitDynListLoc* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_loclist_reset(list);
-}
-
-void lit_loclist_push(LitDynListLoc* list, LitAstLocal loc)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (LitAstLocal*)lit_sysmem_realloc(list->listitems, sizeof(LitAstLocal) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = loc;
-    list->listcount++;
-}
 
 void lit_emitter_resolvestmtlist(LitAstEmitter* emt, LitDynListExpr* statements)
 {
@@ -8604,40 +9604,40 @@ void lit_emitter_resolvestmtlist(LitAstEmitter* emt, LitDynListExpr* statements)
 void lit_emitter_init(LitState* state, LitAstEmitter* emt)
 {
     lit_emitter_reset(state, emt);
-    lit_privlist_init(&emt->privlist);
-    lit_uintlist_init(&emt->breaks);
-    lit_uintlist_init(&emt->continues);
+    lit_dynlistpriv_init(&emt->privlist);
+    lit_dynlistuint_init(&emt->breaks);
+    lit_dynlistuint_init(&emt->continues);
 }
 
 void lit_emitter_reset(LitState* state, LitAstEmitter* emt)
 {
     emt->pstate = state;
-    emt->loop_start = 0;
-    emt->emit_reference = 0;
-    emt->class_name = NULL;
+    emt->loopstart = 0;
+    emt->emitreference = 0;
+    emt->classname = NULL;
     emt->compiler = NULL;
     emt->chunk = NULL;
     emt->module = NULL;
-    emt->class_has_super = false;
+    emt->classhassuper = false;
 }
 
 void lit_emitter_destroy(LitAstEmitter* emt)
 {
-    lit_uintlist_destroy(&emt->breaks);
-    lit_uintlist_destroy(&emt->continues);
+    lit_dynlistuint_destroy(&emt->breaks);
+    lit_dynlistuint_destroy(&emt->continues);
 }
 
 void lit_emitter_raiseerror(LitAstEmitter* emt, size_t line, const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    lit_state_raiseerror(emt->pstate, LIT_ERROR_COMPILEERROR, lit_state_errorfmtv(emt->pstate, line, fmt, args)->strbuf.data);
+    lit_state_raiseerror(emt->pstate, lit_state_errorfmtv(emt->pstate, line, fmt, args)->strbuf.data);
     va_end(args);
 }
 
 size_t lit_emitter_emittmp(LitAstEmitter* emt)
 {
-    lit_chunk_push(emt->chunk, 0, emt->last_line);
+    lit_chunk_push(emt->chunk, 0, emt->lastline);
     return emt->chunk->compiledcodecount - 1;
 }
 
@@ -8648,20 +9648,20 @@ void lit_emitter_patchinstr(LitAstEmitter* emt, uint64_t position, uint64_t inst
 
 void lit_emitter_emitabc(LitAstEmitter* emt, uint16_t line, uint8_t opcode, uint8_t a, uint16_t b, uint16_t c)
 {
-    emt->last_line = fmax(line, emt->last_line);
-    lit_chunk_push(emt->chunk, LIT_REG_FORMABCINST(opcode, a, b, c), emt->last_line);
+    emt->lastline = fmax(line, emt->lastline);
+    lit_chunk_push(emt->chunk, LIT_REG_FORMABCINST(opcode, a, b, c), emt->lastline);
 }
 
-void lit_emitter_emitabx(LitAstEmitter* emt, uint16_t line, uint8_t opcode, uint8_t a, LITREGUINT32 bx)
+void lit_emitter_emitabx(LitAstEmitter* emt, uint16_t line, uint8_t opcode, uint8_t a, uint32_t bx)
 {
-    emt->last_line = fmax(line, emt->last_line);
-    lit_chunk_push(emt->chunk, LIT_REG_FORMABXINST(opcode, a, bx), emt->last_line);
+    emt->lastline = fmax(line, emt->lastline);
+    lit_chunk_push(emt->chunk, LIT_REG_FORMABXINST(opcode, a, bx), emt->lastline);
 }
 
-void lit_emitter_emitasbx(LitAstEmitter* emt, uint16_t line, uint8_t opcode, uint8_t a, LITREGINT32 sbx)
+void lit_emitter_emitasbx(LitAstEmitter* emt, uint16_t line, uint8_t opcode, uint8_t a, int32_t sbx)
 {
-    emt->last_line = fmax(line, emt->last_line);
-    lit_chunk_push(emt->chunk, LIT_REG_FORMASBXINST(opcode, a, sbx), emt->last_line);
+    emt->lastline = fmax(line, emt->lastline);
+    lit_chunk_push(emt->chunk, LIT_REG_FORMASBXINST(opcode, a, sbx), emt->lastline);
 }
 
 /*
@@ -8673,7 +9673,7 @@ uint64_t lit_emitter_reserveregister(LitAstEmitter* emt)
     LitAstCompiler* ccx = emt->compiler;
     if(ccx->registersused == LIT_CONFIG_REGISTERSMAX)
     {
-        lit_emitter_raiseerror(emt, emt->last_line, "too many registers required");
+        lit_emitter_raiseerror(emt, emt->lastline, "too many registers required");
         return 0;
     }
     if(ccx->function->maxregisters > (ccx->registersused+1))
@@ -8698,7 +9698,7 @@ void lit_emitter_freeregister(LitAstEmitter* emt, uint64_t reg)
     LitAstCompiler* ccx = emt->compiler;
     if(ccx->registersused == 0)
     {
-        return lit_emitter_raiseerror(emt, emt->last_line, "invalid register was freed");
+        return lit_emitter_raiseerror(emt, emt->lastline, "invalid register was freed");
     }
     ccx->registersused--;
 }
@@ -8717,16 +9717,18 @@ LitAstLocal lit_emitter_makelocal(const char* name, size_t length, int depth, bo
 
 void lit_emitter_compilerinit(LitAstEmitter* emt, LitAstCompiler* ccx, LitFuncType type)
 {
-    lit_loclist_init(&ccx->locals);
+    const char* name;
+
+    lit_dynlistloc_init(&ccx->locals);
     ccx->type = type;
-    ccx->scope_depth = -1;
+    ccx->scopedepth = -1;
     ccx->enclosing = (struct LitAstCompiler*)emt->compiler;
-    ccx->skip_return = false;
+    ccx->skipreturn = false;
     ccx->function = lit_object_makefunction(emt->pstate, emt->module);
-    ccx->loop_depth = 0;
+    ccx->loopdepth = 0;
     ccx->registersused = 0;
     emt->compiler = ccx;
-    const char* name = emt->pstate->lexer->sourcefilename;
+    name = emt->pstate->activelexer->sourcefilename;
     if(emt->compiler == NULL)
     {
         ccx->function->name = lit_string_copylen(emt->pstate, name, strlen(name));
@@ -8734,41 +9736,45 @@ void lit_emitter_compilerinit(LitAstEmitter* emt, LitAstCompiler* ccx, LitFuncTy
     emt->chunk = &ccx->function->chunk;
     if(type == LIT_FUNCTYPE_METHOD || type == LIT_FUNCTYPE_STATIC_METHOD || type == LIT_FUNCTYPE_CONSTRUCTOR)
     {
-        lit_loclist_push(&ccx->locals, lit_emitter_makelocal("this", 4, -1, false, false, lit_emitter_reserveregister(emt)));
+        lit_dynlistloc_push(&ccx->locals, lit_emitter_makelocal("this", 4, -1, false, false, lit_emitter_reserveregister(emt)));
     }
     else
     {
-        lit_loclist_push(&ccx->locals, lit_emitter_makelocal("", 0, -1, false, false, lit_emitter_reserveregister(emt)));
+        lit_dynlistloc_push(&ccx->locals, lit_emitter_makelocal("", 0, -1, false, false, lit_emitter_reserveregister(emt)));
     }
 }
 
-LitFunction* lit_emitter_compilerend(LitAstEmitter* emt, LitString* name)
+LitFuncScript* lit_emitter_compilerend(LitAstEmitter* emt, LitString* name)
 {
+    uint8_t reg;
+    LitFuncType type;
+    LitFuncScript* function;
+
     lit_emitter_freeregister(emt, 0);
     if(emt->compiler->registersused > 0)
     {
-        lit_emitter_raiseerror(emt, emt->last_line, "not all registers were freed (%i left)", emt->compiler->registersused);
+        lit_emitter_raiseerror(emt, emt->lastline, "not all registers were freed (%i left)", emt->compiler->registersused);
     }
-    if(!emt->compiler->skip_return)
+    if(!emt->compiler->skipreturn)
     {
-        uint8_t reg = lit_emitter_reserveregister(emt);
-        LitFuncType type = emt->compiler->type;
+        reg = lit_emitter_reserveregister(emt);
+        type = emt->compiler->type;
         if(type == LIT_FUNCTYPE_CONSTRUCTOR)
         {
             /* load <this> */
-            lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, reg, 0, 0);
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, reg, 0, 0);
         }
         else
         {
-            lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_LOADNULL, reg, 0, 0);
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_LOADNULL, reg, 0, 0);
         }
-        lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_RETURN, reg, 1, 0);
+        lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_RETURN, reg, 1, 0);
         
         lit_emitter_freeregister(emt, reg);
-        emt->compiler->skip_return = true;
+        emt->compiler->skipreturn = true;
     }
-    LitFunction* function = emt->compiler->function;
-    lit_loclist_destroy(&emt->compiler->locals);
+    function = emt->compiler->function;
+    lit_dynlistloc_destroy(&emt->compiler->locals);
     emt->compiler = (LitAstCompiler*)emt->compiler->enclosing;
     emt->chunk = emt->compiler == NULL ? NULL : &emt->compiler->function->chunk;
     if(name != NULL)
@@ -8776,7 +9782,7 @@ LitFunction* lit_emitter_compilerend(LitAstEmitter* emt, LitString* name)
         function->name = name;
     }
 #ifdef LIT_TRACE_CHUNK
-    if(!emt->pstate->had_error)
+    if(!emt->pstate->haderror)
     {
         lit_debug_disaschunk(&function->chunk, function->name->strbuf.data, NULL);
     }
@@ -8786,24 +9792,28 @@ LitFunction* lit_emitter_compilerend(LitAstEmitter* emt, LitString* name)
 
 void lit_emitter_scopebegin(LitAstEmitter* emt)
 {
-    emt->compiler->scope_depth++;
+    emt->compiler->scopedepth++;
 }
 
 void lit_emitter_scopeend(LitAstEmitter* emt)
 {
-    if(emt->compiler->scope_depth == -1)
+    LitAstCompiler* ccx;
+    LitDynListLoc* locals;
+    LitAstLocal* local;
+
+    if(emt->compiler->scopedepth == -1)
     {
-        lit_emitter_raiseerror(emt, emt->last_line, "invalid scope ending");
+        lit_emitter_raiseerror(emt, emt->lastline, "invalid scope ending");
     }
-    emt->compiler->scope_depth--;
-    LitAstCompiler* ccx = emt->compiler;
-    LitDynListLoc* locals = &ccx->locals;
-    while(locals->listcount > 0 && locals->listitems[locals->listcount - 1].depth > ccx->scope_depth)
+    emt->compiler->scopedepth--;
+    ccx = emt->compiler;
+    locals = &ccx->locals;
+    while(locals->listcount > 0 && locals->listitems[locals->listcount - 1].depth > ccx->scopedepth)
     {
-        LitAstLocal* local = &locals->listitems[locals->listcount - 1];
+        local = &locals->listitems[locals->listcount - 1];
         if(local->captured)
         {
-            lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_UPVALUECLOSE, local->reg, 0, 0);
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_UPVALUECLOSE, local->reg, 0, 0);
         }
         lit_emitter_freeregister(emt, local->reg);
         locals->listcount--;
@@ -8848,7 +9858,7 @@ int lit_emitter_addprivate(LitAstEmitter* emt, const char* name, size_t length, 
     index = (int)privates->listcount;
     priv.initialized = false;
     priv.constant = constant;
-    lit_privlist_push(privates, priv);
+    lit_dynlistpriv_push(privates, priv);
     lit_table_set(privnames, lit_string_copylen(state, name, length), lit_value_makenumber(index));
     emt->module->privatecount++;
     return index;
@@ -8889,7 +9899,7 @@ int lit_emitter_addlocal(LitAstEmitter* emt, const char* name, size_t length, si
     for(i = (int)locals->listcount - 1; i >= 0; i--)
     {
         LitAstLocal* local = &locals->listitems[i];
-        if(local->depth != UINT16_MAX && local->depth < ccx->scope_depth)
+        if(local->depth != UINT16_MAX && local->depth < ccx->scopedepth)
         {
             break;
         }
@@ -8898,7 +9908,7 @@ int lit_emitter_addlocal(LitAstEmitter* emt, const char* name, size_t length, si
             lit_emitter_raiseerror(emt, line, "variable '%.*s' was already declared in this scope", length, name);
         }
     }
-    lit_loclist_push(locals, lit_emitter_makelocal(name, length, UINT16_MAX, false, constant, reg));
+    lit_dynlistloc_push(locals, lit_emitter_makelocal(name, length, UINT16_MAX, false, constant, reg));
     return (int)locals->listcount - 1;
 }
 
@@ -8927,7 +9937,7 @@ int lit_emitter_addupvalue(LitAstEmitter* emt, LitAstCompiler* ccx, size_t index
     size_t upvaluecount = ccx->function->upvaluecount;
     for(i = 0; i < upvaluecount; i++)
     {
-        LitAstUpvalue* upvalue = &ccx->upvalues[i];
+        LitAstUpvalue* upvalue = &ccx->compiledupvalueitems[i];
         if(upvalue->index == index && upvalue->isLocal == islocal)
         {
             return i;
@@ -8938,24 +9948,27 @@ int lit_emitter_addupvalue(LitAstEmitter* emt, LitAstCompiler* ccx, size_t index
         lit_emitter_raiseerror(emt, line, "too many upvalues for one function");
         return 0;
     }
-    ccx->upvalues[upvaluecount].isLocal = islocal;
-    ccx->upvalues[upvaluecount].index = index;
+    ccx->compiledupvalueitems[upvaluecount].isLocal = islocal;
+    ccx->compiledupvalueitems[upvaluecount].index = index;
     return ccx->function->upvaluecount++;
 }
 
 int lit_emitter_resolveupvalue(LitAstEmitter* emt, LitAstCompiler* ccx, const char* name, size_t length, size_t line)
 {
+    int local;
+    int upvalue;
+
     if(ccx->enclosing == NULL)
     {
         return -1;
     }
-    int local = lit_emitter_resolvelocal(emt, (LitAstCompiler*)ccx->enclosing, name, length, line);
+    local = lit_emitter_resolvelocal(emt, (LitAstCompiler*)ccx->enclosing, name, length, line);
     if(local != -1)
     {
-        ((LitAstCompiler*)ccx->enclosing)->locals.listitems[local].captured = true;
+        ((LitAstCompiler*)ccx->enclosing)->locals.listitems[local].captured = true; local = local;
         return lit_emitter_addupvalue(emt, ccx, local, line, true);
     }
-    int upvalue = lit_emitter_resolveupvalue(emt, (LitAstCompiler*)ccx->enclosing, name, length, line);
+    upvalue = lit_emitter_resolveupvalue(emt, (LitAstCompiler*)ccx->enclosing, name, length, line);
     if(upvalue != -1)
     {
         return lit_emitter_addupvalue(emt, ccx, upvalue, line, false);
@@ -8965,7 +9978,7 @@ int lit_emitter_resolveupvalue(LitAstEmitter* emt, LitAstCompiler* ccx, const ch
 
 void lit_emitter_marklocalinit(LitAstEmitter* emt, size_t index)
 {
-    emt->compiler->locals.listitems[index].depth = emt->compiler->scope_depth;
+    emt->compiler->locals.listitems[index].depth = emt->compiler->scopedepth;
 }
 
 void lit_emitter_markprivateinit(LitAstEmitter* emt, size_t index)
@@ -8975,6 +9988,9 @@ void lit_emitter_markprivateinit(LitAstEmitter* emt, size_t index)
 
 void lit_emitter_resolvestatement(LitAstEmitter* emt, LitAstExpression* topexpr)
 {
+    LitAstVarDeclExpr* vexpr;
+    LitAstFunctionExpr* fexpr;
+
     if(topexpr == NULL)
     {
         return;
@@ -8983,16 +9999,16 @@ void lit_emitter_resolvestatement(LitAstEmitter* emt, LitAstExpression* topexpr)
     {
         case LIT_ASTEXPRTYP_VARDECL:
         {
-            LitAstVarDeclExpr* expr = (LitAstVarDeclExpr*)topexpr;
-            lit_emitter_markprivateinit(emt, lit_emitter_addprivate(emt, expr->name, expr->length, topexpr->line, expr->isconstant));
+            vexpr = (LitAstVarDeclExpr*)topexpr;
+            lit_emitter_markprivateinit(emt, lit_emitter_addprivate(emt, vexpr->name, vexpr->length, topexpr->line, vexpr->isconstant));
             break;
         }
         case LIT_ASTEXPRTYP_FUNCTION:
         {
-            LitAstFunctionExpr* expr = (LitAstFunctionExpr*)topexpr;
-            if(!expr->exported)
+            fexpr = (LitAstFunctionExpr*)topexpr;
+            if(!fexpr->exported)
             {
-                lit_emitter_markprivateinit(emt, lit_emitter_addprivate(emt, expr->name, expr->length, topexpr->line, false));
+                lit_emitter_markprivateinit(emt, lit_emitter_addprivate(emt, fexpr->name, fexpr->length, topexpr->line, false));
             }
             break;
         }
@@ -9058,7 +10074,7 @@ LitOpCode lit_emitter_translatebinaryop(LitAstTokType token)
             return LIT_OPCODE_BINAND;
         case LIT_ASTTOKTYP_BAR:
             return LIT_OPCODE_BINOR;
-        case LIT_ASTTOKTYP_IS:
+        case LIT_ASTTOKTYP_KWIS:
             return LIT_OPCODE_IS;
         default:
             UNREACHABLE
@@ -9068,12 +10084,17 @@ LitOpCode lit_emitter_translatebinaryop(LitAstTokType token)
 
 uint16_t lit_emitter_parsearg(LitAstEmitter* emt, LitAstExpression* topexpr, uint8_t reg)
 {
+    LitValue value;
+    LitAstVarGetExpr* expr;
+    uint64_t arg;
+    int index;
+
     if(topexpr->type == LIT_ASTEXPRTYP_LITERAL)
     {
-        LitValue value = ((LitAstLiteralValExpr*)topexpr)->value;
+        value = ((LitAstLiteralValExpr*)topexpr)->value;
         if(lit_value_isnumber(value) || lit_value_isstring(value))
         {
-            uint64_t arg = lit_emitter_addconst(emt, topexpr->line, value);
+            arg = lit_emitter_addconst(emt, topexpr->line, value);
             /* Mark that this is a constant */
             LIT_BIT_SETBIT(arg, LIT_BITFLAG_CONSTANT);
             return arg;
@@ -9081,8 +10102,8 @@ uint16_t lit_emitter_parsearg(LitAstEmitter* emt, LitAstExpression* topexpr, uin
     }
     else if(topexpr->type == LIT_ASTEXPRTYP_VARGET)
     {
-        LitAstVarGetExpr* expr = ((LitAstVarGetExpr*)topexpr);
-        int index = lit_emitter_resolvelocal(emt, emt->compiler, expr->name, expr->length, topexpr->line);
+        expr = ((LitAstVarGetExpr*)topexpr);
+        index = lit_emitter_resolvelocal(emt, emt->compiler, expr->name, expr->length, topexpr->line);
         if(index != -1)
         {
             return emt->compiler->locals.listitems[index].reg;
@@ -9094,32 +10115,42 @@ uint16_t lit_emitter_parsearg(LitAstEmitter* emt, LitAstExpression* topexpr, uin
 
 void lit_emitter_emitbinaryexpr(LitAstEmitter* emt, LitAstBinaryExpr* expr, uint8_t reg, bool swap)
 {
-    LitAstTokType op = expr->op;
+    size_t jump;
+    uint16_t b;
+    uint16_t rc;
+    uint16_t c;
+    int constant;
+    LitOpCode opcode;
+    LitAstVarGetExpr* e;
+    LitAstTokType op;
+
+    op = expr->op;
     if(op == LIT_ASTTOKTYP_AMPERSANDAMPERSAND || op == LIT_ASTTOKTYP_BARBAR || op == LIT_ASTTOKTYP_QUESTIONQUESTION)
     {
         lit_emitter_emitexpr(emt, expr->left, reg);
-        size_t jump = lit_emitter_emittmp(emt);
+        jump = lit_emitter_emittmp(emt);
         lit_emitter_emitexpr(emt, expr->right, reg);
         lit_emitter_patchinstr(emt, jump, LIT_REG_FORMABXINST(op == LIT_ASTTOKTYP_BARBAR ? LIT_OPCODE_JUMPIFTRUE : (op == LIT_ASTTOKTYP_QUESTIONQUESTION ? LIT_OPCODE_JUMPIFNONNULL : LIT_OPCODE_JUMPIFFALSE), reg, emt->chunk->compiledcodecount - jump - 1));
     }
     else
     {
-        uint16_t b = lit_emitter_parsearg(emt, expr->left, reg);
-        LitOpCode opcode = lit_emitter_translatebinaryop(op);
+        b = lit_emitter_parsearg(emt, expr->left, reg);
+        opcode = lit_emitter_translatebinaryop(op);
         if(opcode == LIT_OPCODE_IS)
         {
             if(expr->right->type != LIT_ASTEXPRTYP_VARGET)
             {
-                return lit_emitter_raiseerror(emt, ((LitAstExpression*)expr)->line, "'is' operator is not used with a var expression");
+                lit_emitter_raiseerror(emt, ((LitAstExpression*)expr)->line, "'is' operator is not used with a var expression");
+                return;
             }
-            LitAstVarGetExpr* e = (LitAstVarGetExpr*)expr->right;
-            int constant = lit_emitter_addconst(emt, ((LitAstExpression*)expr)->line, lit_value_fromobject(lit_string_copylen(emt->pstate, e->name, e->length)));
+            e = (LitAstVarGetExpr*)expr->right;
+            constant = lit_emitter_addconst(emt, ((LitAstExpression*)expr)->line, lit_value_fromobject(lit_string_copylen(emt->pstate, e->name, e->length)));
             lit_emitter_emitabc(emt, ((LitAstExpression*)expr)->line, opcode, reg, b, constant);
         }
         else
         {
-            uint16_t rc = lit_emitter_reserveregister(emt);
-            uint16_t c = lit_emitter_parsearg(emt, expr->right, rc);
+            rc = lit_emitter_reserveregister(emt);
+            c = lit_emitter_parsearg(emt, expr->right, rc);
             lit_emitter_emitabc(emt, ((LitAstExpression*)expr)->line, opcode, reg, swap ? c : b, swap ? b : c);
             lit_emitter_freeregister(emt, rc);
         }
@@ -9129,12 +10160,17 @@ void lit_emitter_emitbinaryexpr(LitAstEmitter* emt, LitAstBinaryExpr* expr, uint
 bool lit_emitter_emitparams(LitAstEmitter* emt, LitDynListParam* parameters, size_t line)
 {
     size_t i;
+    size_t jump;
+    uint8_t reg;
+    int index;
+    LitAstFuncParamExpr* parameter;
+
     for(i = 0; i < parameters->listcount; i++)
     {
-        LitAstFuncParamExpr* parameter = &parameters->listitems[i];
-        uint8_t reg = lit_emitter_reserveregister(emt);
+        parameter = &parameters->listitems[i];
+        reg = lit_emitter_reserveregister(emt);
         parameter->reg = reg;
-        int index = lit_emitter_addlocal(emt, parameter->name, parameter->length, line, false, reg);
+        index = lit_emitter_addlocal(emt, parameter->name, parameter->length, line, false, reg);
         lit_emitter_marklocalinit(emt, index);
         /* variadic arg ...  */
         if(parameter->length == 3 && memcmp(parameter->name, "...", 3) == 0)
@@ -9143,7 +10179,7 @@ bool lit_emitter_emitparams(LitAstEmitter* emt, LitDynListParam* parameters, siz
         }
         if(parameter->defaultval != NULL)
         {
-            size_t jump = lit_emitter_emittmp(emt);
+            jump = lit_emitter_emittmp(emt);
             lit_emitter_emitexpr(emt, parameter->defaultval, reg);
             lit_emitter_patchinstr(emt, jump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFNONNULL, reg, (int64_t)emt->chunk->compiledcodecount - jump - 1));
         }
@@ -9175,7 +10211,9 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
     {
         case LIT_ASTEXPRTYP_LITERAL:
         {
-            LitValue value = ((LitAstLiteralValExpr*)topexpr)->value;
+            LitValue value;
+            uint64_t constant;
+            value = ((LitAstLiteralValExpr*)topexpr)->value;
             if(lit_value_isnull(value))
             {
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_LOADNULL, reg, 0, 0);
@@ -9186,7 +10224,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             }
             else
             {
-                uint64_t constant = lit_emitter_addconst(emt, topexpr->line, value);
+                constant = lit_emitter_addconst(emt, topexpr->line, value);
                 LIT_BIT_SETBIT(constant, LIT_BITFLAG_CONSTANT);
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, constant, 0);
             }
@@ -9194,15 +10232,19 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         case LIT_ASTEXPRTYP_UNARY:
         {
-            LitAstUnaryExpr* expr = (LitAstUnaryExpr*)topexpr;
-            uint16_t b = lit_emitter_parsearg(emt, expr->right, reg);
-            lit_emitter_emitabc(emt, topexpr->line, lit_emitter_translateunaryop(expr->op), reg, b, 0);
+            LitAstUnaryExpr* uexpr;
+            uint16_t b;
+            uexpr = (LitAstUnaryExpr*)topexpr;
+            b = lit_emitter_parsearg(emt, uexpr->right, reg);
+            lit_emitter_emitabc(emt, topexpr->line, lit_emitter_translateunaryop(uexpr->op), reg, b, 0);
             break;
         }
         case LIT_ASTEXPRTYP_BINARY:
         {
-            LitAstBinaryExpr* expr = (LitAstBinaryExpr*)topexpr;
-            switch(expr->op)
+            LitAstBinaryExpr* bexpr;
+
+            bexpr = (LitAstBinaryExpr*)topexpr;
+            switch(bexpr->op)
             {
                 case LIT_ASTTOKTYP_GREATER:
                 case LIT_ASTTOKTYP_GREATEREQUAL:
@@ -9210,40 +10252,46 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                 case LIT_ASTTOKTYP_LESSEQUAL:
                 case LIT_ASTTOKTYP_EQUALEQUAL:
                 {
-                    lit_emitter_emitbinaryexpr(emt, expr, reg, false);
+                    lit_emitter_emitbinaryexpr(emt, bexpr, reg, false);
                     break;
                 }
                 case LIT_ASTTOKTYP_BANGEQUAL:
                 {
-                    lit_emitter_emitbinaryexpr(emt, expr, reg, false);
+                    lit_emitter_emitbinaryexpr(emt, bexpr, reg, false);
                     lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_NOT, reg, reg, false);
                     break;
                 }
                 default:
                 {
-                    return lit_emitter_emitbinaryexpr(emt, expr, reg, false);
+                    lit_emitter_emitbinaryexpr(emt, bexpr, reg, false);
+                    break;
                 }
             }
             break;
         }
         case LIT_ASTEXPRTYP_VARGET:
         {
-            LitAstVarGetExpr* expr = (LitAstVarGetExpr*)topexpr;
-            bool ref = emt->emit_reference > 0;
+            uint64_t constant;
+            LitAstVarGetExpr* vgetexpr;
+            bool ref;
+            int index;
+            uint64_t originalreg;
+            vgetexpr = (LitAstVarGetExpr*)topexpr;
+            ref = emt->emitreference > 0;
             if(ref)
             {
-                emt->emit_reference--;
+                emt->emitreference--;
             }
-            int index = lit_emitter_resolvelocal(emt, emt->compiler, expr->name, expr->length, topexpr->line);
+            index = lit_emitter_resolvelocal(emt, emt->compiler, vgetexpr->name, vgetexpr->length, topexpr->line);
             if(index == -1)
             {
-                index = lit_emitter_resolveupvalue(emt, emt->compiler, expr->name, expr->length, topexpr->line);
+                index = lit_emitter_resolveupvalue(emt, emt->compiler, vgetexpr->name, vgetexpr->length, topexpr->line);
                 if(index == -1)
                 {
-                    index = lit_emitter_resolveprivate(emt, expr->name, expr->length, topexpr->line);
+                    index = lit_emitter_resolveprivate(emt, vgetexpr->name, vgetexpr->length, topexpr->line);
                     if(index == -1)
                     {
-                        uint64_t constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, expr->name, expr->length)));
+                        constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, vgetexpr->name, vgetexpr->length)));
                         if(ref)
                         {
                             lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_REFGLOBAL, reg, constant);
@@ -9279,106 +10327,116 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             }
             else
             {
-                uint64_t r = emt->compiler->locals.listitems[index].reg;
+                originalreg = emt->compiler->locals.listitems[index].reg;
                 if(ref)
                 {
-                    lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_REFLOCAL, reg, r, 0);
+                    lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_REFLOCAL, reg, originalreg, 0);
                 }
-                else if(reg != r)
+                else if(reg != originalreg)
                 {
-                    lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, r, 0);
+                    lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, originalreg, 0);
                 }
             }
             break;
         }
         case LIT_ASTEXPRTYP_ASSIGN:
         {
-            LitAstAssignExpr* expr = (LitAstAssignExpr*)topexpr;
-            if(expr->to->type == LIT_ASTEXPRTYP_VARGET)
+            uint64_t constant;
+            uint16_t b;
+            LitAstVarGetExpr* vgetexpr;
+            int index;
+            LitAstAssignExpr* aexpr;
+            uint16_t r;
+            LitAstSubscriptExpr* subexpr;
+            uint8_t rega;
+            uint8_t regb;
+            LitAstIndexGetExpr* igetexpr;
+            uint8_t rv;
+            uint64_t originalreg;
+
+            aexpr = (LitAstAssignExpr*)topexpr;
+            if(aexpr->to->type == LIT_ASTEXPRTYP_VARGET)
             {
-                LitAstVarGetExpr* e = (LitAstVarGetExpr*)expr->to;
-                uint64_t index = lit_emitter_resolvelocal(emt, emt->compiler, e->name, e->length, expr->to->line);
-                if(((int64_t)index) == -1)
+                vgetexpr = (LitAstVarGetExpr*)aexpr->to;
+                index = lit_emitter_resolvelocal(emt, emt->compiler, vgetexpr->name, vgetexpr->length, aexpr->to->line);
+                if(index == -1)
                 {
-                    uint16_t r = lit_emitter_parsearg(emt, expr->value, reg);
-                    index = lit_emitter_resolveupvalue(emt, emt->compiler, e->name, e->length, expr->to->line);
-                    if(((int64_t)index) == -1)
+                    b = lit_emitter_parsearg(emt, aexpr->value, reg);
+                    index = lit_emitter_resolveupvalue(emt, emt->compiler, vgetexpr->name, vgetexpr->length, aexpr->to->line);
+                    if(index == -1)
                     {
-                        index = lit_emitter_resolveprivate(emt, e->name, e->length, expr->to->line);
-                        if(((int64_t)index) == -1)
+                        index = lit_emitter_resolveprivate(emt, vgetexpr->name, vgetexpr->length, aexpr->to->line);
+                        if(index == -1)
                         {
-                            uint16_t constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, e->name, e->length)));
-                            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_GLOBALSET, constant, r);
+                            constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, vgetexpr->name, vgetexpr->length)));
+                            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_GLOBALSET, constant, b);
                         }
                         else
                         {
                             if(emt->privlist.listitems[index].constant)
                             {
-                                lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", e->length, e->name);
+                                lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", vgetexpr->length, vgetexpr->name);
                             }
-                            if(LIT_BIT_ISSET(r, LIT_BITFLAG_CONSTANT))
+                            if(LIT_BIT_ISSET(b, LIT_BITFLAG_CONSTANT))
                             {
-                                LIT_BIT_SETBIT(index, 16);
+                                LIT_BIT_SETBIT(index, LIT_BITFLAG_VMCONST);
                             }
-                            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_PRIVATESET, r, index);
+                            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_PRIVATESET, b, index);
                         }
                     }
                     else
                     {
-                        lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_UPVALUESET, index, r);
+                        lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_UPVALUESET, index, b);
                     }
-                    if(!ignored && reg != r)
+                    if(!ignored && reg != b)
                     {
-                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, r, 0);
+                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, b, 0);
                     }
-                    break;
                 }
                 else
                 {
-                    LitAstLocal local = emt->compiler->locals.listitems[index];
-                    if(local.constant)
+                    originalreg = emt->compiler->locals.listitems[index].reg;
+                    if(emt->compiler->locals.listitems[index].constant)
                     {
-                        lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", e->length, e->name);
+                        lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", vgetexpr->length, vgetexpr->name);
                     }
-                    if(expr->value->type == LIT_ASTEXPRTYP_LITERAL || expr->value->type == LIT_ASTEXPRTYP_VARGET)
+                    if(aexpr->value->type == LIT_ASTEXPRTYP_LITERAL || aexpr->value->type == LIT_ASTEXPRTYP_VARGET)
                     {
-                        lit_emitter_emitexpr(emt, expr->value, local.reg);
+                        lit_emitter_emitexpr(emt, aexpr->value, originalreg);
                     }
                     else
                     {
-                        uint16_t r = lit_emitter_reserveregister(emt);
-                        lit_emitter_emitexpr(emt, expr->value, r);
-                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, local.reg, r, 0);
+                        r = lit_emitter_reserveregister(emt);
+                        lit_emitter_emitexpr(emt, aexpr->value, r);
+                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, originalreg, r, 0);
                         lit_emitter_freeregister(emt, r);
                     }
-                    if(!ignored && reg != local.reg)
+                    if(!ignored && reg != originalreg)
                     {
-                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, local.reg, 0);
+                        lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, originalreg, 0);
                     }
-                    break;
                 }
             }
-            else if(expr->to->type == LIT_ASTEXPRTYP_SUBSCRIPT)
+            else if(aexpr->to->type == LIT_ASTEXPRTYP_SUBSCRIPT)
             {
-                LitAstSubscriptExpr* e = (LitAstSubscriptExpr*)expr->to;
-                lit_emitter_emitexpr(emt, e->array, reg);
-                uint8_t rega = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, e->index, rega);
-                uint8_t regb = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, expr->value, regb);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_SUBSCRIPTSET, reg, rega, regb);
+                subexpr = (LitAstSubscriptExpr*)aexpr->to;
+                lit_emitter_emitexpr(emt, subexpr->array, reg);
+                rega = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, subexpr->index, rega);
+                regb = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, aexpr->value, regb);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_SUBSCRIPTSET, reg, rega, regb);
                 lit_emitter_freeregister(emt, rega);
                 lit_emitter_freeregister(emt, regb);
-                break;
             }
-            else if(expr->to->type == LIT_ASTEXPRTYP_INDEXGET)
+            else if(aexpr->to->type == LIT_ASTEXPRTYP_INDEXGET)
             {
-                LitAstIndexGetExpr* e = (LitAstIndexGetExpr*)expr->to;
-                uint8_t r = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, e->where, r);
-                uint8_t rv = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, expr->value, rv);
-                int constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, e->name, e->length)));
+                igetexpr = (LitAstIndexGetExpr*)aexpr->to;
+                r = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, igetexpr->where, r);
+                rv = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, aexpr->value, rv);
+                constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, igetexpr->name, igetexpr->length)));
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_FIELDSET, r, constant, rv);
                 if(!ignored && reg != rv)
                 {
@@ -9386,14 +10444,13 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                 }
                 lit_emitter_freeregister(emt, r);
                 lit_emitter_freeregister(emt, rv);
-                break;
             }
-            else if(expr->to->type == LIT_ASTEXPRTYP_REFERENCE)
+            else if(aexpr->to->type == LIT_ASTEXPRTYP_REFERENCE)
             {
-                uint8_t r = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, ((LitAstRefExpr*)expr->to)->to, r);
-                uint8_t rv = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, expr->value, rv);
+                r = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, ((LitAstRefExpr*)aexpr->to)->to, r);
+                rv = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, aexpr->value, rv);
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_REFSET, r, rv, 0);
                 if(!ignored && reg != rv)
                 {
@@ -9401,45 +10458,64 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                 }
                 lit_emitter_freeregister(emt, r);
                 lit_emitter_freeregister(emt, rv);
-                break;
             }
-            lit_emitter_raiseerror(emt, topexpr->line, "invalid assigment target");
+            else
+            {
+                lit_emitter_raiseerror(emt, topexpr->line, "invalid assigment target");
+            }
             break;
         }
         case LIT_ASTEXPRTYP_CALL:
         {
-            LitAstCallExpr* expr = (LitAstCallExpr*)topexpr;
+            uint64_t constant;
+            int index;
+            LitAstExpression* e;
+            uint16_t r;
+            LitAstIndexGetExpr* igetexpr;
+            LitAstCallExpr* cexpr;
             size_t i;
-            size_t argc = expr->callargs.listcount;
-            uint16_t* argregs = (uint16_t*)lit_sysmem_malloc(argc * sizeof(uint16_t));
-            bool method = expr->excallee->type == LIT_ASTEXPRTYP_INDEXGET;
-            bool super = expr->excallee->type == LIT_ASTEXPRTYP_SUPER;
+            size_t argc;
+            uint16_t* argregs;
+            bool method;
+            bool super;
+            uint64_t originalreg;
+            bool moveback;
+            uint64_t tmpreg;
+            uint64_t supadd;
+            uint64_t argreg;
+            LitAstLiteralObjectExpr* init;
+            LitAstSuperExpr* supexpr;
 
-            uint64_t original_reg = reg;
-            bool move_back = false;
+            cexpr = (LitAstCallExpr*)topexpr;
+            argc = cexpr->callargs.listcount;
+            argregs = (uint16_t*)lit_sysmem_malloc(argc * sizeof(uint16_t));
+            method = cexpr->excallee->type == LIT_ASTEXPRTYP_INDEXGET;
+            super = cexpr->excallee->type == LIT_ASTEXPRTYP_SUPER;
+
+            originalreg = reg;
+            moveback = false;
 
             if(reg != emt->compiler->registersused - 1)
             {
                 reg = lit_emitter_reserveregister(emt);
-                move_back = true;
+                moveback = true;
             }
 
             if(method)
             {
-                ((LitAstIndexGetExpr*)expr->excallee)->ignore_emit = true;
+                ((LitAstIndexGetExpr*)cexpr->excallee)->ignoreemit = true;
             }
             else if(super)
             {
-                ((LitAstSuperExpr*)expr->excallee)->ignore_emit = true;
+                ((LitAstSuperExpr*)cexpr->excallee)->ignoreemit = true;
             }
-            lit_emitter_emitexpr(emt, expr->excallee, reg);
-            uint64_t tmpreg = super ? lit_emitter_reserveregister(emt) : 0;
+            lit_emitter_emitexpr(emt, cexpr->excallee, reg);
+            tmpreg = super ? lit_emitter_reserveregister(emt) : 0;
             for(i = 0; i < argc; i++)
             {
-                uint64_t supadd;
-                uint64_t argreg = lit_emitter_reserveregister(emt);
-                LitAstExpression* e = expr->callargs.listitems[i];
                 supadd = (super ? 2 : 1);
+                argreg = lit_emitter_reserveregister(emt);
+                e = cexpr->callargs.listitems[i];
                 if(argreg != ((reg + i) + supadd))
                 {
                     /* something went terribly wrong */
@@ -9451,23 +10527,23 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             }
             if(method)
             {
-                if(expr->excallee->type != LIT_ASTEXPRTYP_INDEXGET)
+                if(cexpr->excallee->type != LIT_ASTEXPRTYP_INDEXGET)
                 {
                     /* TODO: replace with a proper error code? */
                     UNREACHABLE
                 }
-                LitAstIndexGetExpr* e = (LitAstIndexGetExpr*)expr->excallee;
-                int constant = lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copylen(emt->pstate, e->name, e->length)));
+                igetexpr = (LitAstIndexGetExpr*)cexpr->excallee;
+                constant = lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copylen(emt->pstate, igetexpr->name, igetexpr->length)));
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_INVOKE, reg, argc + 1, constant);
             }
             else if(super)
             {
                 assert(tmpreg == reg + 1);
-                LitAstSuperExpr* e = (LitAstSuperExpr*)expr->excallee;
-                size_t index = lit_emitter_resolveupvalue(emt, emt->compiler, "super", 5, emt->last_line);
+                supexpr = (LitAstSuperExpr*)cexpr->excallee;
+                index = lit_emitter_resolveupvalue(emt, emt->compiler, "super", 5, emt->lastline);
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_UPVALUEGET, tmpreg, index);
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, 0, 0);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_INVOKESUPER, reg, argc + 1, lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(e->methodname)));
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKESUPER, reg, argc + 1, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(supexpr->methodname)));
                 lit_emitter_freeregister(emt, tmpreg);
             }
             else
@@ -9481,21 +10557,21 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             lit_sysmem_free(argregs);
             if(method)
             {
-                LitAstExpression* get = expr->excallee;
-                while(get != NULL)
+                e = cexpr->excallee;
+                while(e != NULL)
                 {
-                    if(get->type == LIT_ASTEXPRTYP_INDEXGET)
+                    if(e->type == LIT_ASTEXPRTYP_INDEXGET)
                     {
-                        LitAstIndexGetExpr* getter = (LitAstIndexGetExpr*)get;
-                        if(getter->jump > 0)
+                        igetexpr = (LitAstIndexGetExpr*)e;
+                        if(igetexpr->jump > 0)
                         {
-                            lit_emitter_patchinstr(emt, getter->jump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFNULL, reg, (int64_t)emt->chunk->compiledcodecount - getter->jump - 1));
+                            lit_emitter_patchinstr(emt, igetexpr->jump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFNULL, reg, (int64_t)emt->chunk->compiledcodecount - igetexpr->jump - 1));
                         }
-                        get = getter->where;
+                        e = igetexpr->where;
                     }
-                    else if(get->type == LIT_ASTEXPRTYP_SUBSCRIPT)
+                    else if(e->type == LIT_ASTEXPRTYP_SUBSCRIPT)
                     {
-                        get = ((LitAstSubscriptExpr*)get)->array;
+                        e = ((LitAstSubscriptExpr*)e)->array;
                     }
                     else
                     {
@@ -9503,45 +10579,50 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                     }
                 }
             }
-            if(move_back)
+            if(moveback)
             {
-                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, original_reg, reg, 0);
+                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, originalreg, reg, 0);
                 lit_emitter_freeregister(emt, reg);
-                reg = original_reg;
+                reg = originalreg;
             }
-            if(expr->init == NULL)
+            if(cexpr->init != NULL)
             {
-                break;
+                init = (LitAstLiteralObjectExpr*)cexpr->init;
+                r = lit_emitter_reserveregister(emt);
+                for(i = 0; i < init->objexvalues.listcount; i++)
+                {
+                    e = init->objexvalues.listitems[i];
+                    emt->lastline = e->line;
+                    lit_emitter_emitexpr(emt, e, r);
+                    lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_OBJECTPUSH, reg, lit_emitter_addconst(emt, emt->lastline, init->objexkeys.listitems[i]), r);
+                }
+                lit_emitter_freeregister(emt, r);
             }
-            LitAstLiteralObjectExpr* init = (LitAstLiteralObjectExpr*)expr->init;
-            uint8_t r = lit_emitter_reserveregister(emt);
-            for(i = 0; i < init->objexvalues.listcount; i++)
-            {
-                LitAstExpression* e = init->objexvalues.listitems[i];
-                emt->last_line = e->line;
-                lit_emitter_emitexpr(emt, e, r);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_OBJECTPUSH, reg, lit_emitter_addconst(emt, emt->last_line, init->objexkeys.listitems[i]), r);
-            }
-            lit_emitter_freeregister(emt, r);
             break;
         }
         case LIT_ASTEXPRTYP_INDEXGET:
         {
-            LitAstIndexGetExpr* expr = (LitAstIndexGetExpr*)topexpr;
-            bool ref = emt->emit_reference > 0;
+            uint64_t constant;
+            bool ref;
+            LitAstIndexGetExpr* igetexpr;
+            bool jump;
+            bool emit;
+
+            igetexpr = (LitAstIndexGetExpr*)topexpr;
+            ref = emt->emitreference > 0;
             if(ref)
             {
-                emt->emit_reference--;
+                emt->emitreference--;
             }
-            bool jump = expr->jump == 0;
-            bool emit = !expr->ignore_emit;
-            lit_emitter_emitexpr(emt, expr->where, reg);
+            jump = igetexpr->jump == 0;
+            emit = !igetexpr->ignoreemit;
+            lit_emitter_emitexpr(emt, igetexpr->where, reg);
             if(jump)
             {
-                expr->jump = lit_emitter_emittmp(emt);
-                if(!expr->ignore_emit)
+                igetexpr->jump = lit_emitter_emittmp(emt);
+                if(!igetexpr->ignoreemit)
                 {
-                    int constant = lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copylen(emt->pstate, expr->name, expr->length)));
+                    constant = lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copylen(emt->pstate, igetexpr->name, igetexpr->length)));
                     if(ref)
                     {
                         lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_REFFIELD, reg, reg, constant);
@@ -9551,11 +10632,11 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                         lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_FIELDGET, reg, reg, constant);
                     }
                 }
-                lit_emitter_patchinstr(emt, expr->jump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFNULL, reg, (int64_t)emt->chunk->compiledcodecount - expr->jump - 1));
+                lit_emitter_patchinstr(emt, igetexpr->jump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFNULL, reg, (int64_t)emt->chunk->compiledcodecount - igetexpr->jump - 1));
             }
             else if(emit)
             {
-                int constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, expr->name, expr->length)));
+                constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, igetexpr->name, igetexpr->length)));
                 if(ref)
                 {
                     lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_REFFIELD, reg, reg, constant);
@@ -9569,17 +10650,22 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         case LIT_ASTEXPRTYP_INDEXSET:
         {
-            LitAstIndexSetExpr* expr = (LitAstIndexSetExpr*)topexpr;
-            uint8_t wherereg = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->where, wherereg);
-            uint8_t valuereg = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->value, valuereg);
-            int constant = lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copylen(emt->pstate, expr->name, expr->length)));
-            lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_FIELDSET, wherereg, constant, valuereg);
+            uint64_t constant;
+            LitAstIndexSetExpr* isetexpr;
+            uint8_t wherereg;
+            uint8_t valuereg;
+
+            isetexpr = (LitAstIndexSetExpr*)topexpr;
+            wherereg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, isetexpr->where, wherereg);
+            valuereg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, isetexpr->value, valuereg);
+            constant = lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copylen(emt->pstate, isetexpr->name, isetexpr->length)));
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_FIELDSET, wherereg, constant, valuereg);
             if(!ignored && reg != valuereg)
             {
                 /* pains me to do this, but we gotta ensure that the value is after the where */
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, reg, valuereg, 0);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, reg, valuereg, 0);
             }
             lit_emitter_freeregister(emt, wherereg);
             lit_emitter_freeregister(emt, valuereg);
@@ -9587,90 +10673,106 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         case LIT_ASTEXPRTYP_SUBSCRIPT:
         {
-            LitAstSubscriptExpr* expr = (LitAstSubscriptExpr*)topexpr;
-            lit_emitter_emitexpr(emt, expr->array, reg);
-            uint8_t r = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->index, r);
+            uint16_t r;
+            LitAstSubscriptExpr* subexpr;
+
+            subexpr = (LitAstSubscriptExpr*)topexpr;
+            lit_emitter_emitexpr(emt, subexpr->array, reg);
+            r = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, subexpr->index, r);
             lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_SUBSCRIPTGET, reg, r, 0);
             lit_emitter_freeregister(emt, r);
             break;
         }
         case LIT_ASTEXPRTYP_ARRAY:
         {
+            uint16_t r;
             size_t i;
-            LitAstLiteralArrayExpr* expr = (LitAstLiteralArrayExpr*)topexpr;
-            uint8_t r = lit_emitter_reserveregister(emt);
-            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKEARRAY, reg, expr->exvalues.listcount);
-            for(i = 0; i < expr->exvalues.listcount; i++)
+            LitAstLiteralArrayExpr* arrexpr;
+
+            arrexpr = (LitAstLiteralArrayExpr*)topexpr;
+            r = lit_emitter_reserveregister(emt);
+            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKEARRAY, reg, arrexpr->exvalues.listcount);
+            for(i = 0; i < arrexpr->exvalues.listcount; i++)
             {
-                lit_emitter_emitexpr(emt, expr->exvalues.listitems[i], r);
-                lit_emitter_emitabx(emt, emt->last_line, LIT_OPCODE_ARRAYPUSH, reg, r);
+                lit_emitter_emitexpr(emt, arrexpr->exvalues.listitems[i], r);
+                lit_emitter_emitabx(emt, emt->lastline, LIT_OPCODE_ARRAYPUSH, reg, r);
             }
             lit_emitter_freeregister(emt, r);
             break;
         }
         case LIT_ASTEXPRTYP_OBJECT:
         {
+            uint16_t r;
             size_t i;
-            LitAstLiteralObjectExpr* expr = (LitAstLiteralObjectExpr*)topexpr;
-            uint8_t r = lit_emitter_reserveregister(emt);
+            LitAstLiteralObjectExpr* init;
+
+            init = (LitAstLiteralObjectExpr*)topexpr;
+            r = lit_emitter_reserveregister(emt);
             lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MAKEOBJECT, reg, 0, 0);
-            for(i = 0; i < expr->objexvalues.listcount; i++)
+            for(i = 0; i < init->objexvalues.listcount; i++)
             {
-                lit_emitter_emitexpr(emt, expr->objexvalues.listitems[i], r);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_OBJECTPUSH, reg, lit_emitter_addconst(emt, emt->last_line, expr->objexkeys.listitems[i]), r);
+                lit_emitter_emitexpr(emt, init->objexvalues.listitems[i], r);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_OBJECTPUSH, reg, lit_emitter_addconst(emt, emt->lastline, init->objexkeys.listitems[i]), r);
             }
             lit_emitter_freeregister(emt, r);
             break;
         }
         case LIT_ASTEXPRTYP_FUNCANON:
         {
+            uint64_t constant;
+            uint16_t r;
             size_t i;
-            LitAstFunctionExpr* expr = (LitAstFunctionExpr*)topexpr;
-            LitString* name = lit_value_asstring(lit_string_valformat(emt->pstate, "lambda @:@", lit_value_fromobject(emt->module->name), lit_string_numbertostring(emt->pstate, topexpr->line)));
+            bool jump;
+            bool emit;
+            LitAstFunctionExpr* fexpr;
             LitAstCompiler stackcc;
+            LitFuncScript* function;
+            uint64_t functionreg;
+            bool closure;
+
+            fexpr = (LitAstFunctionExpr*)topexpr;
+            LitString* name = lit_value_asstring(lit_string_valformat(emt->pstate, "lambda @:@", lit_value_fromobject(emt->module->name), lit_string_numbertostring(emt->pstate, topexpr->line)));
             lit_emitter_compilerinit(emt, &stackcc, LIT_FUNCTYPE_REGULAR);
             lit_emitter_scopebegin(emt);
-            bool vararg = lit_emitter_emitparams(emt, &expr->parameters, topexpr->line);
-            bool ended = false;
-            if(expr->body != NULL)
+            jump = lit_emitter_emitparams(emt, &fexpr->parameters, topexpr->line);
+            emit = false;
+            if(fexpr->body != NULL)
             {
-                bool singleexpr = expr->body->type == LIT_ASTEXPRTYP_EXPRESSION;
-                if(singleexpr)
+                if(fexpr->body->type == LIT_ASTEXPRTYP_EXPRESSION)
                 {
-                    uint8_t r = lit_emitter_reserveregister(emt);
-                    stackcc.skip_return = true;
-                    lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)expr->body)->exvalue, r);
-                    lit_emitter_emitabc(emt, expr->body->line, LIT_OPCODE_RETURN, r, 0, 0);
+                    r = lit_emitter_reserveregister(emt);
+                    stackcc.skipreturn = true;
+                    lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)fexpr->body)->exvalue, r);
+                    lit_emitter_emitabc(emt, fexpr->body->line, LIT_OPCODE_RETURN, r, 0, 0);
                     lit_emitter_freeregister(emt, r);
                 }
                 else
                 {
-                    ended = lit_emitter_emitstmt(emt, expr->body);
+                    emit = lit_emitter_emitstmt(emt, fexpr->body);
                 }
             }
-            if(!ended)
+            if(!emit)
             {
                 lit_emitter_scopeend(emt);
             }
-            LitFunction* function = lit_emitter_compilerend(emt, name);
-            function->argcount = expr->parameters.listcount;
+            function = lit_emitter_compilerend(emt, name);
+            function->argcount = fexpr->parameters.listcount;
             function->maxregisters += function->argcount;
-            function->vararg = vararg;
-            uint64_t functionreg;
-            bool closure = function->upvaluecount > 0;
+            function->vararg = jump;
+            closure = function->upvaluecount > 0;
             if(closure)
             {
                 functionreg = lit_emitter_reserveregister(emt);
                 LitClsPrototype* clsproto = lit_object_makeclsproto(emt->pstate, function);
                 for(i = 0; i < function->upvaluecount; i++)
                 {
-                    LitAstUpvalue* upvalue = &stackcc.upvalues[i];
+                    LitAstUpvalue* upvalue = &stackcc.compiledupvalueitems[i];
                     clsproto->local[i] = upvalue->isLocal;
                     clsproto->indexes[i] = upvalue->index;
                 }
-                uint16_t constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
-                lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKECLOSURE, functionreg, constidx);
+                constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
+                lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKECLOSURE, functionreg, constant);
             }
             else
             {
@@ -9686,37 +10788,46 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         case LIT_ASTEXPRTYP_RANGE:
         {
-            LitAstRangeExpr* expr = (LitAstRangeExpr*)topexpr;
-            lit_emitter_emitexpr(emt, expr->to, reg);
-            uint8_t regb = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->from, regb);
+            uint8_t regb;
+            LitAstRangeExpr* ranexpr;
+
+            ranexpr = (LitAstRangeExpr*)topexpr;
+            lit_emitter_emitexpr(emt, ranexpr->to, reg);
+            regb = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, ranexpr->from, regb);
             lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MAKERANGE, reg, regb, reg);
             lit_emitter_freeregister(emt, regb);
             break;
         }
         case LIT_ASTEXPRTYP_INTERPOLATION:
         {
+            uint16_t r;
             size_t i;
-            LitAstStrTemplateExpr* expr = (LitAstStrTemplateExpr*)topexpr;
-            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKEARRAY, reg, expr->expressions.listcount);
-            uint8_t r = lit_emitter_reserveregister(emt);
-            for(i = 0; i < expr->expressions.listcount; i++)
+            LitAstStrTemplateExpr* temexpr;
+
+            temexpr = (LitAstStrTemplateExpr*)topexpr;
+            lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKEARRAY, reg, temexpr->expressions.listcount);
+            r = lit_emitter_reserveregister(emt);
+            for(i = 0; i < temexpr->expressions.listcount; i++)
             {
-                lit_emitter_emitexpr(emt, expr->expressions.listitems[i], r);
-                lit_emitter_emitabx(emt, emt->last_line, LIT_OPCODE_ARRAYPUSH, reg, r);
+                lit_emitter_emitexpr(emt, temexpr->expressions.listitems[i], r);
+                lit_emitter_emitabx(emt, emt->lastline, LIT_OPCODE_ARRAYPUSH, reg, r);
             }
             lit_emitter_freeregister(emt, r);
-            lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_INVOKE, reg, 2, lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copy(emt->pstate, "join"))));
+            lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKE, reg, 1, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copy(emt->pstate, "join"))));
             break;
         }
         case LIT_ASTEXPRTYP_THIS:
         {
-            LitFuncType type = emt->compiler->type;
-            if(type == LIT_FUNCTYPE_STATIC_METHOD)
+            int index;
+            LitFuncType ftype;
+
+            ftype = emt->compiler->type;
+            if(ftype == LIT_FUNCTYPE_STATIC_METHOD)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "'this' can't be used %s", "in static methods");
             }
-            if(type == LIT_FUNCTYPE_CONSTRUCTOR || type == LIT_FUNCTYPE_METHOD)
+            if(ftype == LIT_FUNCTYPE_CONSTRUCTOR || ftype == LIT_FUNCTYPE_METHOD)
             {
                 /* the instance is always in register 0 */
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, 0, 0);
@@ -9729,7 +10840,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                 }
                 else
                 {
-                    size_t index = lit_emitter_resolveupvalue(emt, emt->compiler, "this", 4, topexpr->line);
+                    index = lit_emitter_resolveupvalue(emt, emt->compiler, "this", 4, topexpr->line);
                     lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_UPVALUEGET, reg, index);
                 }
             }
@@ -9737,54 +10848,68 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         case LIT_ASTEXPRTYP_TERNARY:
         {
-            LitAstTernaryExpr* expr = (LitAstTernaryExpr*)topexpr;
-            uint8_t condreg = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->condition, condreg);
-            size_t condbranchskip = lit_emitter_emittmp(emt);
+            LitAstTernaryExpr* terexpr;
+            uint8_t condreg;
+            size_t condbranchskip;
+            int64_t start;
+            size_t elseskip;
+            int64_t elsestart;
+
+            terexpr = (LitAstTernaryExpr*)topexpr;
+            condreg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, terexpr->condition, condreg);
+            condbranchskip = lit_emitter_emittmp(emt);
             lit_emitter_freeregister(emt, condreg);
-            int64_t start = emt->chunk->compiledcodecount;
-            lit_emitter_emitexpr(emt, expr->branchif, reg);
-            size_t elseskip = lit_emitter_emittmp(emt);
+            start = emt->chunk->compiledcodecount;
+            lit_emitter_emitexpr(emt, terexpr->branchif, reg);
+            elseskip = lit_emitter_emittmp(emt);
             lit_emitter_patchinstr(emt, condbranchskip, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFFALSE, condreg, (int64_t)emt->chunk->compiledcodecount - start));
-            int64_t elsestart = emt->chunk->compiledcodecount;
-            lit_emitter_emitexpr(emt, expr->branchelse, reg);
+            elsestart = emt->chunk->compiledcodecount;
+            lit_emitter_emitexpr(emt, terexpr->branchelse, reg);
             lit_emitter_patchinstr(emt, elseskip, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - elsestart));
             break;
         }
         case LIT_ASTEXPRTYP_SUPER:
         {
+            int index;
+            uint64_t tmpreg;
+            LitAstSuperExpr* supexpr;
+
             if(emt->compiler->type == LIT_FUNCTYPE_STATIC_METHOD)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "'super' can't be used %s", "in static methods");
             }
-            else if(!emt->class_has_super)
+            else if(!emt->classhassuper)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "'super' can't be used in class '%s', because it doesn't have a super class", emt->class_name->strbuf.data);
+                lit_emitter_raiseerror(emt, topexpr->line, "'super' can't be used in class '%s', because it doesn't have a super class", emt->classname->strbuf.data);
             }
-            LitAstSuperExpr* expr = (LitAstSuperExpr*)topexpr;
-            if(!expr->ignore_emit)
+            supexpr = (LitAstSuperExpr*)topexpr;
+            if(!supexpr->ignoreemit)
             {
-                size_t index = lit_emitter_resolveupvalue(emt, emt->compiler, "super", 5, emt->last_line);
+                index = lit_emitter_resolveupvalue(emt, emt->compiler, "super", 5, emt->lastline);
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_MOVE, reg, 0, 0);
-                uint8_t tmpreg = lit_emitter_reserveregister(emt);
+                tmpreg = lit_emitter_reserveregister(emt);
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_UPVALUEGET, tmpreg, index);
-                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_CLASSGETSUPERMETHOD, reg, tmpreg, lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(expr->methodname)));
+                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_CLASSGETSUPERMETHOD, reg, tmpreg, lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(supexpr->methodname)));
                 lit_emitter_freeregister(emt, tmpreg);
             }
             break;
         }
         case LIT_ASTEXPRTYP_REFERENCE:
         {
-            LitAstExpression* to = ((LitAstRefExpr*)topexpr)->to;
+            LitAstExpression* to;
+            int old;
+
+            to = ((LitAstRefExpr*)topexpr)->to;
             if(to->type != LIT_ASTEXPRTYP_VARGET && to->type != LIT_ASTEXPRTYP_INDEXGET && to->type != LIT_ASTEXPRTYP_THIS && to->type != LIT_ASTEXPRTYP_SUPER)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "invalid reference target (cannot reference literals)");
                 break;
             }
-            int old = emt->emit_reference;
-            emt->emit_reference++;
+            old = emt->emitreference;
+            emt->emitreference++;
             lit_emitter_emitexpr(emt, to, reg);
-            emt->emit_reference = old;
+            emt->emitreference = old;
             break;
         }
         default:
@@ -9802,7 +10927,7 @@ void lit_emitter_patchloopjumps(LitAstEmitter* emt, LitDynListUInt* breaks)
     {
         lit_emitter_patchinstr(emt, breaks->listitems[i], LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - breaks->listitems[i] - 1));
     }
-    lit_uintlist_destroy(breaks);
+    lit_dynlistuint_destroy(breaks);
 }
 
 void lit_emitter_emitstmtscoped(LitAstEmitter* emt, LitAstExpression* expr)
@@ -9829,9 +10954,11 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_BLOCK:
         {
+            LitDynListExpr* statements;
             size_t i;
-            LitDynListExpr* statements = &((LitAstBlockExpr*)topexpr)->statements;
-            bool endedscope = false;
+            bool endedscope;
+            statements = &((LitAstBlockExpr*)topexpr)->statements;
+            endedscope = false;
             for(i = 0; i < statements->listcount; i++)
             {
                 if(lit_emitter_emitstmt(emt, statements->listitems[i]))
@@ -9848,25 +10975,29 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_VARDECL:
         {
-            LitAstVarDeclExpr* expr = (LitAstVarDeclExpr*)topexpr;
-            bool isprivate = emt->compiler->enclosing == NULL && emt->compiler->scope_depth == 0;
-            int index = 0;
-            uint16_t reg = lit_emitter_reserveregister(emt);
+            LitAstVarDeclExpr* var;
+            int index;
+            uint16_t reg;
+            bool isprivate;
+            var = (LitAstVarDeclExpr*)topexpr;
+            isprivate = emt->compiler->enclosing == NULL && emt->compiler->scopedepth == 0;
+            index = 0;
+            reg = lit_emitter_reserveregister(emt);
             if(!isprivate)
             {
-                index = lit_emitter_addlocal(emt, expr->name, expr->length, topexpr->line, expr->isconstant, reg);
+                index = lit_emitter_addlocal(emt, var->name, var->length, topexpr->line, var->isconstant, reg);
             }
             else
             {
-                index = lit_emitter_resolveprivate(emt, expr->name, expr->length, topexpr->line);
+                index = lit_emitter_resolveprivate(emt, var->name, var->length, topexpr->line);
             }
-            if(expr->init == NULL)
+            if(var->init == NULL)
             {
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_LOADNULL, reg, 0, 0);
             }
             else
             {
-                lit_emitter_emitexpr(emt, expr->init, reg);
+                lit_emitter_emitexpr(emt, var->init, reg);
             }
             if(isprivate)
             {
@@ -9882,48 +11013,58 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_IF:
         {
+            LitAstIfExpr* ifexpr;
+            LitAstExpression* e;
+            uint64_t nextjump;
+            uint64_t* endjumps;
             size_t i;
-            LitAstIfExpr* expr = (LitAstIfExpr*)topexpr;
-            uint16_t condreg = lit_emitter_reserveregister(emt);
-            lit_emitter_emitexpr(emt, expr->condition, condreg);
-            size_t condbranchskip = lit_emitter_emittmp(emt);
-            size_t elseskip = 0;
+            size_t condbranchskip;
+            size_t elseskip;
+            size_t endjumpcount;
+            size_t start;
+            uint16_t condreg;
+            uint16_t elseifcondreg;
+            ifexpr = (LitAstIfExpr*)topexpr;
+            condreg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, ifexpr->condition, condreg);
+            condbranchskip = lit_emitter_emittmp(emt);
+            elseskip = 0;
             lit_emitter_freeregister(emt, condreg);
-            int64_t start = emt->chunk->compiledcodecount;
-            lit_emitter_emitstmtscoped(emt, expr->branchif);
-            if(expr->branchelse)
+            start = emt->chunk->compiledcodecount;
+            lit_emitter_emitstmtscoped(emt, ifexpr->branchif);
+            if(ifexpr->branchelse)
             {
                 elseskip = lit_emitter_emittmp(emt);
             }
             lit_emitter_patchinstr(emt, condbranchskip, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFFALSE, condreg, (int64_t)emt->chunk->compiledcodecount - start));
-            size_t endjumpcount = expr->branchelseiflist == NULL ? 0 : expr->branchelseiflist->listcount;
-            uint64_t* endjumps = (uint64_t*)lit_sysmem_malloc(endjumpcount * sizeof(uint64_t));
-            if(expr->branchelseiflist != NULL)
+            endjumpcount = ifexpr->branchelseiflist == NULL ? 0 : ifexpr->branchelseiflist->listcount;
+            endjumps = (uint64_t*)lit_sysmem_malloc(endjumpcount * sizeof(uint64_t));
+            if(ifexpr->branchelseiflist != NULL)
             {
-                for(i = 0; i < expr->branchelseiflist->listcount; i++)
+                for(i = 0; i < ifexpr->branchelseiflist->listcount; i++)
                 {
-                    LitAstExpression* e = expr->elseifcondlist->listitems[i];
+                    e = ifexpr->elseifcondlist->listitems[i];
                     if(e == NULL)
                     {
                         continue;
                     }
-                    uint8_t elseifcondreg = lit_emitter_reserveregister(emt);
+                    elseifcondreg = lit_emitter_reserveregister(emt);
                     lit_emitter_emitexpr(emt, e, elseifcondreg);
-                    uint64_t nextjump = lit_emitter_emittmp(emt);
+                    nextjump = lit_emitter_emittmp(emt);
                     lit_emitter_freeregister(emt, elseifcondreg);
-                    lit_emitter_emitstmtscoped(emt, expr->branchelseiflist->listitems[i]);
+                    lit_emitter_emitstmtscoped(emt, ifexpr->branchelseiflist->listitems[i]);
                     endjumps[i] = lit_emitter_emittmp(emt);
                     lit_emitter_patchinstr(emt, nextjump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFFALSE, elseifcondreg, (int64_t)emt->chunk->compiledcodecount - nextjump - 1));
                 }
             }
-            if(expr->branchelse)
+            if(ifexpr->branchelse)
             {
-                lit_emitter_emitstmtscoped(emt, expr->branchelse);
+                lit_emitter_emitstmtscoped(emt, ifexpr->branchelse);
                 lit_emitter_patchinstr(emt, elseskip, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - elseskip - 1));
             }
             for(i = 0; i < endjumpcount; i++)
             {
-                if(expr->elseifcondlist->listitems[i] == NULL)
+                if(ifexpr->elseifcondlist->listitems[i] == NULL)
                 {
                     continue;
                 }
@@ -9932,26 +11073,107 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             lit_sysmem_free(endjumps);
             break;
         }
+        case LIT_ASTEXPRTYP_THROW:
+        {
+            LitAstThrowExpr* throwexpr;
+            uint16_t reg;
+            throwexpr = (LitAstThrowExpr*)topexpr;
+            reg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, throwexpr->exvalue, reg);
+            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_THROW, reg, 0, 0);
+            lit_emitter_freeregister(emt, reg);
+            break;
+        }
+        case LIT_ASTEXPRTYP_TRY:
+        {
+            LitAstTryExpr* tryexpr;
+            uint64_t tryinstridx;
+            uint64_t jumptofinally;
+            uint64_t catchstart;
+            uint64_t localidx;
+            uint64_t finallystart;
+            uint16_t reg;
+            uint8_t ereg;
+            tryexpr = (LitAstTryExpr*)topexpr;
+            ereg = 0;
+            tryinstridx = lit_emitter_emittmp(emt);
+            lit_emitter_emitstmtscoped(emt, tryexpr->tryblock);
+            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_POP_TRY, 0, 0, 0);
+            jumptofinally = lit_emitter_emittmp(emt);
+            catchstart = emt->chunk->compiledcodecount;
+            lit_emitter_patchinstr(emt, tryinstridx, LIT_REG_FORMABXINST(LIT_OPCODE_PUSH_TRY, ereg, (int64_t)catchstart - (int64_t)tryinstridx - 1));
+
+            if(tryexpr->catchblock != NULL)
+            {
+                lit_emitter_scopebegin(emt);
+                if(tryexpr->catchvarstr != NULL)
+                {
+                    reg = lit_emitter_reserveregister(emt);
+                    localidx = lit_emitter_addlocal(emt, tryexpr->catchvarstr, tryexpr->catchvarlen, topexpr->line, false, reg);
+                    ereg = reg;
+                    lit_emitter_patchinstr(emt, tryinstridx, LIT_REG_FORMABXINST(LIT_OPCODE_PUSH_TRY, ereg, (int64_t)catchstart - (int64_t)tryinstridx - 1));
+                    lit_emitter_marklocalinit(emt, localidx);
+                }
+                lit_emitter_emitstmt(emt, tryexpr->catchblock);
+                lit_emitter_scopeend(emt);
+                
+                finallystart = emt->chunk->compiledcodecount;
+                lit_emitter_patchinstr(emt, jumptofinally, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)finallystart - (int64_t)jumptofinally - 1));
+
+                if(tryexpr->finallyblock != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, tryexpr->finallyblock);
+                }
+            }
+            else
+            {
+                /*
+                * No catch block. If an error occurs, it jumps here.
+                * We MUST run finally and then rethrow.
+                */
+                if(tryexpr->finallyblock != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, tryexpr->finallyblock);
+                }
+                lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_RETHROW, 0, 0, 0);
+                finallystart = emt->chunk->compiledcodecount;
+                lit_emitter_patchinstr(emt, jumptofinally, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)finallystart - (int64_t)jumptofinally - 1));
+                /* Normal path (no error) */
+                if(tryexpr->finallyblock != NULL)
+                {
+                    lit_emitter_emitstmtscoped(emt, tryexpr->finallyblock);
+                }
+            }
+            break;
+        }
         case LIT_ASTEXPRTYP_FUNCTION:
         {
+            LitAstFunctionExpr* funcexpr;
+            LitAstCompiler stackcc;
+            LitFuncScript* function;
+            LitString* name;
+            uint64_t functionreg;
             size_t i;
-            bool local;
-            bool isexport;
+            int index;
+            int nameconst;
+            uint16_t reg;
+            uint16_t constidx;
             bool isprivate;
-            uint64_t index;
-            uint8_t reg;
-            LitAstFunctionExpr* stmt;
-            index = 0;
-            stmt = (LitAstFunctionExpr*)topexpr;
-            isexport = stmt->exported;
-            isprivate = !isexport && emt->compiler->enclosing == NULL && emt->compiler->scope_depth == 0;
+            bool isexport;
+            bool local;
+            bool vararg;
+            bool closure;
+            funcexpr = (LitAstFunctionExpr*)topexpr;
+            isexport = funcexpr->exported;
+            isprivate = !isexport && emt->compiler->enclosing == NULL && emt->compiler->scopedepth == 0;
             local = !(isexport || isprivate);
             reg = 0;
+            index = 0;
             if(!isexport)
             {
-                index = isprivate ? lit_emitter_resolveprivate(emt, stmt->name, stmt->length, topexpr->line) : lit_emitter_addlocal(emt, stmt->name, stmt->length, topexpr->line, false, reg = lit_emitter_reserveregister(emt));
+                index = isprivate ? lit_emitter_resolveprivate(emt, funcexpr->name, funcexpr->length, topexpr->line) : lit_emitter_addlocal(emt, funcexpr->name, funcexpr->length, topexpr->line, false, reg = lit_emitter_reserveregister(emt));
             }
-            LitString* name = lit_string_copylen(emt->pstate, stmt->name, stmt->length);
+            name = lit_string_copylen(emt->pstate, funcexpr->name, funcexpr->length);
             if(local)
             {
                 lit_emitter_marklocalinit(emt, index);
@@ -9960,31 +11182,29 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             {
                 lit_emitter_markprivateinit(emt, index);
             }
-            LitAstCompiler stackcc;
             lit_emitter_compilerinit(emt, &stackcc, LIT_FUNCTYPE_REGULAR);
             lit_emitter_scopebegin(emt);
-            bool vararg = lit_emitter_emitparams(emt, &stmt->parameters, topexpr->line);
-            if(!lit_emitter_emitstmt(emt, stmt->body))
+            vararg = lit_emitter_emitparams(emt, &funcexpr->parameters, topexpr->line);
+            if(!lit_emitter_emitstmt(emt, funcexpr->body))
             {
                 lit_emitter_scopeend(emt);
             }
-            LitFunction* function = lit_emitter_compilerend(emt, name);
-            function->argcount = stmt->parameters.listcount;
+            function = lit_emitter_compilerend(emt, name);
+            function->argcount = funcexpr->parameters.listcount;
             function->maxregisters += function->argcount;
             function->vararg = vararg;
-            uint64_t functionreg;
-            bool closure = function->upvaluecount > 0;
+            closure = function->upvaluecount > 0;
             if(closure)
             {
                 functionreg = lit_emitter_reserveregister(emt);
                 LitClsPrototype* clsproto = lit_object_makeclsproto(emt->pstate, function);
                 for(i = 0; i < function->upvaluecount; i++)
                 {
-                    LitAstUpvalue* upvalue = &stackcc.upvalues[i];
+                    LitAstUpvalue* upvalue = &stackcc.compiledupvalueitems[i];
                     clsproto->local[i] = upvalue->isLocal;
                     clsproto->indexes[i] = upvalue->index;
                 }
-                uint16_t constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
+                constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKECLOSURE, functionreg, constidx);
             }
             else
@@ -9994,14 +11214,14 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             }
             if(isexport)
             {
-                uint16_t nameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(function->name));
+                nameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(function->name));
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_GLOBALSET, nameconst, functionreg);
             }
             else if(isprivate)
             {
                 if(!closure)
                 {
-                    LIT_BIT_SETBIT(index, 16);
+                    LIT_BIT_SETBIT(index, LIT_BITFLAG_VMCONST);
                 }
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_PRIVATESET, functionreg, index);
             }
@@ -10017,15 +11237,17 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_RETURN:
         {
-            LitAstReturnExpr* stmt = (LitAstReturnExpr*)topexpr;
-            uint8_t reg = lit_emitter_reserveregister(emt);
-            if(stmt->exvalue == NULL)
+            LitAstReturnExpr* retexpr;
+            uint16_t reg;
+            retexpr = (LitAstReturnExpr*)topexpr;
+            reg = lit_emitter_reserveregister(emt);
+            if(retexpr->exvalue == NULL)
             {
                 lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_LOADNULL, reg, 0, 0);
             }
             else
             {
-                lit_emitter_emitexpr(emt, stmt->exvalue, reg);
+                lit_emitter_emitexpr(emt, retexpr->exvalue, reg);
             }
             lit_emitter_scopeend(emt);
             lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_RETURN, reg, 0, 0);
@@ -10034,75 +11256,96 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_WHILE:
         {
-            LitAstWhileExpr* stmt = (LitAstWhileExpr*)topexpr;
-            uint8_t reg = lit_emitter_reserveregister(emt);
-            size_t beforecond = lit_emitter_emittmp(emt);
-            emt->loop_start = beforecond;
-            emt->compiler->loop_depth++;
-            LitDynListUInt old_breaks = emt->breaks;
-            LitDynListUInt old_continues = emt->continues;
-            lit_uintlist_init(&emt->breaks);
-            lit_uintlist_init(&emt->continues);
-            lit_emitter_emitexpr(emt, stmt->condition, reg);
-            size_t tmpinstr = lit_emitter_emittmp(emt);
-            lit_emitter_emitstmtscoped(emt, stmt->body);
+            LitAstWhileExpr* whileexpr;
+            LitDynListUInt oldbreaks;
+            LitDynListUInt oldcontinues;
+            size_t beforecond;
+            size_t tmpinstr;
+            uint16_t reg;
+            whileexpr = (LitAstWhileExpr*)topexpr;
+            reg = lit_emitter_reserveregister(emt);
+            beforecond = lit_emitter_emittmp(emt);
+            emt->loopstart = beforecond;
+            emt->compiler->loopdepth++;
+            oldbreaks = emt->breaks;
+            oldcontinues = emt->continues;
+            lit_dynlistuint_init(&emt->breaks);
+            lit_dynlistuint_init(&emt->continues);
+            lit_emitter_emitexpr(emt, whileexpr->condition, reg);
+            tmpinstr = lit_emitter_emittmp(emt);
+            lit_emitter_emitstmtscoped(emt, whileexpr->body);
             lit_emitter_patchloopjumps(emt, &emt->continues);
             lit_emitter_emitasbx(emt, topexpr->line, LIT_OPCODE_JUMP, 0, (int)beforecond - emt->chunk->compiledcodecount - 1);
             lit_emitter_patchinstr(emt, tmpinstr, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFFALSE, reg, emt->chunk->compiledcodecount - tmpinstr - 1));
             lit_emitter_patchloopjumps(emt, &emt->breaks);
-            emt->breaks = old_breaks;
-            emt->continues = old_continues;
-            emt->compiler->loop_depth--;
+            emt->breaks = oldbreaks;
+            emt->continues = oldcontinues;
+            emt->compiler->loopdepth--;
             lit_emitter_freeregister(emt, reg);
             break;
         }
         case LIT_ASTEXPRTYP_FOR:
         {
+            LitAstVarDeclExpr* var;
+            LitAstForExpr* forexpr;
+            LitDynListExpr* statements;
+            LitDynListUInt oldbreaks;
+            LitDynListUInt oldcontinues;
             size_t i;
-            LitAstForExpr* stmt = (LitAstForExpr*)topexpr;
-            emt->compiler->loop_depth++;
-            LitDynListUInt old_breaks = emt->breaks;
-            LitDynListUInt old_continues = emt->continues;
-            lit_uintlist_init(&emt->breaks);
-            lit_uintlist_init(&emt->continues);
+            size_t start;
+            size_t exitjump;
+            size_t bodyjump;
+            size_t incrstart;
+            size_t sequence;
+            size_t iterator;
+            size_t local_idx;
+            uint16_t condreg;
+            uint8_t tmprega;
+            uint8_t tmpregb;
+            bool endedscope;
+            forexpr = (LitAstForExpr*)topexpr;
+            emt->compiler->loopdepth++;
+            oldbreaks = emt->breaks;
+            oldcontinues = emt->continues;
+            lit_dynlistuint_init(&emt->breaks);
+            lit_dynlistuint_init(&emt->continues);
             lit_emitter_scopebegin(emt);
-            if(stmt->iscstyle)
+            if(forexpr->iscstyle)
             {
-                if(stmt->var != NULL)
+                if(forexpr->var != NULL)
                 {
-                    lit_emitter_emitstmt(emt, stmt->var);
+                    lit_emitter_emitstmt(emt, forexpr->var);
                 }
-                else if(stmt->init != NULL)
+                else if(forexpr->init != NULL)
                 {
-                    lit_emitter_emitexprignoringregister(emt, stmt->init);
+                    lit_emitter_emitexprignoringregister(emt, forexpr->init);
                 }
-                size_t start = emt->chunk->compiledcodecount;
-                size_t exitjump = 0;
-                uint8_t condreg = 0;
-                if(stmt->condition != NULL)
+                start = emt->chunk->compiledcodecount;
+                exitjump = 0;
+                condreg = 0;
+                if(forexpr->condition != NULL)
                 {
                     condreg = lit_emitter_reserveregister(emt);
-                    lit_emitter_emitexpr(emt, stmt->condition, condreg);
+                    lit_emitter_emitexpr(emt, forexpr->condition, condreg);
                     exitjump = lit_emitter_emittmp(emt);
                 }
-                if(stmt->increment != NULL)
+                if(forexpr->increment != NULL)
                 {
-                    size_t bodyjump = lit_emitter_emittmp(emt);
-                    size_t incrstart = emt->chunk->compiledcodecount;
-                    lit_emitter_emitexprignoringregister(emt, stmt->increment);
+                    bodyjump = lit_emitter_emittmp(emt);
+                    incrstart = emt->chunk->compiledcodecount;
+                    lit_emitter_emitexprignoringregister(emt, forexpr->increment);
                     lit_emitter_emitasbx(emt, topexpr->line, LIT_OPCODE_JUMP, 0, (int)start - emt->chunk->compiledcodecount - 1);
                     start = incrstart;
                     lit_emitter_patchinstr(emt, bodyjump, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - bodyjump - 1));
                 }
-                emt->loop_start = start;
-                bool endedscope = false;
-                emt->loop_start = start;
+                emt->loopstart = start;
+                endedscope = false;
                 lit_emitter_scopebegin(emt);
-                if(stmt->body != NULL)
+                if(forexpr->body != NULL)
                 {
-                    if(stmt->body->type == LIT_ASTEXPRTYP_BLOCK)
+                    if(forexpr->body->type == LIT_ASTEXPRTYP_BLOCK)
                     {
-                        LitDynListExpr* statements = &((LitAstBlockExpr*)stmt->body)->statements;
+                        statements = &((LitAstBlockExpr*)forexpr->body)->statements;
                         for(i = 0; i < statements->listcount; i++)
                         {
                             if(lit_emitter_emitstmt(emt, statements->listitems[i]))
@@ -10114,7 +11357,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
                     }
                     else
                     {
-                        endedscope = lit_emitter_emitstmt(emt, stmt->body);
+                        endedscope = lit_emitter_emitstmt(emt, forexpr->body);
                     }
                 }
                 lit_emitter_patchloopjumps(emt, &emt->continues);
@@ -10123,7 +11366,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
                     lit_emitter_scopeend(emt);
                 }
                 lit_emitter_emitasbx(emt, topexpr->line, LIT_OPCODE_JUMP, 0, (int)start - emt->chunk->compiledcodecount - 1);
-                if(stmt->condition != NULL)
+                if(forexpr->condition != NULL)
                 {
                     lit_emitter_patchinstr(emt, exitjump, LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFFALSE, condreg, (int64_t)emt->chunk->compiledcodecount - exitjump - 1));
                     lit_emitter_freeregister(emt, condreg);
@@ -10131,39 +11374,39 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             }
             else
             {
-                size_t sequence = lit_emitter_reserveregister(emt);
+                sequence = lit_emitter_reserveregister(emt);
                 lit_emitter_marklocalinit(emt, lit_emitter_addlocal(emt, "seq ", 4, topexpr->line, false, sequence));
-                uint8_t condreg = lit_emitter_reserveregister(emt);
-                lit_emitter_emitexpr(emt, stmt->condition, condreg);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, sequence, condreg, 0);
-                size_t iterator = lit_emitter_reserveregister(emt);
+                condreg = lit_emitter_reserveregister(emt);
+                lit_emitter_emitexpr(emt, forexpr->condition, condreg);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, sequence, condreg, 0);
+                iterator = lit_emitter_reserveregister(emt);
                 lit_emitter_marklocalinit(emt, lit_emitter_addlocal(emt, "iter ", 5, topexpr->line, false, iterator));
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_LOADNULL, iterator, 0, 0);
-                size_t start = emt->chunk->compiledcodecount;
-                emt->loop_start = emt->chunk->compiledcodecount;
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_LOADNULL, iterator, 0, 0);
+                start = emt->chunk->compiledcodecount;
+                emt->loopstart = emt->chunk->compiledcodecount;
                 /* iter = seq.iterator(iter) */
-                uint8_t tmprega = lit_emitter_reserveregister(emt);
-                uint8_t tmpregb = lit_emitter_reserveregister(emt);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, tmprega, sequence, 0);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, tmpregb, iterator, 0);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_INVOKE, tmprega, 2, lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copy(emt->pstate, "iterator"))));
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, iterator, tmprega, 0);
+                tmprega = lit_emitter_reserveregister(emt);
+                tmpregb = lit_emitter_reserveregister(emt);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, tmprega, sequence, 0);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, tmpregb, iterator, 0);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKE, tmprega, 2, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copy(emt->pstate, "iterator"))));
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, iterator, tmprega, 0);
                 /* if iter is null, just get out of the loop */
-                size_t exitjump = lit_emitter_emittmp(emt);
+                exitjump = lit_emitter_emittmp(emt);
                 lit_emitter_scopebegin(emt);
                 /* var i = seq.iteratorValue(iter) */
-                LitAstVarDeclExpr* var = (LitAstVarDeclExpr*)stmt->var;
-                size_t local = lit_emitter_reserveregister(emt);
-                lit_emitter_marklocalinit(emt, lit_emitter_addlocal(emt, var->name, var->length, topexpr->line, false, local));
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, tmprega, sequence, 0);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, tmpregb, iterator, 0);
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_INVOKE, tmprega, 2, lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(lit_string_copy(emt->pstate, "iteratorValue"))));
-                lit_emitter_emitabc(emt, emt->last_line, LIT_OPCODE_MOVE, local, tmprega, 0);
-                if(stmt->body != NULL)
+                var = (LitAstVarDeclExpr*)forexpr->var;
+                local_idx = lit_emitter_reserveregister(emt);
+                lit_emitter_marklocalinit(emt, lit_emitter_addlocal(emt, var->name, var->length, topexpr->line, false, local_idx));
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, tmprega, sequence, 0);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, tmpregb, iterator, 0);
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_INVOKE, tmprega, 2, lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(lit_string_copy(emt->pstate, "iteratorValue"))));
+                lit_emitter_emitabc(emt, emt->lastline, LIT_OPCODE_MOVE, local_idx, tmprega, 0);
+                if(forexpr->body != NULL)
                 {
-                    if(stmt->body->type == LIT_ASTEXPRTYP_BLOCK)
+                    if(forexpr->body->type == LIT_ASTEXPRTYP_BLOCK)
                     {
-                        LitDynListExpr* statements = &((LitAstBlockExpr*)stmt->body)->statements;
+                        statements = &((LitAstBlockExpr*)forexpr->body)->statements;
                         for(i = 0; i < statements->listcount; i++)
                         {
                             lit_emitter_emitstmt(emt, statements->listitems[i]);
@@ -10171,7 +11414,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
                     }
                     else
                     {
-                        lit_emitter_emitstmt(emt, stmt->body);
+                        lit_emitter_emitstmt(emt, forexpr->body);
                     }
                 }
                 lit_emitter_patchloopjumps(emt, &emt->continues);
@@ -10184,64 +11427,75 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             }
             lit_emitter_patchloopjumps(emt, &emt->breaks);
             lit_emitter_scopeend(emt);
-            emt->breaks = old_breaks;
-            emt->continues = old_continues;
-            emt->compiler->loop_depth--;
+            emt->breaks = oldbreaks;
+            emt->continues = oldcontinues;
+            emt->compiler->loopdepth--;
             break;
         }
         case LIT_ASTEXPRTYP_BREAK:
         {
-            if(emt->compiler->loop_depth == 0)
+            if(emt->compiler->loopdepth == 0)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops", "break");
             }
-            lit_uintlist_push(&emt->breaks, lit_emitter_emittmp(emt));
+            lit_dynlistuint_push(&emt->breaks, lit_emitter_emittmp(emt));
             break;
         }
         case LIT_ASTEXPRTYP_CONTINUE:
         {
-            if(emt->compiler->loop_depth == 0)
+            if(emt->compiler->loopdepth == 0)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops", "continue");
             }
-            lit_uintlist_push(&emt->continues, lit_emitter_emittmp(emt));
+            lit_dynlistuint_push(&emt->continues, lit_emitter_emittmp(emt));
             break;
         }
         case LIT_ASTEXPRTYP_CLASS:
         {
+            LitAstVarDeclExpr* var;
+            LitAstClassExpr* classexpr;
+            LitAstExpression* s;
             size_t i;
-            LitAstClassExpr* stmt = (LitAstClassExpr*)topexpr;
-            bool hasparent = stmt->parent != NULL;
-            uint16_t b = 0;
-            emt->class_name = stmt->name;
+            size_t super;
+            int nameconst;
+            int fieldnameconst;
+            uint16_t reg;
+            uint16_t b;
+            uint16_t constidx;
+            uint8_t classregister;
+            bool hasparent;
+            classexpr = (LitAstClassExpr*)topexpr;
+            hasparent = classexpr->parent != NULL;
+            b = 0;
+            emt->classname = classexpr->name;
             if(hasparent)
             {
-                uint16_t constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(stmt->parent));
+                constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(classexpr->parent));
                 b = lit_emitter_reserveregister(emt);
-                lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_GLOBALGET, b, constant);
+                lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_GLOBALGET, b, constidx);
             }
-            int nameconst = lit_emitter_addconst(emt, emt->last_line, lit_value_fromobject(stmt->name));
-            uint8_t class_register = lit_emitter_reserveregister(emt);
-            emt->class_register = class_register;
-            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_CLASSMAKE, nameconst, hasparent ? b + 1 : 0, class_register);
+            nameconst = lit_emitter_addconst(emt, emt->lastline, lit_value_fromobject(classexpr->name));
+            classregister = lit_emitter_reserveregister(emt);
+            emt->classregister = classregister;
+            lit_emitter_emitabc(emt, topexpr->line, LIT_OPCODE_CLASSMAKE, nameconst, hasparent ? b + 1 : 0, classregister);
             if(hasparent)
             {
                 lit_emitter_freeregister(emt, b);
-                emt->class_has_super = true;
+                emt->classhassuper = true;
                 lit_emitter_scopebegin(emt);
-                size_t super = lit_emitter_addlocal(emt, "super", 5, emt->last_line, false, lit_emitter_reserveregister(emt));
+                super = lit_emitter_addlocal(emt, "super", 5, emt->lastline, false, lit_emitter_reserveregister(emt));
                 lit_emitter_marklocalinit(emt, super);
             }
-            for(i = 0; i < stmt->staticfields.listcount; i++)
+            for(i = 0; i < classexpr->staticfields.listcount; i++)
             {
-                LitAstExpression* s = stmt->staticfields.listitems[i];
+                s = classexpr->staticfields.listitems[i];
                 if(s->type == LIT_ASTEXPRTYP_VARDECL)
                 {
-                    LitAstVarDeclExpr* var = (LitAstVarDeclExpr*)s;
-                    uint8_t reg = lit_emitter_reserveregister(emt);
+                    var = (LitAstVarDeclExpr*)s;
+                    reg = lit_emitter_reserveregister(emt);
                     lit_emitter_emitexpr(emt, var->init, reg);
-                    int fieldnameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, var->name, var->length)));
-                    lit_emitter_emitabc(emt, s->line, LIT_OPCODE_CLASSPUTFIELDSTATIC, class_register, fieldnameconst, reg);
+                    fieldnameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(lit_string_copylen(emt->pstate, var->name, var->length)));
+                    lit_emitter_emitabc(emt, s->line, LIT_OPCODE_CLASSPUTFIELDSTATIC, classregister, fieldnameconst, reg);
                     lit_emitter_freeregister(emt, reg);
                 }
                 else
@@ -10249,51 +11503,62 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
                     lit_emitter_emitstmt(emt, s);
                 }
             }
-            if(stmt->parent != NULL)
+            if(classexpr->parent != NULL)
             {
                 lit_emitter_scopeend(emt);
             }
-            lit_emitter_freeregister(emt, class_register);
-            emt->class_name = NULL;
-            emt->class_has_super = false;
+            lit_emitter_freeregister(emt, classregister);
+            emt->classname = NULL;
+            emt->classhassuper = false;
             break;
         }
         case LIT_ASTEXPRTYP_METHOD:
         {
-            size_t i;
+            LitAstMethodExpr* methodexpr;
+            LitAstCompiler stackcc;
+            LitFuncScript* function;
             LitString* clsname;
-            LitAstMethodExpr* stmt = (LitAstMethodExpr*)topexpr;
-            bool constructor = stmt->name->strbuf.length == lit_string_getlength(emt->pstate->conststrconstructor) && memcmp(stmt->name->strbuf.data, lit_string_getdata(emt->pstate->conststrconstructor), lit_string_getlength(emt->pstate->conststrconstructor)) == 0;
-            if(constructor && stmt->is_static)
+            uint64_t functionreg;
+            size_t i;
+            size_t ctorlen;
+            int fieldnameconst;
+            uint16_t constidx;
+            bool vararg;
+            bool closure;
+            bool isconstructor;
+            const char* ctorstr;
+            ctorlen = lit_string_getlength(emt->pstate->strings.strconstructor);
+            ctorstr = lit_string_getdata(emt->pstate->strings.strconstructor);
+            methodexpr = (LitAstMethodExpr*)topexpr;
+            isconstructor = methodexpr->name->strbuf.length == ctorlen && memcmp(methodexpr->name->strbuf.data, ctorstr, ctorlen) == 0;
+            if(isconstructor && methodexpr->isstatic)
             {
                 lit_emitter_raiseerror(emt, topexpr->line, "constructors cannot be static");
             }
-            LitAstCompiler stackcc;
-            lit_emitter_compilerinit(emt, &stackcc, constructor ? LIT_FUNCTYPE_CONSTRUCTOR : (stmt->is_static ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD));
+            lit_emitter_compilerinit(emt, &stackcc, isconstructor ? LIT_FUNCTYPE_CONSTRUCTOR : (methodexpr->isstatic ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD));
             lit_emitter_scopebegin(emt);
-            bool vararg = lit_emitter_emitparams(emt, &stmt->parameters, topexpr->line);
-            if(!lit_emitter_emitstmt(emt, stmt->body))
+            vararg = lit_emitter_emitparams(emt, &methodexpr->parameters, topexpr->line);
+            if(!lit_emitter_emitstmt(emt, methodexpr->body))
             {
                 lit_emitter_scopeend(emt);
             }
-            clsname = (LitString*)lit_value_asobject(lit_value_fromobject(emt->class_name));
-            LitFunction* function = lit_emitter_compilerend(emt, clsname);
-            function->argcount = stmt->parameters.listcount;
+            clsname = (LitString*)lit_value_asobject(lit_value_fromobject(emt->classname));
+            function = lit_emitter_compilerend(emt, clsname);
+            function->argcount = methodexpr->parameters.listcount;
             function->maxregisters += function->argcount;
             function->vararg = vararg;
-            uint64_t functionreg;
-            bool closure = function->upvaluecount > 0;
+            closure = function->upvaluecount > 0;
             if(closure)
             {
                 functionreg = lit_emitter_reserveregister(emt);
                 LitClsPrototype* clsproto = lit_object_makeclsproto(emt->pstate, function);
                 for(i = 0; i < function->upvaluecount; i++)
                 {
-                    LitAstUpvalue* upvalue = &stackcc.upvalues[i];
+                    LitAstUpvalue* upvalue = &stackcc.compiledupvalueitems[i];
                     clsproto->local[i] = upvalue->isLocal;
                     clsproto->indexes[i] = upvalue->index;
                 }
-                uint16_t constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
+                constidx = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(clsproto));
                 lit_emitter_emitabx(emt, topexpr->line, LIT_OPCODE_MAKECLOSURE, functionreg, constidx);
             }
             else
@@ -10301,8 +11566,8 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
                 functionreg = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(function));
                 LIT_BIT_SETBIT(functionreg, LIT_BITFLAG_CONSTANT);
             }
-            int fieldnameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(stmt->name));
-            lit_emitter_emitabc(emt, topexpr->line, stmt->is_static ? LIT_OPCODE_CLASSPUTFIELDSTATIC : LIT_OPCODE_CLASSPUTMETHOD, emt->class_register, fieldnameconst, functionreg);
+            fieldnameconst = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(methodexpr->name));
+            lit_emitter_emitabc(emt, topexpr->line, methodexpr->isstatic ? LIT_OPCODE_CLASSPUTFIELDSTATIC : LIT_OPCODE_CLASSPUTMETHOD, emt->classregister, fieldnameconst, functionreg);
             if(closure)
             {
                 lit_emitter_freeregister(emt, functionreg);
@@ -10311,48 +11576,54 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_FIELD:
         {
-            LitAstFieldExpr* stmt = (LitAstFieldExpr*)topexpr;
-            LitFunction* getter = NULL;
-            LitFunction* setter = NULL;
-            if(stmt->getter != NULL)
+            LitAstFieldExpr* fieldexpr;
+            LitAstCompiler stackcc;
+            LitFuncScript* getter;
+            LitFuncScript* setter;
+            LitField* field;
+            uint64_t constant;
+            uint16_t reg;
+            uint8_t r;
+            fieldexpr = (LitAstFieldExpr*)topexpr;
+            getter = NULL;
+            setter = NULL;
+            if(fieldexpr->getter != NULL)
             {
-                LitAstCompiler stackcc;
-                lit_emitter_compilerinit(emt, &stackcc, stmt->is_static ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD);
+                lit_emitter_compilerinit(emt, &stackcc, fieldexpr->isstatic ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD);
                 lit_emitter_scopebegin(emt);
-                if(stmt->getter->type == LIT_ASTEXPRTYP_EXPRESSION)
+                if(fieldexpr->getter->type == LIT_ASTEXPRTYP_EXPRESSION)
                 {
-                    uint8_t r = lit_emitter_reserveregister(emt);
-                    stackcc.skip_return = true;
-                    lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)stmt->getter)->exvalue, r);
-                    lit_emitter_emitabc(emt, stmt->getter->line, LIT_OPCODE_RETURN, r, 0, 0);
+                    r = lit_emitter_reserveregister(emt);
+                    stackcc.skipreturn = true;
+                    lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)fieldexpr->getter)->exvalue, r);
+                    lit_emitter_emitabc(emt, fieldexpr->getter->line, LIT_OPCODE_RETURN, r, 0, 0);
                     lit_emitter_freeregister(emt, r);
                 }
-                if(!lit_emitter_emitstmt(emt, stmt->getter))
+                if(!lit_emitter_emitstmt(emt, fieldexpr->getter))
                 {
                     lit_emitter_scopeend(emt);
                 }
-                getter = lit_emitter_compilerend(emt, lit_value_asstring(lit_string_valformat(emt->pstate, "@:get @", lit_value_fromobject(emt->class_name), stmt->name)));
+                getter = lit_emitter_compilerend(emt, lit_value_asstring(lit_string_valformat(emt->pstate, "@:get @", lit_value_fromobject(emt->classname), fieldexpr->name)));
             }
-            if(stmt->setter != NULL)
+            if(fieldexpr->setter != NULL)
             {
-                LitAstCompiler stackcc;
-                lit_emitter_compilerinit(emt, &stackcc, stmt->is_static ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD);
-                uint8_t reg = lit_emitter_reserveregister(emt);
+                lit_emitter_compilerinit(emt, &stackcc, fieldexpr->isstatic ? LIT_FUNCTYPE_STATIC_METHOD : LIT_FUNCTYPE_METHOD);
+                reg = lit_emitter_reserveregister(emt);
                 lit_emitter_marklocalinit(emt, lit_emitter_addlocal(emt, "value", 5, topexpr->line, false, reg));
                 lit_emitter_scopebegin(emt);
-                if(!lit_emitter_emitstmt(emt, stmt->setter))
+                if(!lit_emitter_emitstmt(emt, fieldexpr->setter))
                 {
                     lit_emitter_scopeend(emt);
                 }
                 lit_emitter_freeregister(emt, reg);
-                setter = lit_emitter_compilerend(emt, lit_value_asstring(lit_string_valformat(emt->pstate, "@:set @", lit_value_fromobject(emt->class_name), stmt->name)));
+                setter = lit_emitter_compilerend(emt, lit_value_asstring(lit_string_valformat(emt->pstate, "@:set @", lit_value_fromobject(emt->classname), fieldexpr->name)));
                 setter->argcount = 1;
                 setter->maxregisters++;
             }
-            LitField* field = lit_object_makefield(emt->pstate, (LitObject*)getter, (LitObject*)setter);
-            uint64_t constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(field));
+            field = lit_object_makefield(emt->pstate, (LitObject*)getter, (LitObject*)setter);
+            constant = lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(field));
             LIT_BIT_SETBIT(constant, LIT_BITFLAG_CONSTANT);
-            lit_emitter_emitabc(emt, topexpr->line, stmt->is_static ? LIT_OPCODE_CLASSPUTFIELDSTATIC : LIT_OPCODE_CLASSPUTMETHOD, emt->class_register, lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(stmt->name)), constant);
+            lit_emitter_emitabc(emt, topexpr->line, fieldexpr->isstatic ? LIT_OPCODE_CLASSPUTFIELDSTATIC : LIT_OPCODE_CLASSPUTMETHOD, emt->classregister, lit_emitter_addconst(emt, topexpr->line, lit_value_fromobject(fieldexpr->name)), constant);
             break;
         }
         default:
@@ -10366,15 +11637,25 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
 
 LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, LitString* modname)
 {
+    bool isnew;
+    bool endedscope;
+    uint8_t r;
     size_t i;
+    size_t oldprivatescnt;
+    size_t total;
+    size_t add;
     LitAstPrivate priv;
-    emt->last_line = 1;
-    emt->emit_reference = 0;
-    LitState* state = emt->pstate;
+    LitState* state;
     LitValue modulevalue;
     LitModule* module;
-    bool isnew = false;
-    if(lit_table_getentry(&emt->pstate->vmstate.modules->innertable, modname, &modulevalue))
+    LitAstCompiler stackcc;
+    LitDynListPriv* privates;
+    LitAstExpression* stmt;
+    emt->lastline = 1;
+    emt->emitreference = 0;
+    state = emt->pstate;
+    isnew = false;
+    if(lit_map_get(emt->pstate->vmstate.modules, modname, &modulevalue))
     {
         module = lit_value_asmodule(modulevalue);
     }
@@ -10384,35 +11665,34 @@ LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, L
         isnew = true;
     }
     emt->module = module;
-    size_t oldprivatescnt = module->privatecount;
+    oldprivatescnt = module->privatecount;
     if(oldprivatescnt > 0)
     {
-        LitDynListPriv* privates = &emt->privlist;
+        privates = &emt->privlist;
         privates->listcount = oldprivatescnt - 1;
         priv.initialized = true;
         priv.constant = false;
-        lit_privlist_push(privates, priv);
+        lit_dynlistpriv_push(privates, priv);
         for(i = 0; i < oldprivatescnt; i++)
         {
             privates->listitems[i].initialized = true;
         }
     }
-    LitAstCompiler stackcc;
     lit_emitter_compilerinit(emt, &stackcc, LIT_FUNCTYPE_SCRIPT);
     emt->chunk = &stackcc.function->chunk;
     lit_emitter_resolvestmtlist(emt, statements);
     lit_emitter_scopebegin(emt);
-    bool endedscope = false;
+    endedscope = false;
     for(i = 0; i < statements->listcount; i++)
     {
-        LitAstExpression* stmt = statements->listitems[i];
+        stmt = statements->listitems[i];
         if(i == statements->listcount - 1 && stmt->type == LIT_ASTEXPRTYP_EXPRESSION && !endedscope)
         {
-            uint8_t r = lit_emitter_reserveregister(emt);
+            r = lit_emitter_reserveregister(emt);
             lit_emitter_emitexpr(emt, ((LitAstExprStmtExpr*)stmt)->exvalue, r);
             lit_emitter_emitabc(emt, stmt->line, LIT_OPCODE_RETURN, r, 1, 0);
             lit_emitter_freeregister(emt, r);
-            emt->compiler->skip_return = true;
+            emt->compiler->skipreturn = true;
             break;
         }
         if(lit_emitter_emitstmt(emt, stmt))
@@ -10428,7 +11708,7 @@ LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, L
     module->mainfunction = lit_emitter_compilerend(emt, modname);
     if(isnew)
     {
-        size_t total = emt->privlist.listcount;
+        total = emt->privlist.listcount;
         module->privatevalues = (LitValue*)lit_sysmem_malloc(total * sizeof(LitValue));
         for(i = 0; i < total; i++)
         {
@@ -10437,7 +11717,7 @@ LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, L
     }
     else
     {
-        size_t add = (module->privatecount);
+        add = (module->privatecount);
         if(add == 0)
         {
             add = 1;
@@ -10448,10 +11728,10 @@ LitModule* lit_emitter_emitmod(LitAstEmitter* emt, LitDynListExpr* statements, L
             module->privatevalues[i] = lit_value_makenull();
         }
     }
-    lit_privlist_destroy(&emt->privlist);
-    if(isnew && !state->had_error)
+    lit_dynlistpriv_destroy(&emt->privlist);
+    if(isnew && !state->haderror)
     {
-        lit_table_set(&state->vmstate.modules->innertable, modname, lit_value_fromobject(module));
+        lit_map_set(state->vmstate.modules, modname, lit_value_fromobject(module));
     }
     module->ran = true;
     return module;
@@ -10461,79 +11741,83 @@ const char* lit_debug_opcname(uint64_t opc)
 {
     switch(opc)
     {
-                case LIT_OPCODE_MOVE: return "move";
-                case LIT_OPCODE_LOADNULL: return "ldnull";
-                case LIT_OPCODE_LOADBOOL: return "ldbool";
-                case LIT_OPCODE_MAKECLOSURE: return "mkclosure";
-                case LIT_OPCODE_MAKEARRAY: return "mkarray";
-                case LIT_OPCODE_MAKEOBJECT: return "mkobject";
-                case LIT_OPCODE_MAKERANGE: return "mkrange";
-                case LIT_OPCODE_RETURN: return "return";
-                case LIT_OPCODE_MATHADD: return "m.add";
-                case LIT_OPCODE_MATHSUBTRACT: return "m.subtr";
-                case LIT_OPCODE_MATHMULTIPLY: return "m.mult";
-                case LIT_OPCODE_MATHDIVIDE: return "m.div";
-                case LIT_OPCODE_MATHFLOORDIVIDE: return "m.fldiv";
-                case LIT_OPCODE_MATHMOD: return "m.mod";
-                case LIT_OPCODE_MATHPOWER: return "m.pow";
-                case LIT_OPCODE_MATHLEFTSHIFT: return "m.shleft";
-                case LIT_OPCODE_MATHRIGHTSHIFT: return "m.shright";
-                case LIT_OPCODE_BINXOR: return "m.bxor";
-                case LIT_OPCODE_BINAND: return "m.band";
-                case LIT_OPCODE_BINOR: return "m.bor";
-                case LIT_OPCODE_JUMP: return "jump";
-                case LIT_OPCODE_JUMPIFTRUE: return "jumpiftrue";
-                case LIT_OPCODE_JUMPIFFALSE: return "jumpiffalse";
-                case LIT_OPCODE_JUMPIFNONNULL: return "non_null_jump";
-                case LIT_OPCODE_JUMPIFNULL: return "null_jump";
-                case LIT_OPCODE_EQUAL: return "eq";
-                case LIT_OPCODE_LESSTHAN: return "lessthan";
-                case LIT_OPCODE_LESSEQUAL: return "lessequal";
-                case LIT_OPCODE_GREATERTHAN: return "greater";
-                case LIT_OPCODE_GREATEREQUAL: return "greaterequal";
-                case LIT_OPCODE_NEGATE: return "negate";
-                case LIT_OPCODE_NOT: return "not";
-                case LIT_OPCODE_BINNOT: return "m.bnot";
-                case LIT_OPCODE_GLOBALSET: return "globalset";
-                case LIT_OPCODE_GLOBALGET: return "globalget";
-                case LIT_OPCODE_UPVALUESET: return "upvset";
-                case LIT_OPCODE_UPVALUEGET: return "upvget";
-                case LIT_OPCODE_PRIVATESET: return "privset";
-                case LIT_OPCODE_PRIVATEGET: return "privget";
-                case LIT_OPCODE_CALLCALLABLE: return "call";
-                case LIT_OPCODE_UPVALUECLOSE: return "upvclose";
-                case LIT_OPCODE_CLASSMAKE: return "mkclass";
-                case LIT_OPCODE_CLASSPUTFIELDSTATIC: return "classputstaticfield";
-                case LIT_OPCODE_CLASSPUTMETHOD: return "classputmethod";
-                case LIT_OPCODE_FIELDGET: return "fieldget";
-                case LIT_OPCODE_CLASSGETSUPERMETHOD: return "classgetsupermethod";
-                case LIT_OPCODE_FIELDSET: return "fieldset";
-                case LIT_OPCODE_IS: return "is";
-                case LIT_OPCODE_INVOKE: return "classinvoke";
-                case LIT_OPCODE_INVOKESUPER: return "classinvokesuper";
-                case LIT_OPCODE_SUBSCRIPTGET: return "indexget";
-                case LIT_OPCODE_SUBSCRIPTSET: return "indexset";
-                case LIT_OPCODE_ARRAYPUSH: return "arraypush";
-                case LIT_OPCODE_OBJECTPUSH: return "objectpush";
-                case LIT_OPCODE_REFGLOBAL: return "refglobal";
-                case LIT_OPCODE_REFPRIVATE: return "refprivate";
-                case LIT_OPCODE_REFLOCAL: return "reflocal";
-                case LIT_OPCODE_REFUPVALUE: return "refupvalue";
-                case LIT_OPCODE_REFFIELD: return "reffield";
-                case LIT_OPCODE_REFSET: return "setref";
+        case LIT_OPCODE_MOVE: return "move";
+        case LIT_OPCODE_LOADNULL: return "ldnull";
+        case LIT_OPCODE_LOADBOOL: return "ldbool";
+        case LIT_OPCODE_MAKECLOSURE: return "mkclosure";
+        case LIT_OPCODE_MAKEARRAY: return "mkarray";
+        case LIT_OPCODE_MAKEOBJECT: return "mkobject";
+        case LIT_OPCODE_MAKERANGE: return "mkrange";
+        case LIT_OPCODE_RETURN: return "return";
+        case LIT_OPCODE_MATHADD: return "m.add";
+        case LIT_OPCODE_MATHSUBTRACT: return "m.subtr";
+        case LIT_OPCODE_MATHMULTIPLY: return "m.mult";
+        case LIT_OPCODE_MATHDIVIDE: return "m.div";
+        case LIT_OPCODE_MATHFLOORDIVIDE: return "m.fldiv";
+        case LIT_OPCODE_MATHMOD: return "m.mod";
+        case LIT_OPCODE_MATHPOWER: return "m.pow";
+        case LIT_OPCODE_MATHLEFTSHIFT: return "m.shleft";
+        case LIT_OPCODE_MATHRIGHTSHIFT: return "m.shright";
+        case LIT_OPCODE_BINXOR: return "m.bxor";
+        case LIT_OPCODE_BINAND: return "m.band";
+        case LIT_OPCODE_BINOR: return "m.bor";
+        case LIT_OPCODE_JUMP: return "jump";
+        case LIT_OPCODE_JUMPIFTRUE: return "jumpiftrue";
+        case LIT_OPCODE_JUMPIFFALSE: return "jumpiffalse";
+        case LIT_OPCODE_JUMPIFNONNULL: return "nonnulljump";
+        case LIT_OPCODE_JUMPIFNULL: return "nulljump";
+        case LIT_OPCODE_EQUAL: return "eq";
+        case LIT_OPCODE_LESSTHAN: return "lessthan";
+        case LIT_OPCODE_LESSEQUAL: return "lessequal";
+        case LIT_OPCODE_GREATERTHAN: return "greater";
+        case LIT_OPCODE_GREATEREQUAL: return "greaterequal";
+        case LIT_OPCODE_NEGATE: return "negate";
+        case LIT_OPCODE_NOT: return "not";
+        case LIT_OPCODE_BINNOT: return "m.bnot";
+        case LIT_OPCODE_GLOBALSET: return "globalset";
+        case LIT_OPCODE_GLOBALGET: return "globalget";
+        case LIT_OPCODE_UPVALUESET: return "upvset";
+        case LIT_OPCODE_UPVALUEGET: return "upvget";
+        case LIT_OPCODE_PRIVATESET: return "privset";
+        case LIT_OPCODE_PRIVATEGET: return "privget";
+        case LIT_OPCODE_CALLCALLABLE: return "call";
+        case LIT_OPCODE_UPVALUECLOSE: return "upvclose";
+        case LIT_OPCODE_CLASSMAKE: return "mkclass";
+        case LIT_OPCODE_CLASSPUTFIELDSTATIC: return "classputstaticfield";
+        case LIT_OPCODE_CLASSPUTMETHOD: return "classputmethod";
+        case LIT_OPCODE_FIELDGET: return "fieldget";
+        case LIT_OPCODE_CLASSGETSUPERMETHOD: return "classgetsupermethod";
+        case LIT_OPCODE_FIELDSET: return "fieldset";
+        case LIT_OPCODE_IS: return "is";
+        case LIT_OPCODE_INVOKE: return "classinvoke";
+        case LIT_OPCODE_INVOKESUPER: return "classinvokesuper";
+        case LIT_OPCODE_SUBSCRIPTGET: return "indexget";
+        case LIT_OPCODE_SUBSCRIPTSET: return "indexset";
+        case LIT_OPCODE_ARRAYPUSH: return "arraypush";
+        case LIT_OPCODE_OBJECTPUSH: return "objectpush";
+        case LIT_OPCODE_REFGLOBAL: return "refglobal";
+        case LIT_OPCODE_REFPRIVATE: return "refprivate";
+        case LIT_OPCODE_REFLOCAL: return "reflocal";
+        case LIT_OPCODE_REFUPVALUE: return "refupvalue";
+        case LIT_OPCODE_REFFIELD: return "reffield";
+        case LIT_OPCODE_REFSET: return "setref";
+        case LIT_OPCODE_PUSH_TRY: return "pushtry";
+        case LIT_OPCODE_POP_TRY: return "poptry";
+        case LIT_OPCODE_THROW: return "throw";
+        case LIT_OPCODE_RETHROW: return "rethrow";
     }
     return "?unknown?";
 }
 
-void lit_debug_disasmodule_recursive(LitState* state, LitIOStream* pr, LitFunction* function, const char* source, LitTable* disassembled)
+void lit_debug_disasmodule_recursive(LitState* state, LitIOStream* pr, LitFuncScript* function, const char* source, LitTable* disassembled)
 {
+    size_t i;
     if(function == NULL || lit_table_getentry(disassembled, function->name, NULL))
     {
         return;
     }
     lit_table_set(disassembled, function->name, lit_value_makenull());
     lit_debug_disaschunk(pr, &function->chunk, function->name->strbuf.data, source);
-    size_t i;
     for(i = 0; i < function->chunk.constantlist.listcount; i++)
     {
         LitValue val = function->chunk.constantlist.listitems[i];
@@ -10555,7 +11839,8 @@ void lit_debug_disasmodule_recursive(LitState* state, LitIOStream* pr, LitFuncti
 void lit_debug_disasmodule(LitIOStream* pr, LitModule* module, const char* source)
 {
     LitTable disassembled;
-    LitState* state = module->innerobject.pstate;
+    LitState* state;
+    state = module->innerobject.pstate;
     lit_table_init(state, &disassembled);
     lit_debug_disasmodule_recursive(state, pr, module->mainfunction, source, &disassembled);
     lit_free_table(&disassembled);
@@ -10572,8 +11857,9 @@ void lit_debug_disaschunk(LitIOStream* pr, LitChunk* chunk, const char* name, co
 {
     size_t i;
     size_t offset;
-    LitDynListVal* list = &chunk->constantlist;
-    lit_iostream_printf(pr, "^^ %s ^^\n", name);
+    LitDynListVal* list;
+    list = &chunk->constantlist;
+    lit_iostream_printf(pr, "CHUNK %s {\n", name);
     if(list->listcount > 0)
     {
         lit_iostream_writecolor(pr, COLOR_MAGENTA);
@@ -10602,7 +11888,7 @@ void lit_debug_disaschunk(LitIOStream* pr, LitChunk* chunk, const char* name, co
         lit_iostream_printf(pr, "%08lX ", chunk->compiledcodechunk[offset]);
     }
     lit_iostream_printf(pr, "\n");
-    lit_iostream_printf(pr, "vv %s vv\n", name);
+    lit_iostream_printf(pr, "}\n");
 }
 
 void lit_debug_callbackprintabcinstr(LitIOStream* pr, LitOpCode opc, uint64_t instruction)
@@ -10702,6 +11988,12 @@ void lit_debug_printglobalinstr(LitIOStream* pr, LitChunk* chunk, LitOpCode opc,
 void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const char* source, bool forceline)
 {
     typedef void (*LitDebugInstructionFn)(LitIOStream*, LitOpCode opc, uint64_t);
+    static LitDebugInstructionFn debuginstrfuncs[] = {
+        lit_debug_callbackprintabcinstr,
+        lit_debug_callbackprintabxinstr,
+        lit_debug_callbackprintasbxinstr
+    };
+
     uint8_t opcode;
     uint64_t instruction;
     size_t line;
@@ -10712,11 +12004,7 @@ void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const
     char* prevline;
     char* outputline;
     char* currentline;
-    static LitDebugInstructionFn debuginstrfuncs[] = {
-        lit_debug_callbackprintabcinstr,
-        lit_debug_callbackprintabxinstr,
-        lit_debug_callbackprintasbxinstr
-    };
+
     line = lit_chunk_getline(chunk, offset);
     same = !chunk->haslineinfo || (offset > 0 && line == lit_chunk_getline(chunk, offset - 1));
     if(!same && source != NULL)
@@ -10866,6 +12154,10 @@ void lit_debug_disasinstr(LitIOStream* pr, LitChunk* chunk, size_t offset, const
                 handle_opcode(LIT_OPCODE_REFUPVALUE, LIT_INSTYP_ABX) /* R(A) := ref U(Bx) */
                 handle_opcode(LIT_OPCODE_REFFIELD, LIT_INSTYP_ABC) /* R(A) = ref R(B)[C(C)] */
                 handle_opcode(LIT_OPCODE_REFSET, LIT_INSTYP_ABC) /* ref R(A) := R(B) */
+                handle_opcode(LIT_OPCODE_PUSH_TRY, LIT_INSTYP_ABX) /* push try handler at PC + Bx */
+                handle_opcode(LIT_OPCODE_POP_TRY, LIT_INSTYP_ABC) /* pop try handler */
+                handle_opcode(LIT_OPCODE_THROW, LIT_INSTYP_ABC) /* throw R(A) */
+                handle_opcode(LIT_OPCODE_RETHROW, LIT_INSTYP_ABC) /* rethrow fiber->error */
                 #endif
                 #undef handle_opcode
                 default:
@@ -10970,12 +12262,18 @@ LitValue lit_coreutil_tableiterkey(LitTable* table, int index)
 
 LitValue lit_objfnclass_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitClass* klass;
+    int index;
+    int methodsCapacity;
+    int value;
+    bool fields;
+
     LIT_ENSURE_ARGS(1);
-    LitClass* klass = lit_value_asclass(instance);
-    int index = lit_value_isnull(args[0]) ? -1 : lit_value_asnumber(args[0]);
-    int methodsCapacity = (int)klass->mthtable.htcapacity;
-    bool fields = index >= methodsCapacity;
-    int value = lit_coreutil_tableiterator(fields ? &klass->staticstable : &klass->mthtable, fields ? index - methodsCapacity : index);
+    klass = lit_value_asclass(instance);
+    index = lit_value_isnull(args[0]) ? -1 : lit_value_asnumber(args[0]);
+    methodsCapacity = (int)klass->mthtable.htcapacity;
+    fields = index >= methodsCapacity;
+    value = lit_coreutil_tableiterator(fields ? &klass->staticstable : &klass->mthtable, fields ? index - methodsCapacity : index);
     if(value == -1)
     {
         if(fields)
@@ -10991,10 +12289,15 @@ LitValue lit_objfnclass_iterator(LitState* state, LitValue instance, size_t argc
 
 LitValue lit_objfnclass_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    size_t index = LIT_CHECK_NUMBER(0);
-    LitClass* klass = lit_value_asclass(instance);
-    size_t methodsCapacity = klass->mthtable.htcapacity;
-    bool fields = index >= methodsCapacity;
+    LitClass* klass;
+    size_t index;
+    size_t methodsCapacity;
+    bool fields;
+
+    index = LIT_CHECK_NUMBER(0);
+    klass = lit_value_asclass(instance);
+    methodsCapacity = klass->mthtable.htcapacity;
+    fields = index >= methodsCapacity;
     return lit_coreutil_tableiterkey(fields ? &klass->staticstable : &klass->mthtable, fields ? index - methodsCapacity : index);
 }
 
@@ -11021,7 +12324,10 @@ LitValue lit_objfnclass_super(LitState* state, LitValue instance, size_t argc, L
 
 LitValue lit_objfnclass_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    LitClass* klass = lit_value_asclass(instance);
+    LitClass* klass;
+    LitValue value;
+
+    klass = lit_value_asclass(instance);
     if(argc == 2)
     {
         if(!lit_value_isstring(args[0]))
@@ -11035,7 +12341,6 @@ LitValue lit_objfnclass_subscript(LitState* state, LitValue instance, size_t arg
     {
         lit_vm_raisefatalerror(state, "class index must be a string");
     }
-    LitValue value;
     if(lit_table_getentry(&klass->staticstable, lit_value_asstring(args[0]), &value))
     {
         return value;
@@ -11059,7 +12364,7 @@ LitValue lit_objfnclass_name(LitState* state, LitValue instance, size_t argc, Li
  * Object
  */
 
-void lit_util_tabtoarray(LitState* state, LitArray* arr, LitTable* table)
+void lit_objfnutil_tabtoarray(LitState* state, LitArray* arr, LitTable* table)
 {
     size_t i;
     LitTabEntry* entry;
@@ -11084,6 +12389,7 @@ LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, Li
     LitArray* arr;
     LitMap* map;
     LitInstance* oinst;
+
     (void)thisval;
     if(argc == 0)
     {
@@ -11094,12 +12400,12 @@ LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, Li
     if(lit_value_ismap(val))
     {
         map = lit_value_asmap(val);
-        lit_util_tabtoarray(state, arr, &map->innertable);
+        lit_objfnutil_tabtoarray(state, arr, &map->innertable);
     }
     else if(lit_value_isinstance(val))
     {
         oinst = lit_value_asinstance(val);
-        lit_util_tabtoarray(state, arr, &oinst->fields);
+        lit_objfnutil_tabtoarray(state, arr, &oinst->fields);
     }
     return lit_value_fromobject(arr);
 }
@@ -11116,10 +12422,12 @@ LitValue lit_objfnobject_tostring(LitState* state, LitValue instance, size_t arg
     LitIOStream pr;
     LitInstance* self;
     LitString* dest;
+    LitClass* klass;
+
     (void)argc;
     (void)args;
     self = lit_value_asinstance(instance);
-    LitClass* klass = lit_state_getclassfor(state, instance);
+    klass = lit_state_getclassfor(state, instance);
     lit_iostream_makestackstring(&pr);
     lit_value_printobjinstance(&pr, klass, self);
     dest = lit_iostream_takestring(state, &pr);
@@ -11149,13 +12457,16 @@ LitValue lit_objfnobject_iscallable(LitState* state, LitValue instance, size_t a
 LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitObjType type;
+    LitInstance* inst;
+    LitValue value;
+
     (void)type;
     if(!lit_value_isinstance(instance))
     {
-        type = OBJECT_TYPE(instance);
+        type = lit_value_objtype(instance);
         lit_vm_raisefatalerror(state, "cannot modify built-in types");
     }
-    LitInstance* inst = lit_value_asinstance(instance);
+    inst = lit_value_asinstance(instance);
     if(!lit_value_isstring(args[0]))
     {
         lit_vm_raisefatalerror(state, "object index must be a string");
@@ -11165,7 +12476,6 @@ LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t ar
         lit_table_set(&inst->fields, lit_value_asstring(args[0]), args[1]);
         return args[1];
     }
-    LitValue value;
     if(lit_table_getentry(&inst->fields, lit_value_asstring(args[0]), &value))
     {
         return value;
@@ -11248,39 +12558,35 @@ LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, Li
 
 LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    //fprintf(stderr, "in objfnstring_plus\n");
     LitString* self;
-    LitString* clone;
-    LitString* other;
-    LitString* result;
-    size_t length;
-    char* chars;
+    LitString* res;
+    LitIOStream pr;
     (void)argc;
+    lit_iostream_makestackstring(&pr);
     self = lit_value_asstring(instance);
-    clone = lit_string_clone(state, self);
-    other = lit_value_tostring(state, args[0], 0);
-    lit_string_appendlen(clone, lit_string_getdata(other), lit_string_getlength(other));
-    return lit_value_fromobject(clone);
-
-    length = self->strbuf.length + other->strbuf.length;
-    chars = (char*)lit_sysmem_malloc(length + 1);
-    memcpy(chars, self->strbuf.data, self->strbuf.length);
-    memcpy(chars + self->strbuf.length, other->strbuf.data, other->strbuf.length);
-    chars[length] = '\0';
-
-    result = lit_string_makestringfrom(state, chars, length, lit_string_hash(chars, length), true);
-    return lit_value_fromobject(result);
+    lit_iostream_putlen(&pr, lit_string_getdata(self), lit_string_getlength(self));
+    lit_value_printvalue(&pr, args[0], false);
+    res = lit_iostream_takestring(state, &pr);
+    return lit_value_fromobject(res);
 }
 
 
 LitValue lit_objfnstring_less(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    return lit_value_makebool(strcmp(lit_value_asstring(instance)->strbuf.data, LIT_CHECK_GETSTRINGDATA(0)) < 0);
+    LitString* self;
+    LitString* other;
+    self = lit_value_asstring(instance);
+    other = LIT_CHECK_GETSTRINGOBJECT(0);
+    return lit_value_makebool(strcmp(self->strbuf.data, other->strbuf.data) < 0);
 }
 
 LitValue lit_objfnstring_greater(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    return lit_value_makebool(strcmp(lit_value_asstring(instance)->strbuf.data, LIT_CHECK_GETSTRINGDATA(0)) > 0);
+    LitString* self;
+    LitString* other;
+    self = lit_value_asstring(instance);
+    other = LIT_CHECK_GETSTRINGOBJECT(0);
+    return lit_value_makebool(strcmp(self->strbuf.data, other->strbuf.data) > 0);
 }
 
 LitValue lit_objfnstring_tostring(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -11305,14 +12611,6 @@ LitValue lit_objfnstring_tonumber(LitState* state, LitValue instance, size_t arg
     return lit_value_makenumber(result);
 }
 
-void lit_util_stringchangecase(LitString* instr, int (*func)(int))
-{
-    size_t i;
-    for(i = 0; i < instr->strbuf.length; i++)
-    {
-        instr->strbuf.data[i] = func(instr->strbuf.data[i]);
-    }
-}
 
 LitValue lit_objfnstring_touppercase(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
@@ -11322,7 +12620,7 @@ LitValue lit_objfnstring_touppercase(LitState* state, LitValue instance, size_t 
     (void)args;
     selfstr = lit_value_asstring(instance);
     copied = lit_string_clone(state, selfstr);
-    lit_util_stringchangecase(copied, toupper);
+    lit_util_stringchangecase(copied->strbuf.data, copied->strbuf.length, toupper);
     return lit_value_fromobject(copied);
 }
 
@@ -11334,7 +12632,7 @@ LitValue lit_objfnstring_tolowercase(LitState* state, LitValue instance, size_t 
     (void)args;
     selfstr = lit_value_asstring(instance);
     copied = lit_string_clone(state, selfstr);
-    lit_util_stringchangecase(copied, tolower);
+    lit_util_stringchangecase(copied->strbuf.data, copied->strbuf.length, tolower);
     return lit_value_fromobject(copied);
 }
 
@@ -11432,8 +12730,8 @@ LitValue lit_objfnstring_splice(LitState* state, LitString* string, int from, in
     {
         lit_vm_raisefatalerror(state, "string splice from bound is larger that to bound");
     }
-    from = lit_strutil_utfucharoffset(string->strbuf.data, from);
-    to = lit_strutil_utfucharoffset(string->strbuf.data, to);
+    from = lit_util_stringutfucharoffset(string->strbuf.data, from);
+    to = lit_util_stringutfucharoffset(string->strbuf.data, to);
     return lit_value_fromobject(lit_string_fromrange(state, string, from, to - from + 1));
 }
 
@@ -11497,7 +12795,7 @@ LitValue lit_objfnstring_charcodeat(LitState* state, LitValue instance, size_t a
             return lit_value_makenull();
         }
     }
-    cp = lit_string_codepointcodeat(state, selfstr, lit_strutil_utfucharoffset(selfstr->strbuf.data, index));
+    cp = lit_string_codepointcodeat(state, selfstr, lit_util_stringutfucharoffset(selfstr->strbuf.data, index));
     return lit_value_makenumber(cp);
 }
 
@@ -11522,7 +12820,7 @@ LitValue lit_objfnstring_subscript(LitState* state, LitValue instance, size_t ar
             return lit_value_makenull();
         }
     }
-    LitString* c = lit_string_codepointstringat(state, selfstr, lit_strutil_utfucharoffset(selfstr->strbuf.data, index));
+    LitString* c = lit_string_codepointstringat(state, selfstr, lit_util_stringutfucharoffset(selfstr->strbuf.data, index));
     return c == NULL ? lit_value_makenull() : lit_value_fromobject(c);
 }
 
@@ -11598,6 +12896,7 @@ LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t a
 {
     (void)instance;
     LitValue arg;
+    LitModule* module;
     printf("Fiber.constructor:argc=%ld\n", argc);
     if((argc == 0) || (!lit_value_iscallablefunction(args[0])))
     {
@@ -11607,7 +12906,7 @@ LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t a
         lit_vm_raisefatalerror(state, "Fiber constructor expects a function as its argument");
     }
     arg = args[0];
-    LitModule* module = state->vmstate.fiber->module;
+    module = state->vmstate.fiber->module;
 
     LitFiber* fiber;
 
@@ -11658,6 +12957,14 @@ void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, siz
 {
     size_t i;
     size_t ai;
+    size_t varargcount;
+    size_t functionargcount;
+    bool vararg;
+    LitCallFrame* frame;
+    LitFuncScript* function;
+    LitValue* start;
+    LitArray* array;
+
     if(lit_coreutil_isfiberdone(fiber))
     {
         lit_vm_raisefatalerror(state, "Fiber already finished executing");
@@ -11665,12 +12972,12 @@ void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, siz
     fiber->parent = state->vmstate.fiber;
     fiber->catcher = catcher;
     state->vmstate.fiber = fiber;
-    LitCallFrame* frame = &fiber->framevals[fiber->framecount - 1];
+    frame = &fiber->framevals[fiber->framecount - 1];
     if(frame->ip == frame->function->chunk.compiledcodechunk)
     {
         fiber->argcount = argc;
-        LitFunction* function = frame->function;
-        LitValue* start = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
+        function = frame->function;
+        start = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
         lit_fiber_ensureregisters(fiber, start - fiber->registeritems + function->maxregisters);
         frame->slots = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
         for(i = argc + 1; i < function->maxregisters; i++)
@@ -11682,8 +12989,8 @@ void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, siz
         {
             frame->slots[ai + 1] = args[ai];
         }
-        bool vararg = frame->function->vararg;
-        size_t functionargcount = function->argcount;
+        vararg = frame->function->vararg;
+        functionargcount = function->argcount;
         fiber->argcount = functionargcount;
         if(vararg)
         {
@@ -11693,10 +13000,10 @@ void lit_coreutil_runfiber(LitState* state, LitFiber* fiber, LitValue* args, siz
             }
             else
             {
-                LitArray* array = &lit_object_makevararray(state)->innerarray;
+                array = &lit_object_makevararray(state)->innerarray;
                 lit_state_pushroot(state, (LitObject*)array);
                 *(frame->slots + functionargcount) = lit_value_fromobject(array);
-                size_t varargcount = argc - functionargcount + 1;
+                varargcount = argc - functionargcount + 1;
                 if(varargcount > 0)
                 {
                     lit_dynlistval_ensuresize(&array->innerlist, varargcount);
@@ -11758,7 +13065,8 @@ LitValue lit_objfnfiber_yeet(LitState* state, LitValue instance, size_t argc, Li
 LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
-    LitString* value = argc == 0 ? lit_string_copy(state, "Fiber was aborted") : lit_value_tostring(state, args[0], 0);
+    LitString* value;
+    value = argc == 0 ? lit_string_copy(state, "Fiber was aborted") : lit_value_tostring(state, args[0], 0);
     lit_vm_handleerror(state, value);
     if(state->vmstate.fiber->returnaddress != NULL)
     {
@@ -11774,10 +13082,12 @@ LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, L
 
 LitValue lit_objfnmodule_privates(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitModule* module;
+    LitMap* map;
     (void)argc;
     (void)args;
-    LitModule* module = lit_value_ismodule(instance) ? lit_value_asmodule(instance) : state->vmstate.fiber->module;
-    LitMap* map = module->privatenames;
+    module = lit_value_ismodule(instance) ? lit_value_asmodule(instance) : state->vmstate.fiber->module;
+    map = module->privatenames;
     return lit_value_fromobject(map);
 }
 
@@ -11837,7 +13147,10 @@ LitValue lit_objfnarray_constructor(LitState* state, LitValue instance, size_t a
 LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int from, int to)
 {
     size_t i;
-    size_t length = array->innerlist.listcount;
+    size_t length;
+    LitArray* newarray;
+
+    length = array->innerlist.listcount;
     if(from < 0)
     {
         from = (int)length + from;
@@ -11853,36 +13166,42 @@ LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int from, int t
     from = fmax(from, 0);
     to = fmin(to, (int)length - 1);
     length = fmin(length, to - from + 1);
-    LitArray* newarray = lit_array_make(state);
+    newarray = lit_array_make(state);
     for(i = 0; i < length; i++)
     {
-        lit_vallist_push(&newarray->innerlist, array->innerlist.listitems[from + i]);
+        lit_dynlistval_push(&newarray->innerlist, array->innerlist.listitems[from + i]);
     }
     return lit_value_fromobject(newarray);
 }
 
 LitValue lit_objfnarray_slice(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    int from = LIT_CHECK_NUMBER(0);
-    int to = LIT_CHECK_NUMBER(1);
+    int from;
+    int to;
+    from = LIT_CHECK_NUMBER(0);
+    to = LIT_CHECK_NUMBER(1);
     return lit_objfnarray_splice(state, lit_value_asarray(instance), from, to);
 }
 
 LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitDynListVal* list;
+    int64_t index;
+    LitRange* range;
+    int index_v;
+
     if(argc == 2)
     {
         if(!lit_value_isnumber(args[0]))
         {
             lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         }
-        LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
-        int64_t index = lit_value_asnumber(args[0]);
+        list = &lit_value_asarray(instance)->innerlist;
+        index = lit_value_asnumber(args[0]);
         if(index < 0)
         {
             index = fmax(0, list->listcount + index);
         }
-        //fprintf(stderr, "Array[]: index=%ld\n", index);
         lit_dynlistval_ensuresize(list, index + 1);
         return list->listitems[index] = args[1];
     }
@@ -11890,23 +13209,23 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
     {
         if(lit_value_isrange(args[0]))
         {
-            LitRange* range = lit_value_asrange(args[0]);
+            range = lit_value_asrange(args[0]);
             return lit_objfnarray_splice(state, lit_value_asarray(instance), (int)range->from, (int)range->to);
         }
         lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         return lit_value_makenull();
     }
-    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
-    int index = lit_value_asnumber(args[0]);
-    if(index < 0)
+    list = &lit_value_asarray(instance)->innerlist;
+    index_v = lit_value_asnumber(args[0]);
+    if(index_v < 0)
     {
-        index = fmax(0, list->listcount + index);
+        index_v = fmax(0, list->listcount + index_v);
     }
-    if((size_t)index >= list->listcount)
+    if((size_t)index_v >= list->listcount)
     {
         return lit_value_makenull();
     }
-    return list->listitems[index];
+    return list->listitems[index_v];
 }
 
 LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -11917,7 +13236,7 @@ LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, Li
     self = lit_value_asarray(instance);
     for(i = 0; i < argc; i++)
     {
-        lit_vallist_push(&self->innerlist, args[i]);
+        lit_dynlistval_push(&self->innerlist, args[i]);
     }
     return lit_value_makenull();
 }
@@ -11925,14 +13244,18 @@ LitValue lit_objfnarray_push(LitState* state, LitValue instance, size_t argc, Li
 LitValue lit_objfnarray_insert(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     int i;
+    int index;
+    LitValue value;
+    LitDynListVal* list;
+
     LIT_ENSURE_ARGS(2);
-    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
-    int index = LIT_CHECK_NUMBER(0);
+    list = &lit_value_asarray(instance)->innerlist;
+    index = LIT_CHECK_NUMBER(0);
     if(index < 0)
     {
         index = fmax(0, list->listcount + index);
     }
-    LitValue value = args[1];
+    value = args[1];
     if((int)list->listcount <= index)
     {
         lit_dynlistval_ensuresize(list, index + 1);
@@ -11952,16 +13275,19 @@ LitValue lit_objfnarray_insert(LitState* state, LitValue instance, size_t argc, 
 LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     size_t i;
+    LitArray* array;
+    LitArray* toAdd;
+
     LIT_ENSURE_ARGS(1);
     if(!lit_value_isarray(args[0]))
     {
         lit_vm_raisefatalerror(state, "expected array as the argument");
     }
-    LitArray* array = lit_value_asarray(instance);
-    LitArray* toAdd = lit_value_asarray(args[0]);
+    array = lit_value_asarray(instance);
+    toAdd = lit_value_asarray(args[0]);
     for(i = 0; i < toAdd->innerlist.listcount; i++)
     {
-        lit_vallist_push(&array->innerlist, toAdd->innerlist.listitems[i]);
+        lit_dynlistval_push(&array->innerlist, toAdd->innerlist.listitems[i]);
     }
     return lit_value_makenull();
 }
@@ -11983,21 +13309,26 @@ int lit_coreutil_indexof(LitState* state, LitArray* array, LitValue value)
 
 LitValue lit_objfnarray_indexof(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    int index;
     LIT_ENSURE_ARGS(1);
-    int index = lit_coreutil_indexof(state, lit_value_asarray(instance), args[0]);
+    index = lit_coreutil_indexof(state, lit_value_asarray(instance), args[0]);
     return index == -1 ? lit_value_makenull() : lit_value_makenumber(index);
 }
 
 LitValue lit_coreutil_removeat(LitArray* array, size_t index)
 {
     size_t i;
-    LitDynListVal* list = &array->innerlist;
-    size_t count = list->listcount;
+    size_t count;
+    LitValue value;
+    LitDynListVal* list;
+
+    list = &array->innerlist;
+    count = list->listcount;
     if(index >= count)
     {
         return lit_value_makenull();
     }
-    LitValue value = list->listitems[index];
+    value = list->listitems[index];
     if(index == count - 1)
     {
         list->listitems[index] = lit_value_makenull();
@@ -12016,9 +13347,12 @@ LitValue lit_coreutil_removeat(LitArray* array, size_t index)
 
 LitValue lit_objfnarray_remove(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitArray* array;
+    int index;
+
     LIT_ENSURE_ARGS(1);
-    LitArray* array = lit_value_asarray(instance);
-    int index = lit_coreutil_indexof(state, array, args[0]);
+    array = lit_value_asarray(instance);
+    index = lit_coreutil_indexof(state, array, args[0]);
     if(index != -1)
     {
         return lit_coreutil_removeat(array, (size_t)index);
@@ -12047,7 +13381,8 @@ LitValue lit_objfnarray_pop(LitState* state, LitValue thisval, size_t argc, LitV
 
 LitValue lit_objfnarray_removeat(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    int index = LIT_CHECK_NUMBER(0);
+    int index;
+    index = LIT_CHECK_NUMBER(0);
     if(index < 0)
     {
         return lit_value_makenull();
@@ -12072,9 +13407,12 @@ LitValue lit_objfnarray_clear(LitState* state, LitValue instance, size_t argc, L
 
 LitValue lit_objfnarray_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitArray* array;
+    int number;
+
     LIT_ENSURE_ARGS(1);
-    LitArray* array = lit_value_asarray(instance);
-    int number = 0;
+    array = lit_value_asarray(instance);
+    number = 0;
     if(lit_value_isnumber(args[0]))
     {
         number = lit_value_asnumber(args[0]);
@@ -12089,8 +13427,10 @@ LitValue lit_objfnarray_iterator(LitState* state, LitValue instance, size_t argc
 
 LitValue lit_objfnarray_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    size_t index = LIT_CHECK_NUMBER(0);
-    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
+    size_t index;
+    LitDynListVal* list;
+    index = LIT_CHECK_NUMBER(0);
+    list = &lit_value_asarray(instance)->innerlist;
     if(list->listcount <= index)
     {
         return lit_value_makenull();
@@ -12101,13 +13441,16 @@ LitValue lit_objfnarray_itervalue(LitState* state, LitValue instance, size_t arg
 LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     size_t i;
+    LitValue callback;
+    LitDynListVal* list;
+
     LIT_ENSURE_ARGS(1);
-    LitValue callback = args[0];
+    callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
         lit_vm_raisefatalerror(state, "expected a function as the callback");
     }
-    LitDynListVal* list = &lit_value_asarray(instance)->innerlist;
+    list = &lit_value_asarray(instance)->innerlist;
     for(i = 0; i < list->listcount; i++)
     {
         lit_state_callvalue(state, callback, &list->listitems[i], 1);
@@ -12161,14 +13504,18 @@ bool lit_callback_sortcompare(LitState* state, LitValue a, LitValue b)
 
 void lit_coreutil_basicquicksort(LitState* state, LitValue* l, int length)
 {
+    int pivotindex;
+    int i;
+    int j;
+    LitValue pivot;
+    LitValue tmp;
+
     if(length < 2)
     {
         return;
     }
-    int pivotindex = length / 2;
-    int i;
-    int j;
-    LitValue pivot = l[pivotindex];
+    pivotindex = length / 2;
+    pivot = l[pivotindex];
     for(i = 0, j = length - 1;; i++, j--)
     {
         while(i < pivotindex && lit_callback_sortcompare(state, l[i], pivot))
@@ -12183,7 +13530,7 @@ void lit_coreutil_basicquicksort(LitState* state, LitValue* l, int length)
         {
             break;
         }
-        LitValue tmp = l[i];
+        tmp = l[i];
         l[i] = l[j];
         l[j] = tmp;
     }
@@ -12261,7 +13608,7 @@ LitValue lit_objfnarray_clone(LitState* state, LitValue instance, size_t argc, L
     newvalues->listcount = 0;
     for(i = 0; i < list->listcount; i++)
     {
-        lit_vallist_push(newvalues, list->listitems[i]);
+        lit_dynlistval_push(newvalues, list->listitems[i]);
     }
     return lit_value_fromobject(array);
 }
@@ -12326,7 +13673,7 @@ LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc,
         return val;
     }
     LitValue value;
-    if(!lit_table_getentry(&map->innertable, index, &value))
+    if(!lit_map_get(map, index, &value))
     {
         return lit_value_makenull();
     }
@@ -12346,10 +13693,12 @@ LitValue lit_objfnmap_addall(LitState* state, LitValue instance, size_t argc, Li
 
 LitValue lit_objfnmap_clear(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitMap* map;
     (void)state;
     (void)argc;
     (void)args;
-    lit_value_asmap(instance)->innertable.htcount = 0;
+    map = lit_value_asmap(instance);
+    map->innertable.htcount = 0;
     return lit_value_makenull();
 }
 
@@ -12409,7 +13758,7 @@ LitValue lit_objfnmap_tostring(LitState* state, LitValue instance, size_t argc, 
     (void)args;
     self = lit_value_asmap(instance);
     lit_iostream_makestackstring(&pr);
-    lit_value_printobjmap(&pr, (LitObject*)self, &self->innertable);
+    lit_value_printobjtable(&pr, (LitObject*)self, &self->innertable);
     dest = lit_iostream_takestring(state, &pr);
     return lit_value_fromobject(dest);
 }
@@ -12585,8 +13934,9 @@ LitValue lit_cfn_println(LitState* state, LitValue instance, size_t argc, LitVal
 
 LitValue lit_cfn_openlibrary(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitString* name;
     (void)instance;
-    const char* name = LIT_CHECK_GETSTRINGDATA(0);
+    name = LIT_CHECK_GETSTRINGOBJECT(0);
     /*
     if(strcmp(name, "network") == 0)
     {
@@ -12595,7 +13945,7 @@ LitValue lit_cfn_openlibrary(LitState* state, LitValue instance, size_t argc, Li
     else
     */
     {
-        lit_vm_raisefatalerror(state, "unknown built-in library %s", name);
+        lit_vm_raisefatalerror(state, "unknown built-in library %s", lit_string_getdata(name));
     }
     return lit_value_makenull();
 }
@@ -12603,7 +13953,7 @@ LitValue lit_cfn_openlibrary(LitState* state, LitValue instance, size_t argc, Li
 bool lit_evalutil_interpmodule(LitState* state, LitModule* module)
 {
     LitFiber* fiber;
-    LitFunction* function;
+    LitFuncScript* function;
     function = module->mainfunction;
     fiber = lit_object_makefiber(state, module, function);
     fiber->parent = state->vmstate.fiber;
@@ -12611,7 +13961,7 @@ bool lit_evalutil_interpmodule(LitState* state, LitModule* module)
     return true;
 }
 
-bool lit_evalutil_compileandrun(LitState* state, LitString* modname, char* source)
+bool lit_evalutil_compileandrun(LitState* state, LitString* modname, const char* source)
 {
     LitModule* module;
     module = lit_state_compilemodulesource(state, modname, source);
@@ -12625,10 +13975,13 @@ bool lit_evalutil_compileandrun(LitState* state, LitString* modname, char* sourc
 
 LitValue lit_cfn_eval(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitString* code;
+    const char* strcode;
     (void)instance;
-    char* code = (char*)LIT_CHECK_GETSTRINGDATA(0);
+    code = LIT_CHECK_GETSTRINGOBJECT(0);
+    strcode = lit_string_getdata(code);
     LitFiber* fiber = state->vmstate.fiber;
-    if(lit_evalutil_compileandrun(state, fiber->module->name, code))
+    if(lit_evalutil_compileandrun(state, fiber->module->name, strcode))
     {
         fiber->returnaddress = args - 1;
     }
@@ -12671,7 +14024,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindgetsetter(klass, "chr", lit_objfnnumber_chr, NULL);
         lit_class_bindmethod(klass, "toString", lit_objfnnumber_tostring);
-        state->number_class = klass;
+        state->stdclassnumber = klass;
     }
     {
         klass = lit_class_make(state, "String", state->stdobjectclass);
@@ -12701,20 +14054,20 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "charCodeAt", lit_objfnstring_charcodeat);
         lit_class_bindmethod(klass, "size", lit_objfnstring_length);
         lit_class_bindgetsetter(klass, "length", lit_objfnstring_length, NULL);
-        state->string_class = klass;
+        state->stdclassstring = klass;
     }
     {
         klass = lit_class_make(state, "Bool", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindmethod(klass, "toString", lit_objfnbool_tostring);
-        state->bool_class = klass;
+        state->stdclassbool = klass;
     }
     {
         klass = lit_class_make(state, "Function", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindmethod(klass, "toString", lit_objfnfunction_tostring);
         lit_class_bindgetsetter(klass, "name", lit_objfnfunction_name, NULL);
-        state->function_class = klass;
+        state->stdclassfunction = klass;
     }
     {
         klass = lit_class_make(state, "Fiber", state->stdobjectclass);
@@ -12727,7 +14080,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindstaticmethod(klass, "yeet", lit_objfnfiber_yeet);
         lit_class_bindstaticmethod(klass, "abort", lit_objfnfiber_abort);
         lit_class_bindstaticgetter(klass, "current", lit_objfnfiber_current);
-        state->fiber_class = klass;
+        state->stdclassfiber = klass;
     }
     {
         klass = lit_class_make(state, "Module", state->stdobjectclass);
@@ -12738,7 +14091,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "toString", lit_objfnmodule_toString);
         lit_class_bindgetsetter(klass, "name", lit_objfnmodule_name, NULL);
         lit_class_bindgetsetter(klass, "privates", lit_objfnmodule_privates, NULL);
-        state->module_class = klass;
+        state->stdclassmodule = klass;
     }
     {
         klass = lit_class_make(state, "Array", state->stdobjectclass);
@@ -12763,7 +14116,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "clone", lit_objfnarray_clone);
         lit_class_bindmethod(klass, "toString", lit_objfnarray_tostring);
         lit_class_bindgetsetter(klass, "length", lit_objfnarray_length, NULL);
-        state->array_class = klass;
+        state->stdclassarray = klass;
     }
     {
         klass = lit_class_make(state, "Map", state->stdobjectclass);
@@ -12777,7 +14130,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "clone", lit_objfnmap_clone);
         lit_class_bindmethod(klass, "toString", lit_objfnmap_tostring);
         lit_class_bindgetsetter(klass, "length", lit_objfnmap_length, NULL);
-        state->map_class = klass;
+        state->stdclassmap = klass;
     }
     {
         klass = lit_class_make(state, "Range", state->stdobjectclass);
@@ -12788,7 +14141,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindgetsetter(klass, "from", lit_objfnrange_from, lit_objfnrange_setfrom);
         lit_class_bindgetsetter(klass, "to", lit_objfnrange_to, lit_objfnrange_setto);
         lit_class_bindgetsetter(klass, "length", lit_objfnrange_length, NULL);
-        state->range_class = klass;
+        state->stdclassrange = klass;
     }
     lit_vmexec_popgc(state);
     lit_state_defnative(state, "srand", lit_cfn_srand);
@@ -12803,30 +14156,6 @@ void lit_state_opencorelibrary(LitState* state)
     lit_state_setglobal(state, lit_string_copy(state, "GLOBALS"), lit_value_fromobject(state->vmstate.globals));
 }
 
-char* lit_util_readfile(const char* path)
-{
-    FILE* file = fopen(path, "rb");
-    if(file == NULL)
-    {
-        return NULL;
-    }
-    fseek(file, 0L, SEEK_END);
-    size_t fileSize = ftell(file);
-    rewind(file);
-    char* buffer = (char*)lit_sysmem_malloc(fileSize + 1);
-    size_t bytesread = fread(buffer, sizeof(char), fileSize, file);
-    buffer[bytesread] = '\0';
-    fclose(file);
-    return buffer;
-}
-
-bool lit_util_fileexists(const char* path)
-{
-    struct stat buffer;
-    return stat(path, &buffer) == 0;
-}
-
-
 void lit_bcemu_initfile(LitEmulatedFile* file, const char* source)
 {
     file->source = source;
@@ -12837,7 +14166,6 @@ void lit_bcemu_readuint8(LitEmulatedFile* file, uint8_t* dest)
 {
     *dest = file->source[file->position++];
 }
-
 
 void lit_bcemu_readuint16(LitEmulatedFile* file, uint16_t* dest)
 {
@@ -12944,20 +14272,21 @@ LitString* lit_bcemu_readstring(LitState* state, LitEmulatedFile* file)
     LitString* res;
     uint8_t tmp;
     uint32_t i;
-    LitStrBuffer dummy;
-    lit_bcemu_readuint32(file, &dummy.length);
-    fprintf(stderr, "readstring: length=%d\n", dummy.length);
-    if(dummy.length < 1)
+    uint32_t length;
+    lit_bcemu_readuint32(file, &length);
+    if(length == 0)
     {
         return NULL;
     }
-    res = lit_string_makeemptystring(state, dummy.length, false);
-    for(i = 0; i < dummy.length; i++)
+    char* buffer = (char*)lit_sysmem_malloc(length + 1);
+    for(i = 0; i < length; i++)
     {
         lit_bcemu_readuint8(file, &tmp);
-        res->strbuf.data[i] = (char)tmp ^ LIT_CONFIG_BCSTRINGKEY;
+        buffer[i] = (char)tmp ^ LIT_CONFIG_BCSTRINGKEY;
     }
-    res->strbuf.length = dummy.length;
+    buffer[length] = '\0';
+    res = lit_string_copylen(state, buffer, length);
+    lit_sysmem_free(buffer);
     return res;
 }
 
@@ -12971,7 +14300,7 @@ LitString* lit_bcemu_readstring(LitState* state, LitEmulatedFile* file)
     bool vararg;
     LitModule* module;
 */
-void lit_bcfile_savefunction(FILE* file, LitFunction* function)
+void lit_bcfile_savefunction(FILE* file, LitFuncScript* function)
 {
     lit_bcfile_savechunk(file, &function->chunk);
     lit_bcfile_writestring(file, function->name);
@@ -12981,10 +14310,10 @@ void lit_bcfile_savefunction(FILE* file, LitFunction* function)
     lit_bcfile_writeuint64(file, function->maxregisters);
 }
 
-LitFunction* lit_bcemu_loadfunction(LitState* state, LitEmulatedFile* file, LitModule* module)
+LitFuncScript* lit_bcemu_loadfunction(LitState* state, LitEmulatedFile* file, LitModule* module)
 {
     uint8_t tmp;
-    LitFunction* function;
+    LitFuncScript* function;
     function = lit_object_makefunction(state, module);
     lit_bcemu_loadchunk(state, file, module, &function->chunk);
     function->name = lit_bcemu_readstring(state, file);
@@ -13006,9 +14335,100 @@ LitFunction* lit_bcemu_loadfunction(LitState* state, LitEmulatedFile* file, LitM
     uint16_t* lines;
     LitDynListVal constantlist;
 */
+void lit_bcfile_saveobject(FILE* file, LitObject* obj)
+{
+    if(obj == NULL)
+    {
+        lit_bcfile_writeuint64(file, 0xffffffffffffffffULL);
+        return;
+    }
+    LitObjType type = obj->type;
+    lit_bcfile_writeuint64(file, (uint64_t)(type + 1));
+    switch(type)
+    {
+        case LIT_OBJ_STRING:
+            lit_bcfile_writestring(file, (LitString*)obj);
+            break;
+        case LIT_OBJ_FUNCSCRIPT:
+            lit_bcfile_savefunction(file, (LitFuncScript*)obj);
+            break;
+        case LIT_OBJ_CLSPROTOTYPE:
+        {
+            LitClsPrototype* clsproto = (LitClsPrototype*)obj;
+            uint32_t i;
+            lit_bcfile_savefunction(file, clsproto->function);
+            lit_bcfile_writeuint32(file, clsproto->upvaluecount);
+            for(i = 0; i < clsproto->upvaluecount; i++)
+            {
+                lit_bcfile_writeuint8(file, (uint8_t)clsproto->local[i]);
+                lit_bcfile_writeuint32(file, clsproto->indexes[i]);
+            }
+            break;
+        }
+        case LIT_OBJ_FIELD:
+        {
+            LitField* field = (LitField*)obj;
+            lit_bcfile_saveobject(file, field->getter);
+            lit_bcfile_saveobject(file, field->setter);
+            break;
+        }
+        default:
+            fprintf(stderr, "ERROR: serializing type %d (%s) not implemented!\n", type, lit_value_objtypename(type));
+            UNREACHABLE
+            break;
+    }
+}
+
+LitObject* lit_bcemu_loadobject(LitState* state, LitEmulatedFile* file, LitModule* module)
+{
+    uint64_t type;
+    lit_bcemu_readuint64(file, &type);
+    if(type == 0xffffffffffffffffULL)
+    {
+        return NULL;
+    }
+    switch((LitObjType)(type - 1))
+    {
+        case LIT_OBJ_STRING:
+            return (LitObject*)lit_bcemu_readstring(state, file);
+        case LIT_OBJ_FUNCSCRIPT:
+            return (LitObject*)lit_bcemu_loadfunction(state, file, module);
+        case LIT_OBJ_CLSPROTOTYPE:
+        {
+            uint32_t upvaluecount;
+            uint32_t i;
+            uint8_t tmp;
+            LitFuncScript* function;
+            LitClsPrototype* clsproto;
+            function = lit_bcemu_loadfunction(state, file, module);
+            clsproto = lit_object_makeclsproto(state, function);
+            lit_bcemu_readuint32(file, &upvaluecount);
+            for(i = 0; i < upvaluecount; i++)
+            {
+                lit_bcemu_readuint8(file, &tmp);
+                clsproto->local[i] = (bool)tmp;
+                lit_bcemu_readuint32(file, &clsproto->indexes[i]);
+            }
+            return (LitObject*)clsproto;
+        }
+        case LIT_OBJ_FIELD:
+        {
+            LitObject* getter;
+            LitObject* setter;
+            getter = lit_bcemu_loadobject(state, file, module);
+            setter = lit_bcemu_loadobject(state, file, module);
+            return (LitObject*)lit_object_makefield(state, getter, setter);
+        }
+        default:
+            UNREACHABLE
+            return NULL;
+    }
+}
+
 void lit_bcfile_savechunk(FILE* file, LitChunk* chunk)
 {
     size_t i;
+    size_t c;
     lit_bcfile_writeuint64(file, chunk->compiledcodecount);
     for(i = 0; i < chunk->compiledcodecount; i++)
     {
@@ -13016,11 +14436,11 @@ void lit_bcfile_savechunk(FILE* file, LitChunk* chunk)
     }
     if(chunk->haslineinfo)
     {
-        size_t c = chunk->linecount * 2 + 2;
+        c = chunk->linecount + 2;
         lit_bcfile_writeuint64(file, c);
         for(i = 0; i < c; i++)
         {
-            lit_bcfile_writeuint64(file, chunk->lines[i]);
+            lit_bcfile_writeuint16(file, chunk->lines[i]);
         }
     }
     else
@@ -13033,31 +14453,11 @@ void lit_bcfile_savechunk(FILE* file, LitChunk* chunk)
         LitValue constant = chunk->constantlist.listitems[i];
         if(lit_value_isobject(constant))
         {
-            LitObjType type = lit_value_asobject(constant)->type;
-            lit_bcfile_writeuint64(file, (uint8_t)(type + 1));
-            switch(type)
-            {
-                case LIT_OBJ_STRING:
-                {
-                    lit_bcfile_writestring(file, lit_value_asstring(constant));
-                    break;
-                }
-                case LIT_OBJ_FUNCSCRIPT:
-                {
-                    lit_bcfile_savefunction(file, lit_value_asfuncscript(constant));
-                    break;
-                }
-                default:
-                {
-                    fprintf(stderr, "ERROR: serializing type %d (%s) not implemented!\n", type, lit_value_objtypename(type));
-                    UNREACHABLE
-                    break;
-                }
-            }
+            lit_bcfile_saveobject(file, lit_value_asobject(constant));
         }
         else
         {
-            lit_bcfile_writeuint8(file, 0);
+            lit_bcfile_writeuint64(file, 0);
             lit_bcfile_writedouble(file, lit_value_asnumber(constant));
         }
     }
@@ -13107,24 +14507,10 @@ void lit_bcemu_loadchunk(LitState* state, LitEmulatedFile* file, LitModule* modu
         }
         else
         {
-            switch((LitObjType)(type - 1))
-            {
-                case LIT_OBJ_STRING:
-                {
-                    chunk->constantlist.listitems[i] = lit_value_fromobject(lit_bcemu_readstring(state, file));
-                    break;
-                }
-                case LIT_OBJ_FUNCSCRIPT:
-                {
-                    chunk->constantlist.listitems[i] = lit_value_fromobject(lit_bcemu_loadfunction(state, file, module));
-                    break;
-                }
-                default:
-                {
-                    UNREACHABLE
-                    break;
-                }
-            }
+            LitEmulatedFile* ef = (LitEmulatedFile*)file;
+            /* rewind to re-read type in loadobject */
+            ef->position -= 8; 
+            chunk->constantlist.listitems[i] = lit_value_fromobject(lit_bcemu_loadobject(state, file, module));
         }
     }
 }
@@ -13135,17 +14521,20 @@ void lit_bcfile_savemodule(LitModule* module, FILE* file)
     bool disabled;
     disabled = false;
     lit_bcfile_writestring(file, module->name);
-    lit_bcfile_writeuint64(file, module->privatecount);
+    lit_bcfile_writeuint32(file, (uint32_t)module->privatecount);
     lit_bcfile_writeuint8(file, (uint8_t)disabled);
     if(!disabled)
     {
         LitTable* privates = &module->privatenames->innertable;
-        for(i = 0; i < module->privatecount; i++)
+        if(privates->htcapacity > 0)
         {
-            if(privates->htentries[i].entkey != NULL)
+            for(i = 0; i < (size_t)privates->htcapacity; i++)
             {
-                lit_bcfile_writestring(file, privates->htentries[i].entkey);
-                lit_bcfile_writeuint64(file, (uint16_t)lit_value_asnumber(privates->htentries[i].entvalue));
+                if(privates->htentries[i].entkey != NULL)
+                {
+                    lit_bcfile_writestring(file, privates->htentries[i].entkey);
+                    lit_bcfile_writeuint64(file, (uint64_t)lit_value_asnumber(privates->htentries[i].entvalue));
+                }
             }
         }
     }
@@ -13170,13 +14559,13 @@ LitModule* lit_bcemu_initloadmodule(LitState* state, const char* input)
     lit_bcemu_readuint32(&file, &utmp);
     if(utmp != LIT_CONFIG_BCMAGICNUMBER)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown magic number");
+        lit_state_raiseerror(state, "failed to read compiled code, unknown magic number");
         return NULL;
     }
     lit_bcemu_readuint32(&file, &bytecodeversion);
     if(bytecodeversion > LIT_BYTECODE_VERSION)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown bytecode version '%i'", (int)bytecodeversion);
+        lit_state_raiseerror(state, "failed to read compiled code, unknown bytecode version '%i'", (int)bytecodeversion);
         return NULL;
     }
     lit_bcemu_readuint32(&file, &modulecount);
@@ -13201,7 +14590,7 @@ LitModule* lit_bcemu_initloadmodule(LitState* state, const char* input)
             }
         }
         module->mainfunction = lit_bcemu_loadfunction(state, &file, module);
-        lit_table_set(&state->vmstate.modules->innertable, module->name, lit_value_fromobject(module));
+        lit_map_set(state->vmstate.modules, module->name, lit_value_fromobject(module));
         if(j == 0)
         {
             first = module;
@@ -13211,7 +14600,7 @@ LitModule* lit_bcemu_initloadmodule(LitState* state, const char* input)
     lit_bcemu_readuint32(&file, &utmp);
     if(utmp != LIT_CONFIG_BCENDNUMBER)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to read compiled code, unknown end number");
+        lit_state_raiseerror(state, "failed to read compiled code, unknown end number");
         return NULL;
     }
 #endif
@@ -13220,12 +14609,13 @@ LitModule* lit_bcemu_initloadmodule(LitState* state, const char* input)
 
 void lit_callback_onfilecleanup(LitState* state, LitUserdata* data, bool mark)
 {
+    LitFileData* filedata;
     (void)state;
     if(mark)
     {
         return;
     }
-    LitFileData* filedata = ((LitFileData*)data->data);
+    filedata = ((LitFileData*)data->data);
     if(filedata->file != NULL)
     {
         fclose(filedata->file);
@@ -13235,25 +14625,34 @@ void lit_callback_onfilecleanup(LitState* state, LitUserdata* data, bool mark)
 
 LitValue lit_objfnfile_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    const char* path = LIT_CHECK_GETSTRINGDATA(0);
-    const char* mode = LIT_CHECK_GETSTRINGDATAOR(1, "rw");
-    FILE* file = fopen(path, mode);
+    LitString* path;
+    LitString* mode;
+    const char* strpath;
+    const char* strmode;
+    FILE* file;
+    LitFileData* data;
+    path = LIT_CHECK_GETSTRINGOBJECT(0);
+    mode = LIT_CHECK_GETSTRINGOBJECT(1);
+    strpath = lit_string_getdata(path);
+    strmode = lit_string_getdata(mode);
+    file = fopen(strpath, strmode);
     if(file == NULL)
     {
-        lit_vm_raisefatalerror(state, "failed to open file %s with mode %s (C error: %s)", path, mode, strerror(errno));
+        lit_vm_raisefatalerror(state, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
     }
-    LitFileData* data = (LitFileData*)lit_userdata_insertdata(state, instance, sizeof(LitFileData), lit_callback_onfilecleanup);
-    data->path = (char*)path;
+    data = (LitFileData*)lit_userdata_insertdata(state, instance, sizeof(LitFileData), lit_callback_onfilecleanup);
+    data->path = (char*)strpath;
     data->file = file;
     return instance;
 }
 
 LitValue lit_objfnfile_close(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitFileData* data;
     (void)state;
     (void)argc;
     (void)args;
-    LitFileData* data = (LitFileData*)lit_userdata_extractdata(instance);
+    data = (LitFileData*)lit_userdata_extractdata(instance);
     fclose(data->file);
     data->file = NULL;
     return lit_value_makenull();
@@ -13261,21 +14660,26 @@ LitValue lit_objfnfile_close(LitState* state, LitValue instance, size_t argc, Li
 
 LitValue lit_objfnfile_exists(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    char* fname;
+    LitString* fname;
+    const char* strfname;
     (void)instance;
-    fname = NULL;
-    fname = (char*)LIT_CHECK_GETSTRINGDATA(0);
-    return lit_value_makebool(lit_util_fileexists(fname));
+    fname = LIT_CHECK_GETSTRINGOBJECT(0);
+    strfname = lit_string_getdata(fname);
+    return lit_value_makebool(lit_util_fileexists(strfname));
 }
 
 LitValue lit_objfnfile_create(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitString* path;
+    const char* strpath;
+    FILE* file;
     (void)instance;
-    const char* path = LIT_CHECK_GETSTRINGDATA(0);
-    FILE* file = fopen(path, "w");
+    path = LIT_CHECK_GETSTRINGOBJECT(0);
+    strpath = lit_string_getdata(path);
+    file = fopen(strpath, "w");
     if(file == NULL)
     {
-        lit_vm_raisefatalerror(state, "failed to create file %s", path);
+        lit_vm_raisefatalerror(state, "failed to create file %s", strpath);
     }
     fclose(file);
     return lit_value_makenull();
@@ -13306,6 +14710,7 @@ LitValue lit_objfnfile_writevalstring(LitState* state, LitValue instance, size_t
     size_t wr;
     size_t maxlen;
     LitString* string;
+    LitFileData* data;
     string = LIT_CHECK_GETSTRINGOBJECT(0);
     if(string == NULL)
     {
@@ -13317,7 +14722,7 @@ LitValue lit_objfnfile_writevalstring(LitState* state, LitValue instance, size_t
     {
         maxlen = LIT_CHECK_NUMBER(1);
     }
-    LitFileData* data = (LitFileData*)lit_userdata_extractdata(instance);
+    data = (LitFileData*)lit_userdata_extractdata(instance);
     wr = fwrite(lit_string_getdata(string), sizeof(char), maxlen, data->file);
     return lit_value_makenumber(wr);
 }
@@ -13428,12 +14833,15 @@ LitValue lit_objfnfile_readline(LitState* state, LitValue instance, size_t argc,
 
 LitValue lit_objfnfile_getlastmodified(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    LitString* fname;
+    const char* strfname;
     struct stat buffer;
-    char* fname;
     (void)instance;
-    fname = (char*)LIT_CHECK_GETSTRINGDATA(0);
-    if(stat(fname, &buffer) != 0)
+    fname = LIT_CHECK_GETSTRINGOBJECT(0);
+    strfname = lit_string_getdata(fname);
+    if(stat(strfname, &buffer) != 0)
     {
+        lit_vm_raisefatalerror(state, "cannot stat '%s'", strfname);
         return lit_value_makenumber(0);
     }
     return lit_value_makenumber(buffer.st_mtime);
@@ -13445,65 +14853,71 @@ LitValue lit_objfnfile_getlastmodified(LitState* state, LitValue instance, size_
 
 LitValue lit_objfndirectory_exists(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    (void)instance;
-    const char* directoryname = LIT_CHECK_GETSTRINGDATA(0);
+    const char* directoryname;
     struct stat buffer;
+    (void)instance;
+    directoryname = LIT_CHECK_GETSTRINGDATA(0);
     return lit_value_makebool(stat(directoryname, &buffer) == 0);
 }
 
 LitValue lit_objfndirectory_read(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-#ifdef WIN32
-    (void)instance;
-    (void)argc;
-    (void)args;
-    return lit_value_fromobject(lit_array_make(state));
-#else
     size_t fnlen;
     size_t topdlen;
     LitString* res;
+    LitString* topdstring;
     LitArray* array;
     const char* topdname;
     const char* fname;
     LitIOStream pr;
-    DIR* dhnd;
-    struct dirent* ent;
+    FSDirReader rd;
+    FSDirItem ent;
     (void)instance;
-    topdname = LIT_CHECK_GETSTRINGDATA(0);
-    topdlen = strlen(topdname);
-    dhnd = opendir(topdname);
-    array = lit_array_make(state);
-    if(dhnd == NULL)
+    topdstring = LIT_CHECK_GETSTRINGOBJECT(0);
+    topdname = lit_string_getdata(topdstring);
+    topdlen = lit_string_getlength(topdstring);
+    if(fslib_diropen(&rd, topdname))
     {
+        array = lit_array_make(state);
+        while(fslib_dirread(&rd, &ent))
+        {
+            fname = ent.name;
+            fnlen = strlen(fname);
+            if(strcmp(fname, "..") == 0 || strcmp(fname, ".") == 0)
+            {
+                continue;
+            }
+            #if 1
+                lit_iostream_makestackstring(&pr);
+                lit_iostream_putlen(&pr, topdname, topdlen);
+                if(topdname[topdlen-1] != '/')
+                {
+                    lit_iostream_putlen(&pr, "/", 1);
+                }
+                lit_iostream_putlen(&pr, fname, fnlen);
+                res = lit_iostream_takestring(state, &pr);
+            #else
+                res = lit_string_copylen(state, fname, fnlen);
+            #endif
+            lit_array_push(array, lit_value_fromobject(res));
+        }
+        fslib_dirclose(&rd);
         return lit_value_fromobject(array);
     }
-    while((ent = readdir(dhnd)))
+    else
     {
-        lit_iostream_makestackstring(&pr);
-        fname = ent->d_name;
-        fnlen = strlen(fname);
-        if(strcmp(fname, "..") == 0 || strcmp(fname, ".") == 0)
-        {
-            continue;
-        }
-        lit_iostream_putlen(&pr, topdname, topdlen);
-        lit_iostream_putlen(&pr, "/", 1);
-        lit_iostream_putlen(&pr, fname, fnlen);
-        res = lit_iostream_takestring(state, &pr);
-        struct stat st;
-        stat(res->strbuf.data, &st);
-        lit_vallist_push(&array->innerlist, lit_value_fromobject(res));
+        lit_state_raiseerror(state, "cannot open directory '%s'", topdname);
     }
-    closedir(dhnd);
-    return lit_value_fromobject(array);
-#endif
+    return lit_value_makenull();
+
 }
 
 void lit_corelib_installfile(LitState* state)
 {
+    LitClass* klass;
     lit_vmexec_pushgc(state, false);
     {
-        LitClass* klass = lit_class_make(state, "File", state->stdobjectclass);
+        klass = lit_class_make(state, "File", state->stdobjectclass);
         lit_class_bindstaticmethod(klass, "exists", lit_objfnfile_exists);
         lit_class_bindstaticmethod(klass, "getLastModified", lit_objfnfile_getlastmodified);
         lit_class_bindstaticmethod(klass, "create", lit_objfnfile_create);
@@ -13516,7 +14930,7 @@ void lit_corelib_installfile(LitState* state)
         lit_class_bindmethod(klass, "readLine", lit_objfnfile_readline);
     }
     {
-        LitClass* klass = lit_class_make(state, "Directory", state->stdobjectclass);
+        klass = lit_class_make(state, "Directory", state->stdobjectclass);
         lit_class_bindstaticmethod(klass, "exists", lit_objfndirectory_exists);
         lit_class_bindstaticmethod(klass, "read", lit_objfndirectory_read);
     }
@@ -13528,7 +14942,7 @@ LitValue lit_objfngc_memoryused(LitState* state, LitValue instance, size_t argc,
     (void)instance;
     (void)argc;
     (void)args;
-    return lit_value_makenumber(state->bytes_allocated);
+    return lit_value_makenumber(state->bytesallocated);
 }
 
 LitValue lit_objfngc_nextround(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -13541,19 +14955,21 @@ LitValue lit_objfngc_nextround(LitState* state, LitValue instance, size_t argc, 
 
 LitValue lit_objfngc_trigger(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    int64_t collected;
     (void)instance;
     (void)argc;
     (void)args;
     state->gcallowgc = true;
-    int64_t collected = lit_collect_garbage(state);
+    collected = lit_collect_garbage(state);
     state->gcallowgc = false;
     return lit_value_makenumber(collected);
 }
 
 void lit_corelib_installgc(LitState* state)
 {
+    LitClass* klass;
     lit_vmexec_pushgc(state, false);
-    LitClass* klass = lit_class_make(state, "GC", state->stdobjectclass);
+    klass = lit_class_make(state, "GC", state->stdobjectclass);
     lit_class_bindstaticgetter(klass, "memoryUsed", lit_objfngc_memoryused);
     lit_class_bindstaticgetter(klass, "nextRound", lit_objfngc_nextround);
     lit_class_bindstaticmethod(klass, "trigger", lit_objfngc_trigger);
@@ -13563,70 +14979,101 @@ void lit_corelib_installgc(LitState* state)
 LitValue lit_objfnmath_abs(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(fabs(LIT_CHECK_NUMBER(0)));
+}
+
+LitValue lit_objfnmath_hypot(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    return lit_value_makenumber(hypot(lit_value_asnumber(args[0]), lit_value_asnumber(args[1])));
 }
 
 LitValue lit_objfnmath_cos(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(cos(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_sin(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(sin(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_tan(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(tan(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_acos(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(acos(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_asin(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(asin(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_atan(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(atan(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_atan2(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(atan2(LIT_CHECK_NUMBER(0), LIT_CHECK_NUMBER(1)));
 }
 
 LitValue lit_objfnmath_floor(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(floor(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_ceil(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(ceil(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_round(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    double value;
+    int places;
     (void)instance;
-    double value = LIT_CHECK_NUMBER(0);
+    value = LIT_CHECK_NUMBER(0);
     if(argc > 1)
     {
-        int places = (int)pow(10, LIT_CHECK_NUMBER(1));
+        places = (int)pow(10, LIT_CHECK_NUMBER(1));
         return lit_value_makenumber(round(value * places) / places);
     }
     return lit_value_makenumber(round(value));
@@ -13646,10 +15093,13 @@ LitValue lit_objfnmath_max(LitState* state, LitValue instance, size_t argc, LitV
 
 LitValue lit_objfnmath_mid(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    double x;
+    double y;
+    double z;
     (void)instance;
-    double x = LIT_CHECK_NUMBER(0);
-    double y = LIT_CHECK_NUMBER(1);
-    double z = LIT_CHECK_NUMBER(2);
+    x = LIT_CHECK_NUMBER(0);
+    y = LIT_CHECK_NUMBER(1);
+    z = LIT_CHECK_NUMBER(2);
     if(x > y)
     {
         return lit_value_makenumber(fmax(x, fmin(y, z)));
@@ -13663,30 +15113,40 @@ LitValue lit_objfnmath_mid(LitState* state, LitValue instance, size_t argc, LitV
 LitValue lit_objfnmath_toRadians(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(LIT_CHECK_NUMBER(0) * M_PI / 180.0);
 }
 
 LitValue lit_objfnmath_toDegrees(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(LIT_CHECK_NUMBER(0) * 180.0 / M_PI);
 }
 
 LitValue lit_objfnmath_sqrt(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(sqrt(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_log(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(exp(LIT_CHECK_NUMBER(0)));
 }
 
 LitValue lit_objfnmath_exp(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
+    (void)argc;
+    (void)args;
     return lit_value_makenumber(exp(LIT_CHECK_NUMBER(0)));
 }
 
@@ -13699,6 +15159,7 @@ void lit_corelib_installmath(LitState* state)
         lit_class_setstaticfield(klass, "Pi", lit_value_makenumber(M_PI));
         lit_class_setstaticfield(klass, "Tau", lit_value_makenumber(M_PI * 2));
         lit_class_bindstaticmethod(klass, "abs", lit_objfnmath_abs);
+        lit_class_bindstaticmethod(klass, "hypot", lit_objfnmath_hypot);
         lit_class_bindstaticmethod(klass, "sin", lit_objfnmath_sin);
         lit_class_bindstaticmethod(klass, "cos", lit_objfnmath_cos);
         lit_class_bindstaticmethod(klass, "tan", lit_objfnmath_tan);
@@ -13721,111 +15182,7 @@ void lit_corelib_installmath(LitState* state)
     lit_vmexec_popgc(state);
 }
 
-void lit_uintlist_init(LitDynListUInt* list)
-{
-    lit_uintlist_reset(list);
-}
 
-void lit_uintlist_reset(LitDynListUInt* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_uintlist_destroy(LitDynListUInt* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_uintlist_reset(list);
-}
-
-void lit_uintlist_push(LitDynListUInt* list, size_t val)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (size_t*)lit_sysmem_realloc(list->listitems, sizeof(size_t) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = val;
-    list->listcount++;
-}
-
-void lit_bytelist_init(LitDynListByte* list)
-{
-    lit_bytelist_reset(list);
-}
-
-void lit_bytelist_reset(LitDynListByte* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_bytelist_destroy(LitDynListByte* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_bytelist_reset(list);
-}
-
-void lit_bytelist_push(LitDynListByte* list, uint8_t val)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (uint8_t*)lit_sysmem_realloc(list->listitems, sizeof(uint8_t) * (list->listcapacity));
-    }
-    list->listitems[list->listcount] = val;
-    list->listcount++;
-}
-
-void lit_vallist_init(LitDynListVal* list)
-{
-    lit_vallist_reset(list);
-}
-
-void lit_vallist_reset(LitDynListVal* list)
-{
-    list->listitems = NULL;
-    list->listcapacity = 0;
-    list->listcount = 0;
-}
-
-void lit_vallist_destroy(LitDynListVal* list)
-{
-    lit_sysmem_free(list->listitems);
-    lit_vallist_reset(list);
-}
-
-void lit_vallist_push(LitDynListVal* list, LitValue val)
-{
-    if(list->listcapacity < list->listcount + 1)
-    {
-        size_t i;
-        size_t oldcapacity = list->listcapacity;
-        list->listcapacity = LIT_GROW_CAPACITY(oldcapacity);
-        list->listitems = (LitValue*)lit_sysmem_realloc(list->listitems, sizeof(LitValue) * (list->listcapacity));
-        for(i = oldcapacity; i < list->listcapacity; i++)
-        {
-            list->listitems[i] = lit_value_makenull();
-        }
-    }
-    list->listitems[list->listcount] = val;
-    list->listcount++;
-}
-
-LitValue lit_vallist_get(LitDynListVal* list, size_t idx)
-{
-    return list->listitems[idx];
-}
-
-LitValue lit_vallist_set(LitDynListVal* list, size_t idx, LitValue val)
-{
-    list->listitems[idx] = val;
-    return list->listitems[idx];
-}
 
 bool lit_fiber_ensureframes(LitState* state, LitFiber* fiber)
 {
@@ -13853,12 +15210,19 @@ bool lit_fiber_ensureframes(LitState* state, LitFiber* fiber)
     return false;
 }
 
-LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, LitValue* arguments, size_t argc)
+LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFuncScript* callee, LitValue* arguments, size_t argc)
 {
     size_t i;
     size_t ai;
     size_t ti;
-    LitFiber* fiber = state->vmstate.fiber;
+    size_t targetargcount;
+    size_t j;
+    bool vararg;
+    LitValue* start;
+    LitCallFrame* frame;
+    LitArray* array;
+    LitFiber* fiber;
+    fiber = state->vmstate.fiber;
     if(callee == NULL)
     {
         lit_vm_raisefatalerror(state, "attempt to call a null value");
@@ -13868,9 +15232,9 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, L
     {
         return NULL;
     }
-    LitValue* start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
+    start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
     lit_fiber_ensureregisters(fiber, start - fiber->registeritems + callee->maxregisters);
-    LitCallFrame* frame = &fiber->framevals[fiber->framecount++];
+    frame = &fiber->framevals[fiber->framecount++];
     frame->slots = fiber->framecount > 1 ? fiber->framevals[fiber->framecount - 2].slots + fiber->framevals[fiber->framecount - 2].function->maxregisters : fiber->registeritems;
 #ifdef LIT_TRACE_NULL_FILL
     printf("filling with nulls\n");
@@ -13884,8 +15248,8 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, L
     {
         frame->slots[ai + 1] = arguments[ai];
     }
-    size_t targetargcount = callee->argcount;
-    bool vararg = callee->vararg;
+    targetargcount = callee->argcount;
+    vararg = callee->vararg;
     if(targetargcount > argc)
     {
 #ifdef LIT_TRACE_NULL_FILL
@@ -13908,10 +15272,10 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, L
         }
         else
         {
-            LitArray* array = &lit_object_makevararray(state)->innerarray;
+            array = &lit_object_makevararray(state)->innerarray;
             lit_state_pushroot(state, (LitObject*)array);
             lit_dynlistval_ensuresize(&array->innerlist, argc - targetargcount + 1);
-            size_t j = 0;
+            j = 0;
             for(ti = targetargcount - 1; ti < argc; ti++)
             {
                 array->innerlist.listitems[j++] = *(frame->slots + ti + 1);
@@ -13931,12 +15295,14 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFunction* callee, L
 
 LitResult lit_state_execcallonframe(LitState* state, LitCallFrame* frame)
 {
+    LitFiber* fiber;
+    LitResult result;
     if(frame == NULL)
     {
-        RETURN_RUNTIME_ERROR()
+        return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
     }
-    LitFiber* fiber = state->vmstate.fiber;
-    LitResult result = lit_state_execfiber(state, fiber);
+    fiber = state->vmstate.fiber;
+    result = lit_state_execfiber(state, fiber);
     if(!lit_value_isnull(fiber->error))
     {
         result.result = fiber->error;
@@ -13944,17 +15310,18 @@ LitResult lit_state_execcallonframe(LitState* state, LitCallFrame* frame)
     return result;
 }
 
-LitResult lit_state_callfunction(LitState* state, LitFunction* callee, LitValue* arguments, size_t argc)
+LitResult lit_state_callfunction(LitState* state, LitFuncScript* callee, LitValue* arguments, size_t argc)
 {
     return lit_state_execcallonframe(state, lit_state_setupcallonframe(state, callee, arguments, argc));
 }
 
 LitResult lit_state_callclosure(LitState* state, LitFuncClosure* callee, LitValue* arguments, size_t argc)
 {
-    LitCallFrame* frame = lit_state_setupcallonframe(state, callee->function, arguments, argc);
+    LitCallFrame* frame;
+    frame = lit_state_setupcallonframe(state, callee->function, arguments, argc);
     if(frame == NULL)
     {
-        RETURN_RUNTIME_ERROR()
+        return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
     }
     frame->closure = callee;
     return lit_state_execcallonframe(state, frame);
@@ -13964,13 +15331,23 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
 {
     size_t i;
     size_t ai;
+    LitObjType type;
+    LitFiber* fiber;
+    LitValue* start;
+    LitValue* slot;
+    LitValue value;
+    LitFuncNative* method;
+    LitClass* klass;
+    LitInstance* inst;
+    LitFuncBound* boundmethod;
+    LitValue mth;
     if(lit_value_isobject(callee))
     {
-        if(lit_set_native_exit_jump())
+        if(lit_jmpstate_setnativeexit())
         {
-            RETURN_RUNTIME_ERROR()
+            return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
         }
-        LitObjType type = OBJECT_TYPE(callee);
+        type = lit_value_objtype(callee);
         if(type == LIT_OBJ_FUNCSCRIPT)
         {
             return lit_state_callfunction(state, lit_value_asfuncscript(callee), arguments, argc);
@@ -13979,14 +15356,14 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
         {
             return lit_state_callclosure(state, lit_value_asfuncclosure(callee), arguments, argc);
         }
-        LitFiber* fiber = state->vmstate.fiber;
+        fiber = state->vmstate.fiber;
         if(lit_fiber_ensureframes(state, fiber))
         {
-            RETURN_RUNTIME_ERROR()
+            return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
         }
-        LitValue* start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
+        start = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
         lit_fiber_ensureregisters(fiber, start - fiber->registeritems + 3 + argc);
-        LitValue* slot = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
+        slot = fiber->framecount > 0 ? fiber->framevals[fiber->framecount - 1].slots + fiber->framevals[fiber->framecount - 1].function->maxregisters : fiber->registeritems;
 #ifdef LIT_TRACE_NULL_FILL
         printf("filling with nulls\n");
 #endif
@@ -14013,48 +15390,52 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
         switch(type)
         {
             case LIT_OBJ_FUNCNATIVE:
-            {
-                /* for some reason, single line expression doesn't work */
-                LitValue value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, slot + 1);
-                RETURN_OK(value)
-            }
-            case LIT_OBJ_FUNCNATMETHOD:
-            {
-                LitFuncNative* method = lit_value_asfuncmethod(callee);
-                /* For some reason, single line expression doesn't work */
-                LitValue value = method->natfuncptr(state, *slot, argc, slot + 1);
-                RETURN_OK(value)
-            }
-            case LIT_OBJ_CLASS:
-            {
-                LitClass* klass = lit_value_asclass(callee);
-                LitInstance* inst = lit_object_makeinstance(state, klass);
-                if(klass->mthconstructor != NULL)
                 {
-                    lit_state_callmethod(state, *slot, lit_value_fromobject(klass->mthconstructor), arguments, argc);
+                    /* for some reason, single line expression doesn't work */
+                    value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, slot + 1);
+                    return lit_result_make(LIT_STATUS_OK, value);
                 }
-                RETURN_OK(lit_value_fromobject(inst))
-            }
-            case LIT_OBJ_FUNCBOUNDMETHOD:
-            {
-                LitBoundMethod* boundmethod = lit_value_asfuncboundmethod(callee);
-                LitValue method = boundmethod->method;
-                if(lit_value_isfuncmethod(method))
-                {
-                    /* For some reason, single line expression doesn't work */
-                    LitValue value = lit_value_asfuncmethod(method)->natfuncptr(state, boundmethod->receiver, argc, slot + 1);
-                    RETURN_OK(value)
-                }
-                else
-                {
-                    *slot = boundmethod->receiver;
-                    return lit_state_callfunction(state, lit_value_asfuncscript(method), arguments, argc);
-                }
-            }
-            default:
-            {
                 break;
-            }
+            case LIT_OBJ_FUNCNATMETHOD:
+                {
+                    method = lit_value_asfuncmethod(callee);
+                    /* For some reason, single line expression doesn't work */
+                    value = method->natfuncptr(state, *slot, argc, slot + 1);
+                    return lit_result_make(LIT_STATUS_OK, value);
+                }
+                break;
+            case LIT_OBJ_CLASS:
+                {
+                    klass = lit_value_asclass(callee);
+                    inst = lit_object_makeinstance(state, klass);
+                    if(klass->mthconstructor != NULL)
+                    {
+                        lit_state_callmethod(state, *slot, lit_value_fromobject(klass->mthconstructor), arguments, argc);
+                    }
+                    return lit_result_make(LIT_STATUS_OK, lit_value_fromobject(inst));
+                }
+                break;
+            case LIT_OBJ_FUNCBOUNDMETHOD:
+                {
+                    boundmethod = lit_value_asfuncboundmethod(callee);
+                    mth = boundmethod->method;
+                    if(lit_value_isfuncmethod(mth))
+                    {
+                        /* For some reason, single line expression doesn't work */
+                        value = lit_value_asfuncmethod(mth)->natfuncptr(state, boundmethod->receiver, argc, slot + 1);
+                        return lit_result_make(LIT_STATUS_OK, value);
+                    }
+                    else
+                    {
+                        *slot = boundmethod->receiver;
+                        return lit_state_callfunction(state, lit_value_asfuncscript(mth), arguments, argc);
+                    }
+                }
+                break;
+            default:
+                {
+                }
+                break;
         }
     }
     if(lit_value_isnull(callee))
@@ -14065,7 +15446,7 @@ LitResult lit_state_callmethod(LitState* state, LitValue instance, LitValue call
     {
         lit_vm_raisefatalerror(state, "can only call functions and classes");
     }
-    RETURN_RUNTIME_ERROR()
+    return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
 }
 
 LitResult lit_state_callvalue(LitState* state, LitValue callee, LitValue* arguments, size_t argc)
@@ -14085,7 +15466,7 @@ LitResult lit_state_findandcallmethod(LitState* state, LitValue callee, LitStrin
     if(fiber == NULL)
     {
         lit_vm_raisefatalerror(state, "no Fiber to run on");
-        RETURN_RUNTIME_ERROR()
+        return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
     }
     klass = lit_state_getclassfor(state, callee);
     if(lit_value_isinstance(callee))
@@ -14117,6 +15498,11 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
     LitValue* tmptr;
     LitFiber* fiber;
     LitInstance* inst;
+    LitFuncScript* function;
+    LitChunk* chunk;
+    int constant;
+    LitCallFrame* frame;
+    LitResult result;
     fiber = state->vmstate.fiber;
     /*
     * NB: only do this with instances for now.
@@ -14128,7 +15514,7 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
     if(lit_value_isinstance(object))
     {
         inst = lit_value_asinstance(object);
-        if(!lit_table_getentry(&inst->klass->mthtable, state->conststrtostring, &tmpv))
+        if(!lit_table_getentry(&inst->klass->mthtable, state->strings.strtostring, &tmpv))
         {
             return NULL;
         }       
@@ -14137,17 +15523,17 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
     {
         goto failed;
     }
-    LitFunction* function = state->apifunction;
+    function = state->apifunction;
     if(function == NULL)
     {
         function = state->apifunction = lit_object_makefunction(state, fiber->module);
         function->chunk.haslineinfo = false;
         function->name = state->apiname;
-        LitChunk* chunk = &function->chunk;
+        chunk = &function->chunk;
         chunk->compiledcodecount = 0;
         chunk->constantlist.listcount = 0;
         function->maxregisters = 3;
-        int constant = lit_chunk_addconstant(state, chunk, lit_value_fromobject(state->conststrtostring));
+        constant = lit_chunk_addconstant(state, chunk, lit_value_fromobject(state->strings.strtostring));
         lit_chunk_push(chunk, LIT_REG_FORMABCINST(LIT_OPCODE_INVOKE, 1, 2, constant), 1);
         lit_chunk_push(chunk, LIT_REG_FORMABCINST(LIT_OPCODE_RETURN, 1, 0, 0), 1);
     }
@@ -14158,7 +15544,7 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
     }
     needed = (tmptr - fiber->registeritems + function->maxregisters);
     lit_fiber_ensureregisters(fiber, needed);
-    LitCallFrame* frame = &fiber->framevals[fiber->framecount++];
+    frame = &fiber->framevals[fiber->framecount++];
     frame->ip = function->chunk.compiledcodechunk;
     frame->closure = NULL;
     frame->function = function;
@@ -14174,7 +15560,7 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
     frame->slots[0] = lit_value_fromobject(function);
     frame->slots[1] = object;
     frame->slots[2] = lit_value_makenumber(indentation);
-    LitResult result = lit_state_execfiber(state, fiber);
+    result = lit_state_execfiber(state, fiber);
     if(result.type != LIT_STATUS_OK)
     {
         if(explicitfail)
@@ -14202,7 +15588,7 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
 
 LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentation)
 {
-    LitIOStream pr;
+    LitValue* slot;
     if(lit_value_isstring(object))
     {
         return lit_value_asstring(object);
@@ -14224,7 +15610,7 @@ LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentati
     }
     else if(lit_value_isreference(object))
     {
-        LitValue* slot = lit_value_asreference(object)->slot;
+        slot = lit_value_asreference(object)->slot;
         if(slot == NULL)
         {
             return lit_string_copy(state, "null");
@@ -14237,12 +15623,13 @@ LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentati
 LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, size_t argc)
 {
     LitValue value;
-    if(!lit_table_getentry(&state->vmstate.globals->innertable, lit_string_copy(state, name), &value))
+    LitClass* klass;
+    if(!lit_map_get(state->vmstate.globals, lit_string_copy(state, name), &value))
     {
         lit_vm_raisefatalerror(state, "failed to create instance of class %s: class not found", name);
         return lit_value_makenull();
     }
-    LitClass* klass = lit_value_asclass(value);
+    klass = lit_value_asclass(value);
     if(klass->mthconstructor == NULL)
     {
         return lit_value_fromobject(lit_object_makeinstance(state, klass));
@@ -14252,9 +15639,10 @@ LitValue lit_state_callnew(LitState* state, const char* name, LitValue* args, si
 
 bool lit_value_iscallablefunction(LitValue value)
 {
+    LitObjType type;
     if(lit_value_isobject(value))
     {
-        LitObjType type = OBJECT_TYPE(value);
+        type = lit_value_objtype(value);
         return ((type == LIT_OBJ_FUNCCLOSURE) || (type == LIT_OBJ_FUNCSCRIPT) || (type == LIT_OBJ_FUNCNATIVE) || (type == LIT_OBJ_FUNCNATMETHOD) || (type == LIT_OBJ_FUNCBOUNDMETHOD));
     }
     return false;
@@ -14263,7 +15651,8 @@ bool lit_value_iscallablefunction(LitValue value)
 
 LitObject* lit_object_allocobject(LitState* state, size_t size, LitObjType type)
 {
-    LitObject* object = (LitObject*)lit_sysmem_malloc(size);
+    LitObject* object;
+    object = (LitObject*)lit_sysmem_malloc(size);
     object->pstate = state;
     object->type = type;
     object->marked = false;
@@ -14275,9 +15664,10 @@ LitObject* lit_object_allocobject(LitState* state, size_t size, LitObjType type)
     return object;
 }
 
-LitFunction* lit_object_makefunction(LitState* state, LitModule* module)
+LitFuncScript* lit_object_makefunction(LitState* state, LitModule* module)
 {
-    LitFunction* function = (LitFunction*)lit_object_allocobject(state, sizeof(LitFunction), LIT_OBJ_FUNCSCRIPT);
+    LitFuncScript* function;
+    function = (LitFuncScript*)lit_object_allocobject(state, sizeof(LitFuncScript), LIT_OBJ_FUNCSCRIPT);
     lit_chunk_init(&function->chunk);
     function->name = NULL;
     function->argcount = 0;
@@ -14290,51 +15680,55 @@ LitFunction* lit_object_makefunction(LitState* state, LitModule* module)
 
 LitValue lit_function_getname(LitState* state, LitValue instance)
 {
-    LitString* name = NULL;
-    switch(OBJECT_TYPE(instance))
+    LitString* name;
+    LitField* field;
+    name = NULL;
+    switch(lit_value_objtype(instance))
     {
         case LIT_OBJ_FUNCSCRIPT:
-        {
-            name = lit_value_asfuncscript(instance)->name;
-            break;
-        }
-        case LIT_OBJ_FUNCCLOSURE:
-        {
-            name = lit_value_asfuncclosure(instance)->function->name;
-            break;
-        }
-        case LIT_OBJ_CLSPROTOTYPE:
-        {
-            name = lit_value_asclsproto(instance)->function->name;
-            break;
-        }
-        case LIT_OBJ_FIELD:
-        {
-            LitField* field = lit_value_asfield(instance);
-            if(field->getter != NULL)
             {
-                return lit_function_getname(state, lit_value_fromobject(field->getter));
+                name = lit_value_asfuncscript(instance)->name;
             }
-            return lit_function_getname(state, lit_value_fromobject(field->setter));
-        }
+            break;
+        case LIT_OBJ_FUNCCLOSURE:
+            {
+                name = lit_value_asfuncclosure(instance)->function->name;
+            }
+            break;
+        case LIT_OBJ_CLSPROTOTYPE:
+            {
+                name = lit_value_asclsproto(instance)->function->name;
+            }
+            break;
+        case LIT_OBJ_FIELD:
+            {
+                field = lit_value_asfield(instance);
+                if(field->getter != NULL)
+                {
+                    return lit_function_getname(state, lit_value_fromobject(field->getter));
+                }
+                return lit_function_getname(state, lit_value_fromobject(field->setter));
+            }
+            break;
         case LIT_OBJ_FUNCNATIVE:
-        {
-            name = lit_value_asfuncnative(instance)->name;
+            {
+                name = lit_value_asfuncnative(instance)->name;
+            }
             break;
-        }
         case LIT_OBJ_FUNCNATMETHOD:
-        {
-            name = lit_value_asfuncmethod(instance)->name;
+            {
+                name = lit_value_asfuncmethod(instance)->name;
+            }
             break;
-        }
         case LIT_OBJ_FUNCBOUNDMETHOD:
-        {
-            return lit_function_getname(state, lit_value_asfuncboundmethod(instance)->method);
-        }
-        default:
-        {
+            {
+                return lit_function_getname(state, lit_value_asfuncboundmethod(instance)->method);
+            }
             break;
-        }
+        default:
+            {
+            }
+            break;
     }
     if(name == NULL)
     {
@@ -14345,35 +15739,39 @@ LitValue lit_function_getname(LitState* state, LitValue instance)
 
 LitUpvalue* lit_object_makeupvalue(LitState* state, LitValue* slot)
 {
-    LitUpvalue* upvalue = (LitUpvalue*)lit_object_allocobject(state, sizeof(LitUpvalue), LIT_OBJ_UPVALUE);
+    LitUpvalue* upvalue;
+    upvalue = (LitUpvalue*)lit_object_allocobject(state, sizeof(LitUpvalue), LIT_OBJ_UPVALUE);
     upvalue->location = slot;
     upvalue->closed = lit_value_makenull();
     upvalue->next = NULL;
     return upvalue;
 }
 
-LitFuncClosure* lit_object_makeclosure(LitState* state, LitFunction* function)
+LitFuncClosure* lit_object_makeclosure(LitState* state, LitFuncScript* function)
 {
     size_t i;
-    LitFuncClosure* closure = (LitFuncClosure*)lit_object_allocobject(state, sizeof(LitFuncClosure), LIT_OBJ_FUNCCLOSURE);
+    LitFuncClosure* closure;
+    LitUpvalue** upvalues;
+    closure = (LitFuncClosure*)lit_object_allocobject(state, sizeof(LitFuncClosure), LIT_OBJ_FUNCCLOSURE);
     closure->function = function;
     /* to prevent GC crashes */
     closure->upvaluecount = 0;
     lit_state_pushroot(state, (LitObject*)closure);
-    LitUpvalue** upvalues = (LitUpvalue**)lit_sysmem_malloc(function->upvaluecount * sizeof(LitUpvalue*));
+    upvalues = (LitUpvalue**)lit_sysmem_malloc(function->upvaluecount * sizeof(LitUpvalue*));
     lit_state_poproot(state);
     for(i = 0; i < function->upvaluecount; i++)
     {
         upvalues[i] = NULL;
     }
-    closure->upvalues = upvalues;
+    closure->closureupvalueitems = upvalues;
     closure->upvaluecount = function->upvaluecount;
     return closure;
 }
 
-LitClsPrototype* lit_object_makeclsproto(LitState* state, LitFunction* function)
+LitClsPrototype* lit_object_makeclsproto(LitState* state, LitFuncScript* function)
 {
-    LitClsPrototype* closure = (LitClsPrototype*)lit_object_allocobject(state, sizeof(LitClsPrototype), LIT_OBJ_CLSPROTOTYPE);
+    LitClsPrototype* closure;
+    closure = (LitClsPrototype*)lit_object_allocobject(state, sizeof(LitClsPrototype), LIT_OBJ_CLSPROTOTYPE);
     lit_state_pushroot(state, (LitObject*)closure);
     closure->indexes = (uint32_t*)lit_sysmem_malloc(function->upvaluecount * sizeof(uint32_t));
     closure->local = (bool*)lit_sysmem_malloc(function->upvaluecount * sizeof(bool));
@@ -14385,7 +15783,8 @@ LitClsPrototype* lit_object_makeclsproto(LitState* state, LitFunction* function)
 
 LitFuncNative* lit_object_makenativefunc(LitState* state, LitNativeFunctionFn function, LitString* name)
 {
-    LitFuncNative* native = (LitFuncNative*)lit_object_allocobject(state, sizeof(LitFuncNative), LIT_OBJ_FUNCNATIVE);
+    LitFuncNative* native;
+    native = (LitFuncNative*)lit_object_allocobject(state, sizeof(LitFuncNative), LIT_OBJ_FUNCNATIVE);
     native->natfuncptr = function;
     native->name = name;
     return native;
@@ -14394,21 +15793,27 @@ LitFuncNative* lit_object_makenativefunc(LitState* state, LitNativeFunctionFn fu
 
 LitFuncNative* lit_object_makenativemethod(LitState* state, LitNativeFunctionFn method, LitString* name)
 {
-    LitFuncNative* native = (LitFuncNative*)lit_object_allocobject(state, sizeof(LitFuncNative), LIT_OBJ_FUNCNATMETHOD);
+    LitFuncNative* native;
+    native = (LitFuncNative*)lit_object_allocobject(state, sizeof(LitFuncNative), LIT_OBJ_FUNCNATMETHOD);
     native->natfuncptr = method;
     native->name = name;
     return native;
 }
 
 
-LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFunction* function)
+LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFuncScript* function)
 {
     size_t i;
+    size_t registersallocated;
+    LitValue* registers;
+    LitCallFrame* framevals;
+    LitFiber* fiber;
+    LitCallFrame* frame;
     /* Allocate in advance, just in case GC is triggered */
-    size_t registersallocated = function == NULL ? 1 : lit_util_closestpoweroftwo(function->maxregisters);
-    LitValue* registers = (LitValue*)lit_sysmem_malloc(registersallocated * sizeof(LitValue));
-    LitCallFrame* framevals = (LitCallFrame*)lit_sysmem_malloc(LIT_INITIAL_CALL_FRAMES * sizeof(LitCallFrame));
-    LitFiber* fiber = (LitFiber*)lit_object_allocobject(state, sizeof(LitFiber), LIT_OBJ_FIBER);
+    registersallocated = function == NULL ? 1 : lit_util_closestpoweroftwo(function->maxregisters);
+    registers = (LitValue*)lit_sysmem_malloc(registersallocated * sizeof(LitValue));
+    framevals = (LitCallFrame*)lit_sysmem_malloc(LIT_INITIAL_CALL_FRAMES * sizeof(LitCallFrame));
+    fiber = (LitFiber*)lit_object_allocobject(state, sizeof(LitFiber), LIT_OBJ_FIBER);
     if(module->mainfiber == NULL)
     {
         module->mainfiber = fiber;
@@ -14431,9 +15836,12 @@ LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFunction* 
     fiber->openupvalues = NULL;
     fiber->abort = false;
     fiber->returnaddress = NULL;
+    fiber->handleritems = NULL;
+    fiber->handlercount = 0;
+    fiber->handlercapacity = 0;
     if(function != NULL)
     {
-        LitCallFrame* frame = &fiber->framevals[0];
+        frame = &fiber->framevals[0];
         frame->closure = NULL;
         frame->function = function;
         frame->slots = fiber->registeritems;
@@ -14448,7 +15856,8 @@ LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFunction* 
 
 LitFiber* lit_object_makefiberclosure(LitState* state, LitModule* module, LitFuncClosure* closure)
 {
-    LitFiber* fiber = lit_object_makefiber(state, module, closure->function);
+    LitFiber* fiber;
+    fiber = lit_object_makefiber(state, module, closure->function);
     fiber->framevals[0].closure = closure;
     return fiber;
 }
@@ -14459,6 +15868,9 @@ void lit_fiber_ensureregisters(LitFiber* fiber, size_t needed)
     size_t capacity;
     LitUpvalue* upvalue;
     LitValue* oldregisters;
+    LitCallFrame* frame;
+    LitValue* oldslots;
+    int difference;
     if(fiber->registersallocated >= needed)
     {
         return;
@@ -14475,9 +15887,9 @@ void lit_fiber_ensureregisters(LitFiber* fiber, size_t needed)
     {
         for(i = 0; i < fiber->framecount; i++)
         {
-            LitCallFrame* frame = &fiber->framevals[i];
-            int difference = (frame->slots - oldregisters);
-            LitValue* oldslots = frame->slots;
+            frame = &fiber->framevals[i];
+            difference = (frame->slots - oldregisters);
+            oldslots = frame->slots;
             frame->slots = fiber->registeritems + difference;
             if(frame->returnaddress != NULL)
             {
@@ -14493,7 +15905,8 @@ void lit_fiber_ensureregisters(LitFiber* fiber, size_t needed)
 
 LitModule* lit_object_makemodule(LitState* state, LitString* name)
 {
-    LitModule* module = (LitModule*)lit_object_allocobject(state, sizeof(LitModule), LIT_OBJ_MODULE);
+    LitModule* module;
+    module = (LitModule*)lit_object_allocobject(state, sizeof(LitModule), LIT_OBJ_MODULE);
     module->name = name;
     module->returnvalue = lit_value_makenull();
     module->mainfunction = NULL;
@@ -14507,7 +15920,8 @@ LitModule* lit_object_makemodule(LitState* state, LitString* name)
 
 LitClass* lit_object_makeclass(LitState* state, LitString* name)
 {
-    LitClass* klass = (LitClass*)lit_object_allocobject(state, sizeof(LitClass), LIT_OBJ_CLASS);
+    LitClass* klass;
+    klass = (LitClass*)lit_object_allocobject(state, sizeof(LitClass), LIT_OBJ_CLASS);
     klass->name = name;
     klass->mthconstructor = NULL;
     klass->super = NULL;
@@ -14518,15 +15932,17 @@ LitClass* lit_object_makeclass(LitState* state, LitString* name)
 
 LitInstance* lit_object_makeinstance(LitState* state, LitClass* klass)
 {
-    LitInstance* instance = (LitInstance*)lit_object_allocobject(state, sizeof(LitInstance), LIT_OBJ_INSTANCE);
+    LitInstance* instance;
+    instance = (LitInstance*)lit_object_allocobject(state, sizeof(LitInstance), LIT_OBJ_INSTANCE);
     instance->klass = klass;
     lit_table_init(state, &instance->fields);
     return instance;
 }
 
-LitBoundMethod* lit_object_makeboundmethod(LitState* state, LitValue receiver, LitValue method)
+LitFuncBound* lit_object_makeboundmethod(LitState* state, LitValue receiver, LitValue method)
 {
-    LitBoundMethod* boundmethod = (LitBoundMethod*)lit_object_allocobject(state, sizeof(LitBoundMethod), LIT_OBJ_FUNCBOUNDMETHOD);
+    LitFuncBound* boundmethod;
+    boundmethod = (LitFuncBound*)lit_object_allocobject(state, sizeof(LitFuncBound), LIT_OBJ_FUNCBOUNDMETHOD);
     boundmethod->receiver = receiver;
     boundmethod->method = method;
     return boundmethod;
@@ -14534,14 +15950,15 @@ LitBoundMethod* lit_object_makeboundmethod(LitState* state, LitValue receiver, L
 
 LitArray* lit_array_make(LitState* state)
 {
-    LitArray* array = (LitArray*)lit_object_allocobject(state, sizeof(LitArray), LIT_OBJ_ARRAY);
-    lit_vallist_init(&array->innerlist);
+    LitArray* array;
+    array = (LitArray*)lit_object_allocobject(state, sizeof(LitArray), LIT_OBJ_ARRAY);
+    lit_dynlistval_init(&array->innerlist);
     return array;
 }
 
 void lit_array_push(LitArray* array, LitValue val)
 {
-    lit_vallist_push(&array->innerlist, val);
+    lit_dynlistval_push(&array->innerlist, val);
 }
 
 size_t lit_array_size(LitArray* array)
@@ -14556,12 +15973,12 @@ size_t lit_array_count(LitArray* array)
 
 LitValue lit_array_get(LitArray* ary, size_t idx)
 {
-    return lit_vallist_get(&ary->innerlist, idx);
+    return lit_dynlistval_get(&ary->innerlist, idx);
 }
 
 LitValue lit_array_set(LitArray* ary, size_t idx, LitValue val)
 {
-    return lit_vallist_set(&ary->innerlist, idx, val);
+    return lit_dynlistval_set(&ary->innerlist, idx, val);
 }
 
 LitValue lit_array_removeat(LitArray* array, size_t index)
@@ -14576,18 +15993,18 @@ LitValue lit_array_removeat(LitArray* array, size_t index)
     {
         return lit_value_makenull();
     }
-    value = lit_vallist_get(vl, index);
+    value = lit_dynlistval_get(vl, index);
     if(index == count - 1)
     {
-        lit_vallist_set(vl, index, lit_value_makenull());
+        lit_dynlistval_set(vl, index, lit_value_makenull());
     }
     else
     {
         for(i = index; i < vl->listcount - 1; i++)
         {
-            lit_vallist_set(vl, i, lit_vallist_get(vl, i + 1));
+            lit_dynlistval_set(vl, i, lit_dynlistval_get(vl, i + 1));
         }
-        lit_vallist_set(vl, count - 1, lit_value_makenull());
+        lit_dynlistval_set(vl, count - 1, lit_value_makenull());
     }
     vl->listcount--;
     return value;
@@ -14595,14 +16012,16 @@ LitValue lit_array_removeat(LitArray* array, size_t index)
 
 LitVarargArray* lit_object_makevararray(LitState* state)
 {
-    LitVarargArray* array = (LitVarargArray*)lit_object_allocobject(state, sizeof(LitVarargArray), LIT_OBJ_VARARGARRAY);
-    lit_vallist_init(&array->innerarray.innerlist);
+    LitVarargArray* array;
+    array = (LitVarargArray*)lit_object_allocobject(state, sizeof(LitVarargArray), LIT_OBJ_VARARGARRAY);
+    lit_dynlistval_init(&array->innerarray.innerlist);
     return array;
 }
 
 LitMap* lit_object_makemap(LitState* state, LitTable* fields)
 {
-    LitMap* map = (LitMap*)lit_object_allocobject(state, sizeof(LitMap), LIT_OBJ_MAP);
+    LitMap* map;
+    map = (LitMap*)lit_object_allocobject(state, sizeof(LitMap), LIT_OBJ_MAP);
     lit_table_init(state, &map->innertable);
     if(fields != NULL)
     {
@@ -14634,9 +16053,10 @@ bool lit_map_delete(LitMap* map, LitString* key)
 void lit_map_addall(LitMap* from, LitMap* to)
 {
     int i;
+    LitTabEntry* entry;
     for(i = 0; i <= from->innertable.htcapacity; i++)
     {
-        LitTabEntry* entry = &from->innertable.htentries[i];
+        entry = &from->innertable.htentries[i];
         if(entry->entkey != NULL)
         {
             lit_table_set(&to->innertable, entry->entkey, entry->entvalue);
@@ -14665,7 +16085,8 @@ void lit_map_setfield(LitMap* map, const char* name, LitValue value)
 
 LitUserdata* lit_userdata_makeuserdata(LitState* state, size_t size)
 {
-    LitUserdata* userdata = (LitUserdata*)lit_object_allocobject(state, sizeof(LitUserdata), LIT_OBJ_USERDATA);
+    LitUserdata* userdata;
+    userdata = (LitUserdata*)lit_object_allocobject(state, sizeof(LitUserdata), LIT_OBJ_USERDATA);
     if(size > 0)
     {
         userdata->data = lit_sysmem_malloc(size);
@@ -14704,7 +16125,8 @@ void* lit_userdata_extractdata(LitValue instance)
 
 LitRange* lit_object_makerange(LitState* state, double from, double to)
 {
-    LitRange* range = (LitRange*)lit_object_allocobject(state, sizeof(LitRange), LIT_OBJ_RANGE);
+    LitRange* range;
+    range = (LitRange*)lit_object_allocobject(state, sizeof(LitRange), LIT_OBJ_RANGE);
     range->from = from;
     range->to = to;
     return range;
@@ -14712,7 +16134,8 @@ LitRange* lit_object_makerange(LitState* state, double from, double to)
 
 LitField* lit_object_makefield(LitState* state, LitObject* getter, LitObject* setter)
 {
-    LitField* field = (LitField*)lit_object_allocobject(state, sizeof(LitField), LIT_OBJ_FIELD);
+    LitField* field;
+    field = (LitField*)lit_object_allocobject(state, sizeof(LitField), LIT_OBJ_FIELD);
     field->getter = getter;
     field->setter = setter;
     return field;
@@ -14720,7 +16143,8 @@ LitField* lit_object_makefield(LitState* state, LitObject* getter, LitObject* se
 
 LitReference* lit_object_makereference(LitState* state, LitValue* slot)
 {
-    LitReference* reference = (LitReference*)lit_object_allocobject(state, sizeof(LitReference), LIT_OBJ_REFERENCE);
+    LitReference* reference;
+    reference = (LitReference*)lit_object_allocobject(state, sizeof(LitReference), LIT_OBJ_REFERENCE);
     reference->slot = slot;
     return reference;
 }
@@ -14739,37 +16163,36 @@ void lit_state_defaultprinterrmsgerror(LitState* state, const char* message)
         lit_iostream_writecolor(pr, COLOR_RESET);
         fflush(stderr);
     }
-    state->had_error = true;
-
+    state->haderror = true;
 }
 
 LitState* lit_state_make()
 {
-    LitState* state = (LitState*)lit_sysmem_malloc(sizeof(LitState));
+    LitState* state;
+    state = (LitState*)lit_sysmem_malloc(sizeof(LitState));
     state->stdclassclass = NULL;
     state->stdobjectclass = NULL;
-    state->number_class = NULL;
-    state->string_class = NULL;
-    state->bool_class = NULL;
-    state->function_class = NULL;
-    state->fiber_class = NULL;
-    state->module_class = NULL;
-    state->array_class = NULL;
-    state->map_class = NULL;
-    state->range_class = NULL;
-    state->bytes_allocated = 0;
+    state->stdclassnumber = NULL;
+    state->stdclassstring = NULL;
+    state->stdclassbool = NULL;
+    state->stdclassfunction = NULL;
+    state->stdclassfiber = NULL;
+    state->stdclassmodule = NULL;
+    state->stdclassarray = NULL;
+    state->stdclassmap = NULL;
+    state->stdclassrange = NULL;
+    state->bytesallocated = 0;
     state->gcnextgc = 256 * 1024;
     state->gcallowgc = false;
     state->printerrmessagefn = lit_state_defaultprinterrmsgerror;
-    state->had_error = false;
-    state->roots = NULL;
-    state->root_count = 0;
-    state->root_capacity = 0;
-    state->last_module = NULL;
+    state->haderror = false;
+    state->rootvalues = NULL;
+    state->rootcount = 0;
+    state->rootcapacity = 0;
+    state->lastmodule = NULL;
     state->config.dumpast = false;
     state->config.traceexecution = false;
     state->config.traceinstsonly = false;
-    state->config.tracechunk = false;
     state->config.isreplmode = false;
     state->config.havedesttrace = false;
     state->config.quitafterdump = false;
@@ -14780,28 +16203,30 @@ LitState* lit_state_make()
     lit_init_vm(state);
     lit_api_init(state);
     {
-        state->conststrthis = lit_string_copy(state, "this");
-        state->conststrtostring = lit_string_copy(state, "toString");
-        state->conststrconstructor = lit_string_copy(state, "constructor");
+        state->strings.strnull = lit_string_copy(state, "null");
+        state->strings.strthis = lit_string_copy(state, "this");
+        state->strings.strtostring = lit_string_copy(state, "toString");
+        state->strings.strconstructor = lit_string_copy(state, "constructor");
+        state->strings.stropequal = lit_string_copy(state, "==");
+        state->strings.stropindex = lit_string_copy(state, "[]");
     }
-    state->lexer = (LitAstLexer*)lit_sysmem_malloc(sizeof(LitAstLexer));
-    state->parser = (LitAstParser*)lit_sysmem_malloc(sizeof(LitAstParser));
-    lit_astparser_init(state, (LitAstParser*)state->parser);
-    state->emitter = (LitAstEmitter*)lit_sysmem_malloc(sizeof(LitAstEmitter));
-    lit_emitter_init(state, state->emitter);
-
+    state->activelexer = (LitAstLexer*)lit_sysmem_malloc(sizeof(LitAstLexer));
+    state->activeparser = (LitAstParser*)lit_sysmem_malloc(sizeof(LitAstParser));
+    lit_astparser_init(state, (LitAstParser*)state->activeparser);
+    state->activeemitter = (LitAstEmitter*)lit_sysmem_malloc(sizeof(LitAstEmitter));
+    lit_emitter_init(state, state->activeemitter);
     lit_state_opencorelibrary(state);
     lit_state_openlibraries(state);
-
     return state;
 }
 
 int64_t lit_state_destroy(LitState* state)
 {
-    if(state->roots != NULL)
+    int64_t amount;
+    if(state->rootvalues != NULL)
     {
-        lit_sysmem_free(state->roots);
-        state->roots = NULL;
+        lit_sysmem_free(state->rootvalues);
+        state->rootvalues = NULL;
     }
     lit_api_destroy(state);
     lit_iostream_destroy(state->streamstdout);
@@ -14810,13 +16235,13 @@ int64_t lit_state_destroy(LitState* state)
     {
         lit_iostream_destroy(state->config.desttrace);
     }
-    lit_sysmem_free(state->lexer);
-    lit_astparser_destroy(state->parser);
-    lit_sysmem_free(state->parser);
-    lit_emitter_destroy(state->emitter);
-    lit_sysmem_free(state->emitter);
+    lit_sysmem_free(state->activelexer);
+    lit_astparser_destroy(state->activeparser);
+    lit_sysmem_free(state->activeparser);
+    lit_emitter_destroy(state->activeemitter);
+    lit_sysmem_free(state->activeemitter);
     lit_free_vm(state);
-    int64_t amount = state->bytes_allocated;
+    amount = state->bytesallocated;
     lit_sysmem_free(state);
     return amount;
 }
@@ -14828,40 +16253,48 @@ void lit_state_pushroot(LitState* state, LitObject* object)
 
 void lit_state_pushvalueroot(LitState* state, LitValue value)
 {
-    if(state->root_count + 1 >= state->root_capacity)
+    if(state->rootcount + 1 >= state->rootcapacity)
     {
-        state->root_capacity = LIT_GROW_CAPACITY(state->root_capacity);
-        state->roots = (LitValue*)lit_sysmem_realloc(state->roots, state->root_capacity * sizeof(LitValue));
+        state->rootcapacity = LIT_GROW_CAPACITY(state->rootcapacity);
+        state->rootvalues = (LitValue*)lit_sysmem_realloc(state->rootvalues, state->rootcapacity * sizeof(LitValue));
     }
-    state->roots[state->root_count++] = value;
+    state->rootvalues[state->rootcount++] = value;
 }
 
 LitValue lit_state_peekroot(LitState* state, size_t distance)
 {
-    assert(state->root_count - distance + 1 > 0);
-    return state->roots[state->root_count - distance - 1];
+    assert(state->rootcount - distance + 1 > 0);
+    return state->rootvalues[state->rootcount - distance - 1];
 }
 
 void lit_state_poproot(LitState* state)
 {
-    state->root_count--;
+    state->rootcount--;
 }
 
 void lit_state_poproots(LitState* state, size_t amount)
 {
-    state->root_count -= amount;
+    state->rootcount -= amount;
 }
 
 LitClass* lit_state_getclassfor(LitState* state, LitValue value)
 {
+    LitUpvalue* upvalue;
+    LitValue* slot;
     if(lit_value_isobject(value))
     {
-        switch(OBJECT_TYPE(value))
+        switch(lit_value_objtype(value))
         {
             case LIT_OBJ_STRING:
-                return state->string_class;
+                {
+                    return state->stdclassstring;
+                }
+                break;
             case LIT_OBJ_USERDATA:
-                return state->stdobjectclass;
+                {
+                    return state->stdobjectclass;
+                }
+                break;
             case LIT_OBJ_FIELD:
             case LIT_OBJ_FUNCSCRIPT:
             case LIT_OBJ_FUNCCLOSURE:
@@ -14869,51 +16302,75 @@ LitClass* lit_state_getclassfor(LitState* state, LitValue value)
             case LIT_OBJ_FUNCNATIVE:
             case LIT_OBJ_FUNCBOUNDMETHOD:
             case LIT_OBJ_FUNCNATMETHOD:
-            {
-                return state->function_class;
-            }
-            case LIT_OBJ_FIBER:
-                return state->fiber_class;
-            case LIT_OBJ_MODULE:
-                return state->module_class;
-            case LIT_OBJ_UPVALUE:
-            {
-                LitUpvalue* upvalue = lit_value_asupvalue(value);
-                if(upvalue->location == NULL)
                 {
-                    return lit_state_getclassfor(state, upvalue->closed);
+                    return state->stdclassfunction;
                 }
-                return lit_state_getclassfor(state, *upvalue->location);
-            }
+                break;
+            case LIT_OBJ_FIBER:
+                {
+                    return state->stdclassfiber;
+                }
+                break;
+            case LIT_OBJ_MODULE:
+                {
+                    return state->stdclassmodule;
+                }
+                break;
+            case LIT_OBJ_UPVALUE:
+                {
+                    upvalue = lit_value_asupvalue(value);
+                    if(upvalue->location == NULL)
+                    {
+                        return lit_state_getclassfor(state, upvalue->closed);
+                    }
+                    return lit_state_getclassfor(state, *upvalue->location);
+                }
+                break;
             case LIT_OBJ_INSTANCE:
-                return lit_value_asinstance(value)->klass;
+                {
+                    return lit_value_asinstance(value)->klass;
+                }
+                break;
             case LIT_OBJ_CLASS:
-                return state->stdclassclass;
+                {
+                    return state->stdclassclass;
+                }
+                break;
             case LIT_OBJ_ARRAY:
             case LIT_OBJ_VARARGARRAY:
-                return state->array_class;
-            case LIT_OBJ_MAP:
-                return state->map_class;
-            case LIT_OBJ_RANGE:
-                return state->range_class;
-            case LIT_OBJ_REFERENCE:
-            {
-                LitValue* slot = lit_value_asreference(value)->slot;
-                if(slot != NULL)
                 {
-                    return lit_state_getclassfor(state, *slot);
+                    return state->stdclassarray;
                 }
-                return state->stdobjectclass;
-            }
+                break;
+            case LIT_OBJ_MAP:
+                {
+                    return state->stdclassmap;
+                }
+                break;
+            case LIT_OBJ_RANGE:
+                {
+                    return state->stdclassrange;
+                }
+                break;
+            case LIT_OBJ_REFERENCE:
+                {
+                    slot = lit_value_asreference(value)->slot;
+                    if(slot != NULL)
+                    {
+                        return lit_state_getclassfor(state, *slot);
+                    }
+                    return state->stdobjectclass;
+                }
+                break;
         }
     }
     else if(lit_value_isnumber(value))
     {
-        return state->number_class;
+        return state->stdclassnumber;
     }
     else if(lit_value_isbool(value))
     {
-        return state->bool_class;
+        return state->stdclassbool;
     }
     return NULL;
 }
@@ -14926,10 +16383,13 @@ LitResult lit_state_interpretsource(LitState* state, const char* modname, const 
 
 LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, const char* code)
 {
-    bool allowedgc = state->gcallowgc;
+    bool allowedgc;
+    LitModule* module;
+    LitDynListExpr statements;
+    allowedgc = state->gcallowgc;
     state->gcallowgc = false;
-    state->had_error = false;
-    LitModule* module = NULL;
+    state->haderror = false;
+    module = NULL;
     /* this is a lbc format */
     if((code[1] << 8 | code[0]) == LIT_CONFIG_BCMAGICNUMBER)
     {
@@ -14937,9 +16397,8 @@ LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, co
     }
     else
     {
-        LitDynListExpr statements;
-        lit_exprlist_init(&statements);
-        if(lit_astparser_parsesource(state->parser, modname->strbuf.data, code, &statements))
+        lit_dynlistexpr_init(&statements);
+        if(lit_astparser_parsesource(state->activeparser, modname->strbuf.data, code, &statements))
         {
             lit_ast_destroyexprlist(state, &statements);
             return NULL;
@@ -14953,91 +16412,64 @@ LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, co
                 return NULL;
             }
         }
-        module = lit_emitter_emitmod(state->emitter, &statements, modname);
+        module = lit_emitter_emitmod(state->activeemitter, &statements, modname);
         lit_ast_destroyexprlist(state, &statements);
     }
     state->gcallowgc = allowedgc;
-    return state->had_error ? NULL : module;
+    return state->haderror ? NULL : module;
 }
 
 LitResult lit_state_interninterpretsource(LitState* state, LitString* modname, const char* code)
 {
-    LitModule* module = lit_state_compilemodulesource(state, modname, code);
+    LitModule* module;
+    LitResult result;
+    module = lit_state_compilemodulesource(state, modname, code);
     if(module == NULL)
     {
         return lit_result_make(LIT_STATUS_COMPILEERROR, lit_value_makenull());
     }
-    LitResult result = lit_interpret_module(state, module);
-    state->last_module = module;
+    result = lit_interpret_module(state, module);
+    state->lastmodule = module;
     return result;
 }
 
-char* lit_util_patchfilename(char* filename)
-{
-    int i;
-    int namelength = strlen(filename);
-    /* check, if our filename ends with .lit or lbc, and remove it */
-    if(namelength > 4 && (memcmp(filename + namelength - 4, ".lit", 4) == 0 || memcmp(filename + namelength - 4, ".lbc", 4) == 0))
-    {
-        filename[namelength - 4] = '\0';
-        namelength -= 4;
-    }
-    /* check if our filename starts with ./ and remove it (useless, and makes the module name be ..main) */
-    if(namelength > 2 && memcmp(filename, "./", 2) == 0)
-    {
-        filename += 2;
-        namelength -= 2;
-    }
-    for(i = 0; i < namelength; i++)
-    {
-        char c = filename[i];
-        if(c == '/' || c == '\\')
-        {
-            filename[i] = '.';
-        }
-    }
-    return filename;
-}
-
-char* lit_util_dupstring(const char* string)
-{
-    size_t length = strlen(string) + 1;
-    char* newstring = (char*)lit_sysmem_malloc(length);
-    memcpy(newstring, string, length);
-    return newstring;
-}
 
 bool lit_state_compileandsavefile(LitState* state, const char* inputfile, const char* outputfile)
 {
+    size_t flen;
     LitModule* compiledmodule;
+    char* filename;
+    char* source;
+    LitString* modname;
+    LitModule* module;
+    FILE* hnd;
+    (void)flen;
     {
-        char* filename = lit_util_dupstring(inputfile);
-        char* source = lit_util_readfile(filename);
+        filename = lit_util_dupstring(inputfile);
+        source = lit_util_readfile(filename, &flen);
         if(source == NULL)
         {
-            lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to open file '%s'", filename);
+            lit_state_raiseerror(state, "failed to open file '%s'", filename);
             return false;
         }
-        filename = lit_util_patchfilename(filename);
-        LitString* modname = lit_string_copylen(state, filename, strlen(filename));
-        LitModule* module = lit_state_compilemodulesource(state, modname, source);
+        modname = lit_string_copylen(state, filename, strlen(filename));
+        module = lit_state_compilemodulesource(state, modname, source);
         compiledmodule = module;
         lit_sysmem_free((void*)source);
-        lit_sysmem_free((void*)filename);
         if(module == NULL)
         {
             return false;
         }
     }
-    FILE* hnd = fopen(outputfile, "w+b");
+    hnd = fopen(outputfile, "w+b");
     if(hnd == NULL)
     {
-        lit_state_raiseerror(state, LIT_ERROR_COMPILEERROR, "failed to open for writing file '%s'", outputfile);
+        lit_state_raiseerror(state, "failed to open for writing file '%s'", outputfile);
         return false;
     }
     lit_bcfile_writeuint32(hnd, LIT_CONFIG_BCMAGICNUMBER);
     lit_bcfile_writeuint32(hnd, LIT_BYTECODE_VERSION);
-    //lit_bcfile_writeuint16(hnd, 1);
+    lit_bcfile_writeuint32(hnd, 1);
     {
         lit_bcfile_savemodule(compiledmodule, hnd);
     }
@@ -15048,39 +16480,49 @@ bool lit_state_compileandsavefile(LitState* state, const char* inputfile, const 
 
 char* lit_util_readsource(LitState* state, const char* filename)
 {
-    char* source = lit_util_readfile(filename);
+    size_t flen;
+    char* source;
+    (void)flen;
+    source = lit_util_readfile(filename, &flen);
     if(source == NULL)
     {
-        lit_state_raiseerror(state, LIT_ERROR_RUNTIMEERROR, "failed to open file '%s'", filename);
+        lit_state_raiseerror(state, "failed to open file '%s'", filename);
     }
     return source;
 }
 
 LitResult lit_state_interpretfile(LitState* state, const char* file)
 {
-    char* source = lit_util_readsource(state, file);
+    char* source;
+    const char* modname;
+    LitResult result;
+    modname = lit_util_fsgetbasename(file);
+    source = lit_util_readsource(state, file);
     if(source == NULL)
     {
-        return LIT_STATUS_RUNTIME_FAIL;
+        return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
     }
-    LitResult result = lit_state_interpretsource(state, file, source);
+    result = lit_state_interpretsource(state, modname, source);
     lit_sysmem_free((void*)source);
     return result;
 }
 
 LitResult lit_state_dumpfile(LitState* state, LitIOStream* pr, const char* file)
 {
-    char* source = lit_util_readsource(state, file);
+    char* source;
+    LitResult result;
+    LitString* modname;
+    LitModule* module;
+    source = lit_util_readsource(state, file);
     if(source == NULL)
     {
-        return LIT_STATUS_RUNTIME_FAIL;
+        return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
     }
-    LitResult result;
-    LitString* modname = lit_string_copylen(state, file, strlen(file));
-    LitModule* module = lit_state_compilemodulesource(state, modname, source);
+    modname = lit_string_copylen(state, file, strlen(file));
+    module = lit_state_compilemodulesource(state, modname, source);
     if(module == NULL)
     {
-        result = LIT_STATUS_RUNTIME_FAIL;
+        result = lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
     }
     else
     {
@@ -15091,51 +16533,16 @@ LitResult lit_state_dumpfile(LitState* state, LitIOStream* pr, const char* file)
     return result;
 }
 
-void lit_state_raiseerror(LitState* state, LitErrorType type, const char* fmt, ...)
+void lit_state_raiseerror(LitState* state, const char* fmt, ...)
 {
     va_list args;
     LitIOStream pr;
-    (void)type;
     lit_iostream_makestackstring(&pr);
     va_start(args, fmt);
     lit_iostream_vwritefmt(&pr, fmt, args);
     va_end(args);
     state->printerrmessagefn(state, pr.psbuf.data);
     lit_iostream_destroy(&pr);
-}
-
-void lit_vmexec_traceframe(LitState* state, LitFiber* fiber)
-{
-    #ifdef LIT_CONFIG_TRACESTACK
-        bool frisexit;
-        size_t frcnt;
-        size_t frargc;
-        size_t frmaxreg;
-        size_t fradded;
-        size_t frcap;
-        size_t frcap;
-        const char* frname;
-        LitIOStream* pr;
-        LitCallFrame* frame;
-    #endif
-    (void)state;
-    (void)fiber;
-    #ifdef LIT_CONFIG_TRACESTACK
-        if(fiber == NULL)
-        {
-            return;
-        }
-        pr = state->config.desttrace;
-        frame = &fiber->framevals[fiber->framecount - 1];
-        frcnt = fiber->framecount - 1;
-        frname = lit_string_getdata(frame->function->name);
-        frargc = frame->function->argcount;
-        frmaxreg = frame->function->maxregisters;
-        fradded = frmaxreg + (int)(fiber->stack_top - fiber->stack);
-        frcap = fiber->stack_capacity;
-        frisexit = frame->returnaddress == NULL;
-        lit_iostream_printf(pr, "== fiber %p f%i %s (expects %i, max %i, added %i, current %i, exits %i) ==\n", fiber, frcnt, frname, frargc, frmaxreg, fradded, frcap, frisexit);
-    #endif
 }
 
 void lit_debug_traceprintvalue(LitIOStream* pr, const char* prefix, size_t framecount, size_t argc, LitValue* vals)
@@ -15173,22 +16580,49 @@ void lit_init_vm(LitState* state)
 void lit_free_vm(LitState* state)
 {
     lit_free_table(&state->vmstate.strings);
-    lit_free_objects(state, state->vmstate.objects);
+    lit_gcmem_freeobjlist(state, state->vmstate.objects);
     lit_vmexec_resetvm(state);
 }
 
 bool lit_vm_handleerror(LitState* state, LitString* errorstring)
 {
     int i;
+    int count;
     LitIOStream* pr;
+    LitValue error;
+    LitFiber* fiber;
+    LitHandler* handler;
+    LitFiber* caller;
+    LitCallFrame* frame;
+    LitFuncScript* function;
+    LitChunk* chunk;
+    const char* name;
+    size_t line;
     pr = state->streamstderr;
-    LitValue error = lit_value_fromobject(errorstring);
-    LitFiber* fiber = state->vmstate.fiber;
+    error = lit_value_fromobject(errorstring);
+    fiber = state->vmstate.fiber;
     while(fiber != NULL)
     {
         fiber->error = error;
+        if(fiber->handlercount > 0)
+        {
+            handler = &fiber->handleritems[--fiber->handlercount];
+            state->vmstate.fiber = fiber;
+            fiber->framecount = handler->framecount;
+            state->vmstate.frame = &fiber->framevals[fiber->framecount - 1];
+            state->vmstate.currentchunk = &state->vmstate.frame->function->chunk;
+            state->vmstate.ip = handler->handlerip;
+            state->vmstate.frame->ip = handler->handlerip;
+            state->vmstate.vmregisteritems = fiber->registeritems + handler->registercount;
+            state->vmstate.vmregisteritems[handler->errorreg] = error;
+            return true;
+        }
         if(fiber->catcher)
         {
+            if(fiber->parent == NULL)
+            {
+                break;
+            }
             fiber->caught = true;
             state->vmstate.fiber = fiber->parent;
             if(state->vmstate.fiber->returnaddress != NULL)
@@ -15197,7 +16631,7 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
             }
             return true;
         }
-        LitFiber* caller = fiber->parent;
+        caller = fiber->parent;
         fiber->parent = NULL;
         fiber = caller;
     }
@@ -15208,19 +16642,19 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     {
         fiber->parent->abort = true;
     }
-    int count = (int)fiber->framecount - 1;
+    count = (int)fiber->framecount - 1;
     lit_iostream_writecolor(pr, COLOR_RED);
     lit_iostream_printf(pr, "unhandled error in vm:\n");
     lit_iostream_printf(pr, "%s\n", errorstring->strbuf.data);
     for(i = count; i >= 0; i--)
     {
-        LitCallFrame* frame = &fiber->framevals[i];
-        LitFunction* function = frame->function;
-        LitChunk* chunk = &function->chunk;
-        const char* name = function->name == NULL ? "unknown" : function->name->strbuf.data;
+        frame = &fiber->framevals[i];
+        function = frame->function;
+        chunk = &function->chunk;
+        name = function->name == NULL ? "unknown" : function->name->strbuf.data;
         if(chunk->haslineinfo)
         {
-            size_t line = lit_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1);
+            line = lit_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1);
             lit_iostream_printf(pr, "  [line %ld] in %s()\n", line, name);
         }
         else
@@ -15230,7 +16664,6 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     }
     lit_iostream_writecolor(pr, COLOR_RESET);
     state->printerrmessagefn(state, NULL);
-    lit_iostream_destroy(pr);
     return false;
 }
 
@@ -15247,8 +16680,9 @@ bool lit_vm_raiseerrorva(LitState* state, const char* format, va_list args)
 bool lit_vm_raiseerror(LitState* state, const char* format, ...)
 {
     va_list args;
+    bool result;
     va_start(args, format);
-    bool result = lit_vm_raiseerrorva(state, format, args);
+    result = lit_vm_raiseerrorva(state, format, args);
     va_end(args);
     return result;
 }
@@ -15256,26 +16690,35 @@ bool lit_vm_raiseerror(LitState* state, const char* format, ...)
 bool lit_vm_raisefatalerror(LitState* state, const char* format, ...)
 {
     va_list args;
+    bool result;
     va_start(args, format);
-    bool result = lit_vm_raiseerrorva(state, format, args);
+    result = lit_vm_raiseerrorva(state, format, args);
     va_end(args);
-    lit_state_nativeexitjump();
+    lit_jmpstate_nativeexitjump();
     return result;
 }
 
-bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClosure* closure, size_t argc, size_t calleeregister)
+bool lit_vmexec_callcallable(LitState* state, LitFuncScript* function, LitFuncClosure* closure, size_t argc, size_t calleeregister)
 {
     size_t i;
-    LitFiber* fiber = state->vmstate.fiber;
+    size_t newcapacity;
+    size_t targetargcount;
+    size_t j;
+    bool vararg;
+    LitFiber* fiber;
+    LitCallFrame* frame;
+    LitCallFrame* previousframe;
+    LitArray* array;
+    fiber = state->vmstate.fiber;
     assert(fiber->framecount > 0);
     if(fiber->framecount + 1 > fiber->framecapacity)
     {
-        size_t newcapacity = ((fiber->framecapacity + 1) * 2);
+        newcapacity = ((fiber->framecapacity + 1) * 2);
         fiber->framevals = (LitCallFrame*)lit_sysmem_realloc(fiber->framevals, sizeof(LitCallFrame) * newcapacity);
         fiber->framecapacity = newcapacity;
     }
-    LitCallFrame* frame = &fiber->framevals[fiber->framecount++];
-    LitCallFrame* previousframe = &fiber->framevals[fiber->framecount - 2];
+    frame = &fiber->framevals[fiber->framecount++];
+    previousframe = &fiber->framevals[fiber->framecount - 2];
     frame->function = function;
     frame->closure = closure;
     frame->ip = function->chunk.compiledcodechunk;
@@ -15284,8 +16727,8 @@ bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClos
     frame->returntoc = false;
     frame->returnaddress = previousframe->slots + (int)calleeregister;
     lit_fiber_ensureregisters(fiber, frame->slots - fiber->registeritems + function->maxregisters);
-    size_t targetargcount = function->argcount;
-    bool vararg = function->vararg;
+    targetargcount = function->argcount;
+    vararg = function->vararg;
     if(targetargcount > argc)
     {
 #ifdef LIT_TRACE_NULL_FILL
@@ -15308,10 +16751,10 @@ bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClos
         }
         else
         {
-            LitArray* array = &lit_object_makevararray(state)->innerarray;
+            array = &lit_object_makevararray(state)->innerarray;
             lit_state_pushroot(state, (LitObject*)array);
             lit_dynlistval_ensuresize(&array->innerlist, argc - targetargcount + 1);
-            size_t j = 0;
+            j = 0;
             for(i = targetargcount - 1; i < argc; i++)
             {
                 array->innerlist.listitems[j++] = *(frame->slots + i + 1);
@@ -15325,77 +16768,94 @@ bool lit_vmexec_callcallable(LitState* state, LitFunction* function, LitFuncClos
 
 bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t argc, const LitValue alternatecallee)
 {
-    LitCallFrame* frame = &state->vmstate.fiber->framevals[state->vmstate.fiber->framecount - 1];
-    LitValue callee = lit_value_isnull(alternatecallee) ? frame->slots[calleeregister] : alternatecallee;
+    bool caught;
+    LitValue callee;
+    LitCallFrame* frame;
+    LitFuncClosure* closure;
+    LitValue value;
+    LitFiber* fiber;
+    LitFuncNative* method;
+    LitClass* klass;
+    LitInstance* instance;
+    LitValue mth;
+    LitFuncBound* boundmethod;
+    frame = &state->vmstate.fiber->framevals[state->vmstate.fiber->framecount - 1];
+    callee = lit_value_isnull(alternatecallee) ? frame->slots[calleeregister] : alternatecallee;
     if(lit_value_isobject(callee))
     {
-        if(lit_set_native_exit_jump())
+        if(lit_jmpstate_setnativeexit())
         {
-            bool caught = state->vmstate.fiber->caught;
+            caught = state->vmstate.fiber->caught;
             state->vmstate.fiber->caught = false;
             return !caught;
         }
-        switch(OBJECT_TYPE(callee))
+        switch(lit_value_objtype(callee))
         {
             case LIT_OBJ_FUNCSCRIPT:
-            {
-                return lit_vmexec_callcallable(state, lit_value_asfuncscript(callee), NULL, argc, calleeregister);
-            }
-            case LIT_OBJ_FUNCCLOSURE:
-            {
-                LitFuncClosure* closure = lit_value_asfuncclosure(callee);
-                return lit_vmexec_callcallable(state, closure->function, closure, argc, calleeregister);
-            }
-            case LIT_OBJ_FUNCNATIVE:
-            {
-                LitValue value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, frame->slots + calleeregister + 1);
-                frame->slots[calleeregister] = value;
-                return !state->vmstate.fiber->abort;
-            }
-            case LIT_OBJ_FUNCNATMETHOD:
-            {
-                lit_vmexec_pushgc(state, false);
-                LitFuncNative* method = lit_value_asfuncmethod(callee);
-                LitFiber* fiber = state->vmstate.fiber;
-                LitValue value = method->natfuncptr(state, *(frame->slots + calleeregister), argc, frame->slots + calleeregister + 1);
-                frame->slots[calleeregister] = value;
-                lit_vmexec_popgc(state);
-                return !fiber->abort;
-            }
-            case LIT_OBJ_CLASS:
-            {
-                LitClass* klass = lit_value_asclass(callee);
-                LitInstance* instance = lit_object_makeinstance(state, klass);
-                frame->slots[calleeregister] = lit_value_fromobject(instance);
-                if(klass->mthconstructor != NULL)
                 {
-                    return lit_vmexec_actualcallvalue(state, calleeregister, argc, lit_value_fromobject(klass->mthconstructor));
+                    return lit_vmexec_callcallable(state, lit_value_asfuncscript(callee), NULL, argc, calleeregister);
                 }
-                return true;
-            }
-            case LIT_OBJ_FUNCBOUNDMETHOD:
-            {
-                LitBoundMethod* boundmethod = lit_value_asfuncboundmethod(callee);
-                LitValue method = boundmethod->method;
-                if(lit_value_isfuncmethod(method))
+                break;
+            case LIT_OBJ_FUNCCLOSURE:
                 {
-                    lit_vmexec_pushgc(state, false);
-                    LitValue value = lit_value_asfuncmethod(method)->natfuncptr(state, boundmethod->receiver, argc, frame->slots + calleeregister + 1);
+                    closure = lit_value_asfuncclosure(callee);
+                    return lit_vmexec_callcallable(state, closure->function, closure, argc, calleeregister);
+                }
+                break;
+            case LIT_OBJ_FUNCNATIVE:
+                {
+                    value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, frame->slots + calleeregister + 1);
                     frame->slots[calleeregister] = value;
-                    lit_vmexec_popgc(state);
                     return !state->vmstate.fiber->abort;
                 }
-                else
-                {
-                    frame->slots[calleeregister] = boundmethod->receiver;
-                    return lit_vmexec_callcallable(state, lit_value_asfuncscript(method), NULL, argc, calleeregister);
-                }
-                return !state->vmstate.fiber->abort;
-            }
-            default:
-            {
                 break;
-            }
+            case LIT_OBJ_FUNCNATMETHOD:
+                {
+                    lit_vmexec_pushgc(state, false);
+                    method = lit_value_asfuncmethod(callee);
+                    fiber = state->vmstate.fiber;
+                    value = method->natfuncptr(state, *(frame->slots + calleeregister), argc, frame->slots + calleeregister + 1);
+                    frame->slots[calleeregister] = value;
+                    lit_vmexec_popgc(state);
+                    return !fiber->abort;
+                }
+                break;
+            case LIT_OBJ_CLASS:
+                {
+                    klass = lit_value_asclass(callee);
+                    instance = lit_object_makeinstance(state, klass);
+                    frame->slots[calleeregister] = lit_value_fromobject(instance);
+                    if(klass->mthconstructor != NULL)
+                    {
+                        return lit_vmexec_actualcallvalue(state, calleeregister, argc, lit_value_fromobject(klass->mthconstructor));
+                    }
+                    return true;
+                }
+                break;
+            case LIT_OBJ_FUNCBOUNDMETHOD:
+                {
+                    boundmethod = lit_value_asfuncboundmethod(callee);
+                    mth = boundmethod->method;
+                    if(lit_value_isfuncmethod(mth))
+                    {
+                        lit_vmexec_pushgc(state, false);
+                        value = lit_value_asfuncmethod(mth)->natfuncptr(state, boundmethod->receiver, argc, frame->slots + calleeregister + 1);
+                        frame->slots[calleeregister] = value;
+                        lit_vmexec_popgc(state);
+                        return !state->vmstate.fiber->abort;
+                    }
+                    else
+                    {
+                        frame->slots[calleeregister] = boundmethod->receiver;
+                        return lit_vmexec_callcallable(state, lit_value_asfuncscript(mth), NULL, argc, calleeregister);
+                    }
+                    return !state->vmstate.fiber->abort;
+                }
+                break;
+            default:
+                {
+                }
+                break;
         }
     }
     if(lit_value_isnull(callee))
@@ -15411,8 +16871,11 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
 
 LitUpvalue* lit_vmexec_captureupvalue(LitState* state, LitValue* local)
 {
-    LitUpvalue* previousupvalue = NULL;
-    LitUpvalue* upvalue = state->vmstate.fiber->openupvalues;
+    LitUpvalue* upvalue;
+    LitUpvalue* previousupvalue;
+    LitUpvalue* createdupvalue;
+    previousupvalue = NULL;
+    upvalue = state->vmstate.fiber->openupvalues;
     while(upvalue != NULL && upvalue->location > local)
     {
         previousupvalue = upvalue;
@@ -15422,7 +16885,7 @@ LitUpvalue* lit_vmexec_captureupvalue(LitState* state, LitValue* local)
     {
         return upvalue;
     }
-    LitUpvalue* createdupvalue = lit_object_makeupvalue(state, local);
+    createdupvalue = lit_object_makeupvalue(state, local);
     createdupvalue->next = upvalue;
     if(previousupvalue == NULL)
     {
@@ -15437,10 +16900,12 @@ LitUpvalue* lit_vmexec_captureupvalue(LitState* state, LitValue* local)
 
 void lit_vmexec_closeupvalues(LitState* state, const LitValue* last)
 {
-    LitFiber* fiber = state->vmstate.fiber;
+    LitFiber* fiber;
+    LitUpvalue* upvalue;
+    fiber = state->vmstate.fiber;
     while(fiber->openupvalues != NULL && fiber->openupvalues->location >= last)
     {
-        LitUpvalue* upvalue = fiber->openupvalues;
+        upvalue = fiber->openupvalues;
         upvalue->closed = *upvalue->location;
         upvalue->location = &upvalue->closed;
         fiber->openupvalues = upvalue->next;
@@ -15449,9 +16914,11 @@ void lit_vmexec_closeupvalues(LitState* state, const LitValue* last)
 
 LitResult lit_interpret_module(LitState* state, LitModule* module)
 {
-    LitFiber* fiber = lit_object_makefiber(state, module, module->mainfunction);
+    LitResult result;
+    LitFiber* fiber;
+    fiber = lit_object_makefiber(state, module, module->mainfunction);
     state->vmstate.fiber = fiber;
-    LitResult result = lit_state_execfiber(state, fiber);
+    result = lit_state_execfiber(state, fiber);
     return result;
 }
 
@@ -15480,7 +16947,7 @@ LIT_INLINE void lit_vmmac_readframe(LitState* state, LitFiber** destfiber)
     (*destfiber)->module = state->vmstate.frame->function->module;
     state->vmstate.vmregisteritems = state->vmstate.frame->slots;
     state->vmstate.vmprivatevalues = (*destfiber)->module->privatevalues;
-    state->vmstate.upvalues = state->vmstate.frame->closure == NULL ? NULL : state->vmstate.frame->closure->upvalues;
+    state->vmstate.vmupvalueitems = state->vmstate.frame->closure == NULL ? NULL : state->vmstate.frame->closure->closureupvalueitems;
 }
 
 LIT_INLINE void lit_vmmac_writeframe(LitState* state)
@@ -15504,10 +16971,6 @@ LIT_INLINE bool lit_vmmac_recoverstate(LitState* state, LitFiber** fiber, LitRes
         return false;
     }
     lit_vmmac_readframe(state, fiber);
-    if(state->config.traceexecution)
-    {
-        lit_vmexec_traceframe(state, *fiber);
-    }
     return true;
 }
 
@@ -15606,8 +17069,11 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethodandcontinue(LitState* state, 
 {
     LitResult tmpres;
     LitResult invmcres;
+    LitClass* klass;
+    LitString* mthname;
+    LitValue method;
     lit_vmmac_writeframe(state);
-    LitClass* klass = lit_state_getclassfor(state, bv);
+    klass = lit_state_getclassfor(state, bv);
     if(klass == NULL)
     {
         if(lit_vm_raiseerror(state, "only instances and classes have methods"))
@@ -15624,8 +17090,7 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethodandcontinue(LitState* state, 
             return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
         }
     }
-    LitString* mthname = lit_string_copy(state, m);
-    LitValue method;
+    mthname = lit_string_copy(state, m);
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->mthtable, mthname, &method))
     {
         if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &invmcres))
@@ -15664,7 +17129,7 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethodandcontinue(LitState* state, 
         sncv = lit_value_valtypename(cv); \
         lit_vmmac_fail(state, "attempt to use the operator %s with a %s and a %s", opstring, snbv, sncv); \
     } \
-    isinst = (lit_value_isinstance(bv) && lit_value_asinstance(bv)->klass == state->number_class); \
+    isinst = (lit_value_isinstance(bv) && lit_value_asinstance(bv)->klass == state->stdclassnumber); \
     if(lit_value_isnumber(bv) || isinst) \
     { \
         if(isinst) \
@@ -15876,6 +17341,10 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
         &&LABELNAME(LIT_OPCODE_REFUPVALUE),
         &&LABELNAME(LIT_OPCODE_REFFIELD),
         &&LABELNAME(LIT_OPCODE_REFSET),
+        &&LABELNAME(LIT_OPCODE_PUSH_TRY),
+        &&LABELNAME(LIT_OPCODE_POP_TRY),
+        &&LABELNAME(LIT_OPCODE_THROW),
+        &&LABELNAME(LIT_OPCODE_RETHROW),
     };
 #endif
     bool traceforcenl;
@@ -15890,7 +17359,6 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
     state->vmstate.vmregisteritems[0] = lit_value_fromobject(state->vmstate.frame->function);
     if(LIT_UNLIKELY(state->config.traceexecution))
     {
-        lit_vmexec_traceframe(state, fiber);
         lit_iostream_printf(state->config.desttrace, "fiber start:\n");
     }
 
@@ -15961,11 +17429,11 @@ dispatch:
                 index = clsproto->indexes[i];
                 if(clsproto->local[i])
                 {
-                    closure->upvalues[i] = lit_vmexec_captureupvalue(state, state->vmstate.vmregisteritems + index);
+                    closure->closureupvalueitems[i] = lit_vmexec_captureupvalue(state, state->vmstate.vmregisteritems + index);
                 }
                 else
                 {
-                    closure->upvalues[i] = state->vmstate.upvalues[index];
+                    closure->closureupvalueitems[i] = state->vmstate.vmupvalueitems[index];
                 }
             }
             lit_vmmac_dispatchnext();
@@ -16020,6 +17488,10 @@ dispatch:
         CASE_CODE(LIT_OPCODE_RETURN)
         {
             LitValue value;
+            while(fiber->handlercount > 0 && fiber->handleritems[fiber->handlercount - 1].framecount >= fiber->framecount)
+            {
+                fiber->handlercount--;
+            }
             value = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
             lit_vmexec_closeupvalues(state, state->vmstate.vmregisteritems);
             fiber->framecount--;
@@ -16053,10 +17525,6 @@ dispatch:
             }
             *state->vmstate.frame->returnaddress = value;
             lit_vmmac_readframe(state, &fiber);
-            if(state->config.traceexecution)
-            {
-                lit_vmexec_traceframe(state, fiber);
-            }
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_MATHADD)
@@ -16081,11 +17549,18 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_MATHFLOORDIVIDE)
         {
-            uint64_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            uint64_t rb = LIT_INST_GETB(state->vmstate.instruction);
-            uint64_t rc = LIT_INST_GETC(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(state, rb);
-            LitValue cv = lit_vmmac_getrc(state, rc);
+            uint64_t ra;
+            uint64_t rb;
+            uint64_t rc;
+            LitValue bv;
+            LitValue cv;
+            LitValue tmpb;
+            LitResult invres;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rb = LIT_INST_GETB(state->vmstate.instruction);
+            rc = LIT_INST_GETC(state->vmstate.instruction);
+            bv = lit_vmmac_getrc(state, rb);
+            cv = lit_vmmac_getrc(state, rc);
             if(lit_value_isnumber(bv) && lit_value_isnumber(cv))
             {
                 state->vmstate.vmregisteritems[ra] = lit_value_makenumber(floor(lit_value_asnumber(bv) / lit_value_asnumber(cv)));
@@ -16093,10 +17568,10 @@ dispatch:
             else
             {
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
-                LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
+                tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
                 {
-                    LitResult invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "#", 1);
+                    invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "#", 1);
                     if(invres.type != LIT_STATUS_OK)
                     {
                         if(invres.type == LIT_STATUS_INVALID)
@@ -16112,9 +17587,7 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_MATHMOD)
         {
-            LitValue bv;
-            LitValue cv;
-            LitValue res;
+
             uint64_t ra;
             uint64_t rb;
             uint64_t rc;
@@ -16122,6 +17595,11 @@ dispatch:
             int64_t nintbc;
             double nddbv;
             double nddbc;
+            LitValue bv;
+            LitValue cv;
+            LitValue res;
+            LitValue tmpb;
+            LitResult invres;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rb = LIT_INST_GETB(state->vmstate.instruction);
             rc = LIT_INST_GETC(state->vmstate.instruction);
@@ -16146,10 +17624,10 @@ dispatch:
             else
             {
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
-                LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
+                tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
                 {
-                    LitResult invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "%", 1);
+                    invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "%", 1);
                     if(invres.type != LIT_STATUS_OK)
                     {
                         if(invres.type == LIT_STATUS_INVALID)
@@ -16165,11 +17643,18 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_MATHPOWER)
         {
-            uint64_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            uint64_t rb = LIT_INST_GETB(state->vmstate.instruction);
-            uint64_t rc = LIT_INST_GETC(state->vmstate.instruction);
-            LitValue bv = lit_vmmac_getrc(state, rb);
-            LitValue cv = lit_vmmac_getrc(state, rc);
+            uint64_t ra;
+            uint64_t rb;
+            uint64_t rc;
+            LitValue bv;
+            LitValue cv;
+            LitValue tmpb;
+            LitResult invres;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rb = LIT_INST_GETB(state->vmstate.instruction);
+            rc = LIT_INST_GETC(state->vmstate.instruction);
+            bv = lit_vmmac_getrc(state, rb);
+            cv = lit_vmmac_getrc(state, rc);
             if(lit_value_isnumber(bv) && lit_value_isnumber(cv))
             {
                 state->vmstate.vmregisteritems[ra] = lit_value_makenumber(pow(lit_value_asnumber(bv), lit_value_asnumber(cv)));
@@ -16177,10 +17662,10 @@ dispatch:
             else
             {
                 state->vmstate.vmregisteritems[ra] = lit_vmmac_getrc(state, rb);
-                LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
+                tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
                 {
-                    LitResult invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "**", 1);
+                    invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "**", 1);
                     if(invres.type != LIT_STATUS_OK)
                     {
                         if(invres.type == LIT_STATUS_INVALID)
@@ -16196,11 +17681,13 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_MATHLEFTSHIFT)
         {
-            LitValue res;
             uint32_t ivbv;
             uint32_t ivbc;
-            LitValue bv = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction));
+            LitValue bv;
+            LitValue cv;
+            LitValue res;
+            bv = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
+            cv = lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
                 lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", "<<", lit_value_valtypename(bv), lit_value_valtypename(cv));
@@ -16215,11 +17702,13 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_MATHRIGHTSHIFT)
         {
-            LitValue res;
             uint32_t ivbv;
             uint32_t ivbc;
-            LitValue bv = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
-            LitValue cv = lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction));
+            LitValue bv;
+            LitValue cv;
+            LitValue res;
+            bv = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
+            cv = lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction));
             if(!lit_value_isnumber(bv) && !lit_value_isnumber(cv))
             {
                 lit_vmmac_fail(state, "operands of '%s' must be two numbers, got %s and %s", ">>", lit_value_valtypename(bv), lit_value_valtypename(cv));
@@ -16332,12 +17821,13 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_EQUAL)
         {
-            LitValue bv;
-            LitValue ptmp;
-            LitValue tmpb;
             uint64_t ra;
             uint64_t rb;
             uint64_t rc;
+            LitValue bv;
+            LitValue ptmp;
+            LitValue tmpb;
+            LitResult invres;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rb = LIT_INST_GETB(state->vmstate.instruction);
             rc = LIT_INST_GETC(state->vmstate.instruction);
@@ -16348,7 +17838,7 @@ dispatch:
                 tmpb = state->vmstate.vmregisteritems[ra + 1];
                 state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rc);
                 {
-                    LitResult invres = lit_vmmac_invokeoperatormethodandcontinue(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "==", 1);
+                    invres = lit_vmmac_invokeoperatormethodandcontinue(state, &fiber, ra, state->vmstate.vmregisteritems[ra], "==", 1);
                     if(invres.type != LIT_STATUS_OK)
                     {
                         if(invres.type == LIT_STATUS_INVALID)
@@ -16389,9 +17879,10 @@ dispatch:
             uint64_t ra;
             uint64_t rb;
             double dn;
+            LitValue value;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rb = LIT_INST_GETB(state->vmstate.instruction);
-            LitValue value = lit_vmmac_getrc(state, rb);
+            value = lit_vmmac_getrc(state, rb);
             if(!lit_value_isnumber(value))
             {
                 lit_vmmac_fail(state, "operand must be a number");
@@ -16405,12 +17896,13 @@ dispatch:
             uint64_t ra;
             uint64_t rb;
             LitValue value;
+            LitResult invres;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rb = LIT_INST_GETB(state->vmstate.instruction);
             value = lit_vmmac_getrc(state, rb);
             if(lit_value_isinstance(value))
             {
-                LitResult invres = lit_vmmac_invokeoperatormethodandcontinue(state, &fiber, rb, value, "!", 0);
+                invres = lit_vmmac_invokeoperatormethodandcontinue(state, &fiber, rb, value, "!", 0);
                 if(invres.type != LIT_STATUS_OK)
                 {
                     if(invres.type == LIT_STATUS_INVALID)
@@ -16446,6 +17938,7 @@ dispatch:
         {
             uint64_t ra;
             uint64_t rbx;
+
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rbx = LIT_INST_GETBX(state->vmstate.instruction);
             lit_table_set(globals, lit_value_asstring(state->vmstate.vmconstantvalues[ra]), lit_vmmac_getrc(state, rbx));
@@ -16471,7 +17964,7 @@ dispatch:
             uint64_t rbx;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rbx = LIT_INST_GETBX(state->vmstate.instruction);
-            *state->vmstate.frame->closure->upvalues[ra]->location = lit_vmmac_getrc(state, rbx);
+            *state->vmstate.frame->closure->closureupvalueitems[ra]->location = lit_vmmac_getrc(state, rbx);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_UPVALUEGET)
@@ -16480,25 +17973,44 @@ dispatch:
             uint64_t rbx;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rbx = LIT_INST_GETBX(state->vmstate.instruction);
-            state->vmstate.vmregisteritems[ra] = *state->vmstate.frame->closure->upvalues[rbx]->location;
+            state->vmstate.vmregisteritems[ra] = *state->vmstate.frame->closure->closureupvalueitems[rbx]->location;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_PRIVATESET)
         {
-            uint64_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            uint64_t rbx = LIT_INST_GETBX(state->vmstate.instruction);
-            state->vmstate.vmprivatevalues[(uint16_t)rbx] = LIT_BIT_ISSET(rbx, 16) ? state->vmstate.vmconstantvalues[ra] : state->vmstate.vmregisteritems[ra];
+            uint64_t ra;
+            uint64_t rbx;
+            LitValue res;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rbx = LIT_INST_GETBX(state->vmstate.instruction);
+            if(LIT_BIT_ISSET(rbx, LIT_BITFLAG_VMCONST))
+            {
+                res = state->vmstate.vmconstantvalues[ra];
+            }
+            else
+            {
+                res = state->vmstate.vmregisteritems[ra];
+            }
+            state->vmstate.vmprivatevalues[(uint16_t)rbx] = res;
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_PRIVATEGET)
         {
-            state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)] = state->vmstate.vmprivatevalues[LIT_INST_GETBX(state->vmstate.instruction)];
+            uint64_t ra;
+            uint64_t rbx;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rbx = LIT_INST_GETBX(state->vmstate.instruction);
+            state->vmstate.vmregisteritems[ra] = state->vmstate.vmprivatevalues[rbx];
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_CALLCALLABLE)
         {
+            uint64_t ra;
+            uint64_t rb;
             lit_vmmac_writeframe(state);
-            if(!lit_vmexec_actualcallvalue(state, LIT_INST_GETA(state->vmstate.instruction), LIT_INST_GETB(state->vmstate.instruction) - 1, lit_value_makenull()))
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rb = LIT_INST_GETB(state->vmstate.instruction);
+            if(!lit_vmexec_actualcallvalue(state, ra, rb - 1, lit_value_makenull()))
             {
                 lit_vmexec_popgc(state);
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());                
@@ -16508,16 +18020,23 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_UPVALUECLOSE)
         {
-            lit_vmexec_closeupvalues(state, &state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)] - 1);
+            uint64_t ra;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            lit_vmexec_closeupvalues(state, (&state->vmstate.vmregisteritems[ra]) - 1);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_CLASSMAKE)
         {
-            LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETA(state->vmstate.instruction)]);
-            LitClass* klass = lit_object_makeclass(state, name);
+            uint16_t rb;
+            LitValue super;
+            LitString* name;
+            LitClass* klass;
+            LitClass* superklass;
+            name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETA(state->vmstate.instruction)]);
+            klass = lit_object_makeclass(state, name);
             state->vmstate.vmregisteritems[LIT_INST_GETC(state->vmstate.instruction)] = lit_value_fromobject(klass);
-            lit_table_set(&state->vmstate.globals->innertable, name, lit_value_fromobject(klass));
-            uint16_t rb = LIT_INST_GETB(state->vmstate.instruction);
+            lit_map_set(state->vmstate.globals, name, lit_value_fromobject(klass));
+            rb = LIT_INST_GETB(state->vmstate.instruction);
             if(rb == 0)
             {
                 klass->super = state->stdobjectclass;
@@ -16526,12 +18045,12 @@ dispatch:
             }
             else
             {
-                LitValue super = state->vmstate.vmregisteritems[--rb];
+                super = state->vmstate.vmregisteritems[--rb];
                 if(!lit_value_isclass(super))
                 {
                     lit_vmmac_fail(state, "superclass must be a class");
                 }
-                LitClass* superklass = lit_value_asclass(super);
+                superklass = lit_value_asclass(super);
                 klass->super = superklass;
                 klass->mthconstructor = superklass->mthconstructor;
                 lit_table_addall(&superklass->mthtable, &klass->mthtable);
@@ -16541,14 +18060,32 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_CLASSPUTFIELDSTATIC)
         {
-            lit_table_set(&lit_value_asclass(state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)])->staticstable, lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]), lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction)));
+            LitClass* klass;
+            LitValue vklass;
+            LitValue setkey;
+            LitValue setval;
+            vklass = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
+            setkey = state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)];
+            setval = lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction));
+            klass = lit_value_asclass(vklass);
+            lit_table_set(&klass->staticstable, lit_value_asstring(setkey), setval);
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_CLASSPUTMETHOD)
         {
-            LitClass* klass = lit_value_asclass(state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)]);
-            LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
-            if((klass->mthconstructor == NULL || (klass->super != NULL && klass->mthconstructor == ((LitClass*)klass->super)->mthconstructor)) && name->strbuf.length == lit_string_getlength(state->conststrconstructor) && memcmp(name->strbuf.data, lit_string_getdata(state->conststrconstructor), lit_string_getlength(state->conststrconstructor)) == 0)
+            size_t ctorlen;
+            size_t mthlen;
+            const char* mthstr;
+            const char* ctorstr;
+            LitClass* klass;
+            LitString* name;
+            ctorlen = lit_string_getlength(state->strings.strconstructor);
+            ctorstr = lit_string_getdata(state->strings.strconstructor);
+            klass = lit_value_asclass(state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)]);
+            name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
+            mthlen = name->strbuf.length;
+            mthstr = name->strbuf.data;
+            if((klass->mthconstructor == NULL || (klass->super != NULL && klass->mthconstructor == ((LitClass*)klass->super)->mthconstructor)) && mthlen == ctorlen && memcmp(mthstr, ctorstr, ctorlen) == 0)
             {
                 klass->mthconstructor = lit_value_asobject(lit_vmmac_getrc(state, LIT_INST_GETC(state->vmstate.instruction)));
             }
@@ -16557,25 +18094,31 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_FIELDGET)
         {
+            uint8_t ra;
+            LitValue value;
             LitResult tmpres;
-            LitValue object = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            LitValue object;
+            LitString* name;
+            LitField* field;
+            LitClass* klass;
+            LitInstance* instance;
+            object = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
             if(lit_value_isnull(object))
             {
-                lit_vmmac_fail(state, "attempt to index a null value");
+                lit_vmmac_fail(state, "attempt to get '%s' of a null value", lit_string_getdata(name));
             }
-            LitValue value;
-            LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
+            ra = LIT_INST_GETA(state->vmstate.instruction);
             if(lit_value_isinstance(object))
             {
-                LitInstance* instance = lit_value_asinstance(object);
+                instance = lit_value_asinstance(object);
                 if(!lit_table_getentry(&instance->fields, name, &value))
                 {
                     if(lit_table_getentry(&instance->klass->mthtable, name, &value))
                     {
                         if(lit_value_isfield(value))
                         {
-                            LitField* field = lit_value_asfield(value);
+                            field = lit_value_asfield(value);
                             if(field->getter == NULL)
                             {
                                 lit_vmmac_fail(state, "class %s does not have a getter for the field %s", instance->klass->name->strbuf.data, name->strbuf.data);
@@ -16601,7 +18144,7 @@ dispatch:
             }
             else if(lit_value_isclass(object))
             {
-                LitClass* klass = lit_value_asclass(object);
+                klass = lit_value_asclass(object);
                 if(lit_table_getentry(&klass->staticstable, name, &value))
                 {
                     if(lit_value_isfuncmethod(value))
@@ -16610,7 +18153,7 @@ dispatch:
                     }
                     else if(lit_value_isfield(value))
                     {
-                        LitField* field = lit_value_asfield(value);
+                        field = lit_value_asfield(value);
                         if(field->getter == NULL)
                         {
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
@@ -16631,7 +18174,7 @@ dispatch:
             }
             else
             {
-                LitClass* klass = lit_state_getclassfor(state, object);
+                klass = lit_state_getclassfor(state, object);
                 if(klass == NULL)
                 {
                     lit_vmmac_fail(state, "only instances and classes have fields");
@@ -16640,7 +18183,7 @@ dispatch:
                 {
                     if(lit_value_isfield(value))
                     {
-                        LitField* field = lit_value_asfield(value);
+                        field = lit_value_asfield(value);
                         if(field->getter == NULL)
                         {
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", klass->name->strbuf.data, name->strbuf.data);
@@ -16668,10 +18211,13 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_CLASSGETSUPERMETHOD)
         {
-            LitValue instance = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
-            LitClass* klass = lit_value_asclass(instance);
-            LitString* mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
             LitValue value;
+            LitValue instance;
+            LitClass* klass;
+            LitString* mthname;
+            instance = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            klass = lit_value_asclass(instance);
+            mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
             if(lit_table_getentry(&klass->mthtable, mthname, &value) || lit_table_getentry(&klass->staticstable, mthname, &value))
             {
                 value = lit_value_fromobject(lit_object_makeboundmethod(state, state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)], value));
@@ -16686,21 +18232,28 @@ dispatch:
         CASE_CODE(LIT_OPCODE_FIELDSET)
         {
             LitResult tmpres;
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            LitValue instance = state->vmstate.vmregisteritems[ra];
+            LitValue value;
+            LitValue instance;
+            LitValue setter;
+            LitClass* klass;
+            LitField* field;
+            LitInstance* inst;
+            uint8_t ra;
+            LitString* fieldname;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            instance = state->vmstate.vmregisteritems[ra];
             if(lit_value_isnull(instance))
             {
                 lit_vmmac_fail(state, "attempt to index a null value");
             }
-            LitValue value = state->vmstate.vmregisteritems[LIT_INST_GETC(state->vmstate.instruction)];
-            LitString* fieldname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
+            value = state->vmstate.vmregisteritems[LIT_INST_GETC(state->vmstate.instruction)];
+            fieldname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
             if(lit_value_isclass(instance))
             {
-                LitClass* klass = lit_value_asclass(instance);
-                LitValue setter;
+                klass = lit_value_asclass(instance);
                 if(lit_table_getentry(&klass->staticstable, fieldname, &setter) && lit_value_isfield(setter))
                 {
-                    LitField* field = lit_value_asfield(setter);
+                    field = lit_value_asfield(setter);
                     if(field->setter == NULL)
                     {
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
@@ -16724,11 +18277,10 @@ dispatch:
             }
             else if(lit_value_isinstance(instance))
             {
-                LitInstance* inst = lit_value_asinstance(instance);
-                LitValue setter;
+                inst = lit_value_asinstance(instance);
                 if(lit_table_getentry(&inst->klass->mthtable, fieldname, &setter) && lit_value_isfield(setter))
                 {
-                    LitField* field = lit_value_asfield(setter);
+                    field = lit_value_asfield(setter);
                     if(field->setter == NULL)
                     {
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", inst->klass->name->strbuf.data, fieldname->strbuf.data);
@@ -16752,15 +18304,14 @@ dispatch:
             }
             else
             {
-                LitClass* klass = lit_state_getclassfor(state, instance);
+                klass = lit_state_getclassfor(state, instance);
                 if(klass == NULL)
                 {
                     lit_vmmac_fail(state, "only instances and classes have fields");
                 }
-                LitValue setter;
                 if(lit_table_getentry(&klass->mthtable, fieldname, &setter) && lit_value_isfield(setter))
                 {
-                    LitField* field = lit_value_asfield(setter);
+                    field = lit_value_asfield(setter);
                     if(field->setter == NULL)
                     {
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", klass->name->strbuf.data, fieldname->strbuf.data);
@@ -16783,15 +18334,20 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_IS)
         {
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            LitValue instance = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
+            uint8_t ra;
+            bool found;
+            LitValue instance;
+            LitClass* instanceklass;
+            LitValue klass;
+            LitClass* type;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            instance = lit_vmmac_getrc(state, LIT_INST_GETB(state->vmstate.instruction));
             if(lit_value_isnull(instance))
             {
                 state->vmstate.vmregisteritems[ra] = lit_value_makebool(false);
                 lit_vmmac_dispatchnext();
             }
-            LitClass* instanceklass = lit_state_getclassfor(state, instance);
-            LitValue klass;
+            instanceklass = lit_state_getclassfor(state, instance);
             if(!lit_table_getentry(globals, lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]), &klass))
             {
                 state->vmstate.vmregisteritems[ra] = lit_value_makebool(false);
@@ -16801,8 +18357,8 @@ dispatch:
             {
                 lit_vmmac_fail(state, "operands must be an instance and a class");
             }
-            LitClass* type = lit_value_asclass(klass);
-            bool found = false;
+            type = lit_value_asclass(klass);
+            found = false;
             while(instanceklass != NULL)
             {
                 if(instanceklass == type)
@@ -16817,22 +18373,27 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_INVOKE)
         {
+            uint8_t ra;
+            int argc;
+            LitValue method;
+            LitValue instance;
             LitResult tmpres;
+            LitClass* klass;
+            LitString* mthname;
             lit_vmmac_writeframe(state);
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            LitValue instance = state->vmstate.vmregisteritems[ra];
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            instance = state->vmstate.vmregisteritems[ra];
             if(lit_value_isnull(instance))
             {
                 lit_vmmac_fail(state, "attempt to index a null value");
             }
-            LitClass* klass = lit_value_isclass(instance) ? lit_value_asclass(instance) : lit_state_getclassfor(state, instance);
+            klass = lit_value_isclass(instance) ? lit_value_asclass(instance) : lit_state_getclassfor(state, instance);
             if(klass == NULL)
             {
                 lit_vmmac_fail(state, "only instances and classes have methods");
             }
-            LitString* mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
-            int argc = LIT_INST_GETB(state->vmstate.instruction) - 1;
-            LitValue method;
+            mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
+            argc = LIT_INST_GETB(state->vmstate.instruction) - 1;
             if(lit_value_isinstance(instance) && (lit_table_getentry(&lit_value_asinstance(instance)->fields, mthname, &method)))
             {
                 if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
@@ -16864,22 +18425,27 @@ dispatch:
         CASE_CODE(LIT_OPCODE_INVOKESUPER)
         {
             size_t i;
+            int argc;
+            uint8_t ra;
+            LitValue method;
+            LitValue instance;
             LitResult tmpres;
+            LitClass* klass;
+            LitString* mthname;
             lit_vmmac_writeframe(state);
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            LitValue instance = state->vmstate.vmregisteritems[ra + 1];
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            instance = state->vmstate.vmregisteritems[ra + 1];
             if(lit_value_isnull(instance))
             {
                 lit_vmmac_fail(state, "attempt to index a null value");
             }
-            LitClass* klass = lit_value_asclass(instance);
+            klass = lit_value_asclass(instance);
             if(klass == NULL)
             {
                 lit_vmmac_fail(state, "only instances and classes have methods");
             }
-            LitString* mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
-            int argc = LIT_INST_GETB(state->vmstate.instruction) - 1;
-            LitValue method;
+            mthname = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
+            argc = LIT_INST_GETB(state->vmstate.instruction) - 1;
             if(lit_table_getentry(&klass->mthtable, mthname, &method) || lit_table_getentry(&klass->staticstable, mthname, &method))
             {
                 for(i = ra + 1; i <= ra + (size_t)argc; i++)
@@ -16900,13 +18466,18 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_SUBSCRIPTGET)
         {
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            uint16_t rb = LIT_INST_GETB(state->vmstate.instruction);
-            LitValue instance = state->vmstate.vmregisteritems[ra];
-            LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
+            uint8_t ra;
+            uint16_t rb;
+            LitValue instance;
+            LitValue tmpb;
+            LitResult invres;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rb = LIT_INST_GETB(state->vmstate.instruction);
+            instance = state->vmstate.vmregisteritems[ra];
+            tmpb = state->vmstate.vmregisteritems[ra + 1];
             state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rb);
             {
-                LitResult invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, instance, "[]", 1);
+                invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, instance, "[]", 1);
                 if(invres.type != LIT_STATUS_OK)
                 {
                     if(invres.type == LIT_STATUS_INVALID)
@@ -16921,16 +18492,23 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_SUBSCRIPTSET)
         {
-            uint8_t ra = LIT_INST_GETA(state->vmstate.instruction);
-            uint16_t rb = LIT_INST_GETB(state->vmstate.instruction);
-            uint16_t rc = LIT_INST_GETC(state->vmstate.instruction);
-            LitValue instance = state->vmstate.vmregisteritems[ra];
-            LitValue tmpb = state->vmstate.vmregisteritems[ra + 1];
-            LitValue tmpc = state->vmstate.vmregisteritems[ra + 2];
+            uint8_t ra;
+            uint16_t rb;
+            uint16_t rc;
+            LitValue instance;
+            LitValue tmpb;
+            LitValue tmpc;
+            LitResult invres;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            rb = LIT_INST_GETB(state->vmstate.instruction);
+            rc = LIT_INST_GETC(state->vmstate.instruction);
+            instance = state->vmstate.vmregisteritems[ra];
+            tmpb = state->vmstate.vmregisteritems[ra + 1];
+            tmpc = state->vmstate.vmregisteritems[ra + 2];
             state->vmstate.vmregisteritems[ra + 1] = lit_vmmac_getrc(state, rb);
             state->vmstate.vmregisteritems[ra + 2] = lit_vmmac_getrc(state, rc);
             {
-                LitResult invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, instance, "[]", 2);
+                invres = lit_vmmac_invokeoperatormethoddefault(state, &fiber, ra, instance, "[]", 2);
                 if(invres.type != LIT_STATUS_OK)
                 {
                     if(invres.type == LIT_STATUS_INVALID)
@@ -16957,12 +18535,15 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_OBJECTPUSH)
         {
-            LitValue operand = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
-            LitString* key = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
-            LitValue value = state->vmstate.vmregisteritems[LIT_INST_GETC(state->vmstate.instruction)];
+            LitValue value;
+            LitValue operand;
+            LitString* key;
+            operand = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
+            key = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETB(state->vmstate.instruction)]);
+            value = state->vmstate.vmregisteritems[LIT_INST_GETC(state->vmstate.instruction)];
             if(lit_value_ismap(operand))
             {
-                lit_table_set(&lit_value_asmap(operand)->innertable, key, value);
+                lit_map_set(lit_value_asmap(operand), key, value);
             }
             else if(lit_value_isinstance(operand))
             {
@@ -16976,8 +18557,9 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_REFGLOBAL)
         {
-            LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETBX(state->vmstate.instruction)]);
+            LitString* name;
             LitValue* value;
+            name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETBX(state->vmstate.instruction)]);
             if(lit_table_getslot(&state->vmstate.globals->innertable, name, &value))
             {
                 state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)] = lit_value_fromobject(lit_object_makereference(state, value));
@@ -17012,18 +18594,20 @@ dispatch:
             uint64_t rbx;
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rbx = LIT_INST_GETBX(state->vmstate.instruction);
-            state->vmstate.vmregisteritems[ra] = lit_value_fromobject(lit_object_makereference(state, state->vmstate.upvalues[rbx]->location));
+            state->vmstate.vmregisteritems[ra] = lit_value_fromobject(lit_object_makereference(state, state->vmstate.vmupvalueitems[rbx]->location));
             lit_vmmac_dispatchnext();
         }
         CASE_CODE(LIT_OPCODE_REFFIELD)
         {
-            LitValue object = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            LitValue object;
+            LitValue* value;
+            LitString* name;
+            object = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
             if(lit_value_isnull(object))
             {
                 lit_vmmac_fail(state, "attempt to index a null value");
             }
-            LitValue* value;
-            LitString* name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
+            name = lit_value_asstring(state->vmstate.vmconstantvalues[LIT_INST_GETC(state->vmstate.instruction)]);
             if(lit_value_isinstance(object))
             {
                 if(!lit_table_getslot(&lit_value_asinstance(object)->fields, name, &value))
@@ -17040,12 +18624,58 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_REFSET)
         {
-            LitValue reference = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
+            LitValue reference;
+            reference = state->vmstate.vmregisteritems[LIT_INST_GETA(state->vmstate.instruction)];
             if(!lit_value_isreference(reference))
             {
                 lit_vmmac_fail(state, "provided value is not a reference");
             }
             *lit_value_asreference(reference)->slot = state->vmstate.vmregisteritems[LIT_INST_GETB(state->vmstate.instruction)];
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_PUSH_TRY)
+        {
+            uint64_t rbx;
+            LitHandler* handler;
+            rbx = LIT_INST_GETBX(state->vmstate.instruction);
+            if(fiber->handlercount >= fiber->handlercapacity)
+            {
+                fiber->handlercapacity = LIT_GROW_CAPACITY(fiber->handlercapacity);
+                fiber->handleritems = (LitHandler*)lit_sysmem_realloc(fiber->handleritems, fiber->handlercapacity * sizeof(LitHandler));
+            }
+            handler = &fiber->handleritems[fiber->handlercount++];
+            handler->handlerip = state->vmstate.ip + (int)rbx;
+            handler->registercount = (uint32_t)(state->vmstate.vmregisteritems - fiber->registeritems);
+            handler->framecount = fiber->framecount;
+            handler->errorreg = LIT_INST_GETA(state->vmstate.instruction);
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_POP_TRY)
+        {
+            if(fiber->handlercount > 0)
+            {
+                fiber->handlercount--;
+            }
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_THROW)
+        {
+            uint64_t ra;
+            ra = LIT_INST_GETA(state->vmstate.instruction);
+            if(!lit_vm_handleerror(state, lit_value_tostring(state, state->vmstate.vmregisteritems[ra], 0)))
+            {
+                return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
+            }
+            lit_vmmac_readframe(state, &fiber);
+            lit_vmmac_dispatchnext();
+        }
+        CASE_CODE(LIT_OPCODE_RETHROW)
+        {
+            if(!lit_vm_handleerror(state, lit_value_asstring(fiber->error)))
+            {
+                return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
+            }
+            lit_vmmac_readframe(state, &fiber);
             lit_vmmac_dispatchnext();
         }
 #if !defined(LIT_CONF_USECOMPUTEDGOTO) || (LIT_CONF_USECOMPUTEDGOTO == 0)
@@ -17059,16 +18689,21 @@ dispatch:
     }
 }
 
-void lit_state_nativeexitjump()
+int lit_jmpstate_setnativeexit()
+{
+    return setjmp(g_vmglobaljumpbuf);
+}
+
+void lit_jmpstate_nativeexitjump()
 {
     longjmp(g_vmglobaljumpbuf, 1);
 }
 
-static LitState* g_replstate;
+static LitState* greplstate;
 
 void lit_cli_interupthandler(int signalid)
 {
-    lit_state_destroy(g_replstate);
+    lit_state_destroy(greplstate);
     fprintf(stderr, "\nExiting (signalid=%d).\n", signalid);
     exit(0);
 }
@@ -17096,7 +18731,7 @@ void lit_cli_runrepl(LitState* state, linocontext_t* lictx)
     LitValue value;
     LitIOStream* pr;
     pr = state->streamstdout;
-    g_replstate = state;
+    greplstate = state;
     signal(SIGINT, lit_cli_interupthandler);
 #ifndef _WIN32
     signal(SIGTSTP, lit_cli_interupthandler);
@@ -17124,18 +18759,6 @@ void lit_cli_runrepl(LitState* state, linocontext_t* lictx)
     }
 }
 
-static int lit_util_findfirstpos(const char* str, size_t len, int ch)
-{
-    size_t i;
-    for(i=0; i<len; i++)
-    {
-        if(str[i] == ch)
-        {
-            return i;
-        }
-    }
-    return -1;
-}
 
 static void lit_cli_parseenv(LitState* state, char** envp)
 {
@@ -17149,6 +18772,7 @@ static void lit_cli_parseenv(LitState* state, char** envp)
     LitString* oskey;
     LitString* osval;
     LitMap* envmap;
+
     envmap = lit_object_makemap(state, NULL);
     if(envp == NULL)
     {
@@ -17383,15 +19007,19 @@ int main(int argc, char* argv[], char** envp)
         for(i = 0; i < (int)scriptargc; i++)
         {
             arg = scriptargv[i];
+            lit_array_push(argarray, lit_value_fromobject(lit_string_copy(state, arg)));
 
         }
     }
     if(source != NULL)
     {
-        const char* modname = "<-e>";
+        const char* modname;
+        LitModule* module;
+
+        modname = "<-e>";
         if(dumpbccode)
         {
-            LitModule* module = lit_state_compilemodulesource(state, lit_string_copy(state, modname), source);
+            module = lit_state_compilemodulesource(state, lit_string_copy(state, modname), source);
             if(module == NULL)
             {
                 goto endmain;

@@ -1,9 +1,5 @@
-try
-{
-    var r = eval("5 / null")
-    println("r = ", r)
-}
-catch(e)
-{
-    println("caught: ", e)
-}
+
+var hexstr = '0123456789abcdef'
+var hexchr = hexstr.split('');
+
+println("hexstr(", hexstr, ") = ", hexchr)
