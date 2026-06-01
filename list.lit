@@ -21,9 +21,9 @@ class LinkedList
     // adds an element at the end of list
     add(element)
     {
-        let node = new Node(element);
+        var node = new Node(element);
         // to store current node
-        let current;
+        var current;
         // if list is Empty add the element and make it head
         if (this.head == null)
         {
@@ -52,9 +52,9 @@ class LinkedList
         }
         else
         {
-            let node = new Node(element);
-            let curr;
-            let prev;
+            var node = new Node(element);
+            var curr;
+            var prev;
             curr = this.head;
             // add the element to the first index
             if (index == 0)
@@ -65,7 +65,7 @@ class LinkedList
             else
             {
                 curr = this.head;
-                let it = 0;
+                var it = 0;
                 // iterate over the list to find
                 // the position to insert
                 while (it < index)
@@ -97,9 +97,9 @@ class LinkedList
         }
         else
         {
-            let curr = 0
-            let prev = 0
-            let it = 0;
+            var curr = 0
+            var prev = 0
+            var it = 0;
             curr = this.head;
             prev = curr;
             // deleting first element
@@ -130,8 +130,8 @@ class LinkedList
     // list
     removeElement(element)
     {
-        let current = this.head;
-        let prev = null;
+        var current = this.head;
+        var prev = null;
         // iterate over the list
         while (current != null)
         {
@@ -160,8 +160,8 @@ class LinkedList
     // finds the index of element
     indexOf(element)
     {
-        let count = 0;
-        let current = this.head;
+        var count = 0;
+        var current = this.head;
         // iterate over the list
         while (current != null)
         {
@@ -193,8 +193,8 @@ class LinkedList
     // prints the list items
     printList()
     {
-        let curr = this.head;
-        let str = "";
+        var curr = this.head;
+        var str = "";
         print("");
         while (curr)
         {
@@ -206,7 +206,7 @@ class LinkedList
     }
 }
 
-let ll = new LinkedList();
+var ll = new LinkedList();
 // should be true
 println(ll.isEmpty());
 ll.add(10);

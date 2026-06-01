@@ -1,5 +1,4 @@
 
-var hexstr = '0123456789abcdef'
-var hexchr = hexstr.split('');
-
-println("hexstr(", hexstr, ") = ", hexchr)
+    var name = "james"
+    println(`hello ${name}!
+    `)

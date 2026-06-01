@@ -20,7 +20,7 @@ try
     println(i)
     try
     {
-        println({}[10])
+        println(Math / null)
     }
     catch(e)
     {
@@ -58,7 +58,7 @@ finally
 
 try
 {
-    println([]["10"])
+    println([] / null)
 }
 catch(e)
 {

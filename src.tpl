@@ -20,7 +20,7 @@ var username = "Nobody";
                 </tr>
             </thead>
             <tbody>
-            <% for(var key in ENV) { var val = ENV[key] %>
+            <% var icnt = 0; for(var key in ENV) { var val = ENV[key] %>
                 <tr>
                     <td>
                         <%= key %>
@@ -31,7 +31,7 @@ var username = "Nobody";
                         </em>
                     </td>
                 </tr>
-            <%}%>
+            <% icnt++; if(icnt == 5){ break; } }%>
             </tbody>
         </ul>
     </body>

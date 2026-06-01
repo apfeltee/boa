@@ -35,10 +35,14 @@
     #define _GNU_SOURCE
 #endif
 
-#if defined(__GNUC__) || defined(__TINYC__)
-    #define MEMPOOL_INLINE __attribute__((always_inline)) inline
+#if defined(__STRICT_ANSI__)
+    #define MEMPOOL_INLINE static
 #else
-    #define MEMPOOL_INLINE inline
+    #if defined(__GNUC__) || defined(__TINYC__)
+        #define MEMPOOL_INLINE static __attribute__((always_inline)) inline
+    #else
+        #define MEMPOOL_INLINE static inline
+    #endif
 #endif
 
 #if defined(__cplusplus)
@@ -51,9 +55,9 @@
 
 
 /* Select native OS if no target OS defined. */
-#if defined(__linux__) || defined(__CYGWIN__)
+#if defined(__linux__)
     #define MEMPOOL_TARGET_LINUX
-#elif defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
+#elif defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER) || defined(__CYGWIN__)
     #define MEMPOOL_TARGET_WINDOWS
 #elif defined(__MACH__) && defined(__APPLE__)
     #define MEMPOOL_TARGET_OSX
@@ -110,14 +114,14 @@
 #define MEMPOOL_CONST_MAXSIZET (~0)
 #define MEMPOOL_CONST_MALLOCALIGNMENT (8)
 
-//#define MEMPOOL_CONST_DEFAULTGRANULARITY (128 * 1024)
+/* #define MEMPOOL_CONST_DEFAULTGRANULARITY (128 * 1024) */
 #define MEMPOOL_CONST_DEFAULTGRANULARITY (32 * 1024)
 
 
-//#define MEMPOOL_CONST_DEFAULTTRIMTHRESHOLD (2 * (1024 * 1024))
+/* #define MEMPOOL_CONST_DEFAULTTRIMTHRESHOLD (2 * (1024 * 1024)) */
 #define MEMPOOL_CONST_DEFAULTTRIMTHRESHOLD (1 * (1024 * 1024))
 
-//#define MEMPOOL_CONST_DEFAULTMMAPTHRESHOLD (128 * 1024)
+/* #define MEMPOOL_CONST_DEFAULTMMAPTHRESHOLD (128 * 1024) */
 #define MEMPOOL_CONST_DEFAULTMMAPTHRESHOLD (32 * 1024)
 
 #define MEMPOOL_CONST_MAXRELEASECHECKRATE (255)
@@ -274,7 +278,7 @@ MEMPOOL_CPP_ENDEXTERN()
                 #include <sys/resource.h>
             #endif
         #else
-            #error "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
+            #warning "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
         #endif
     #endif
     #define mempool_util_initmmap() ((void)0)
@@ -317,36 +321,36 @@ MEMPOOL_CPP_ENDEXTERN()
 
 
 /* the number of bytes to offset an address to align it */
-static MEMPOOL_INLINE size_t mempool_util_alignoffset(void* a)
+MEMPOOL_INLINE size_t mempool_util_alignoffset(void* a)
 {
     return ((((size_t)(a) & MEMPOOL_CHUNK_ALIGNMASK) == 0) ? 0 :((MEMPOOL_CONST_MALLOCALIGNMENT - ((size_t)(a) & MEMPOOL_CHUNK_ALIGNMASK)) & MEMPOOL_CHUNK_ALIGNMASK));
 }
 
 /* conversion from malloc headers to user pointers, and back */
-static MEMPOOL_INLINE void* mempool_util_chunk2mem(void* p)
+MEMPOOL_INLINE void* mempool_util_chunk2mem(void* p)
 {
     return ((void*)((char*)(p) + MEMPOOL_CONST_TWOSIZETSIZES));
 }
 
-static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_mem2chunk(void* mem)
+MEMPOOL_INLINE MempoolPlainChunk* mempool_util_mem2chunk(void* mem)
 {
     return ((MempoolPlainChunk*)((char*)(mem) - MEMPOOL_CONST_TWOSIZETSIZES));
 }
     
 /* chunk associated with aligned address a */
-static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_alignaschunk(char* a)
+MEMPOOL_INLINE MempoolPlainChunk* mempool_util_alignaschunk(char* a)
 {
     return (MempoolPlainChunk*)((a) + mempool_util_alignoffset(mempool_util_chunk2mem(a)));
 }
 
 /* pad request bytes into a usable size */
-static MEMPOOL_INLINE size_t mempool_util_padrequest(size_t req)
+MEMPOOL_INLINE size_t mempool_util_padrequest(size_t req)
 {
     return (((req) + MEMPOOL_CHUNK_OVERHEAD + MEMPOOL_CHUNK_ALIGNMASK) & ~MEMPOOL_CHUNK_ALIGNMASK);
 }
 
 /* pad request, checking for minimum (but not maximum) */
-static MEMPOOL_INLINE size_t mempool_util_request2size(size_t req)
+MEMPOOL_INLINE size_t mempool_util_request2size(size_t req)
 {
     return (((req) < MEMPOOL_REQUESTS_MIN) ? MEMPOOL_MINCHUNKSIZE : mempool_util_padrequest(req));
 }
@@ -384,38 +388,38 @@ static MEMPOOL_INLINE size_t mempool_util_request2size(size_t req)
 
 
 /* Ptr to next or previous physical MempoolPlainChunk. */
-static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_nextchunk(MempoolPlainChunk* p)
+MEMPOOL_INLINE MempoolPlainChunk* mempool_util_nextchunk(MempoolPlainChunk* p)
 {
     return ((MempoolPlainChunk*)(((char*)(p)) + ((p)->head & ~MEMPOOL_INUSE_BITS)));
 }
 
 /* Get/set size at footer */
-static MEMPOOL_INLINE void mempool_util_setfoot(MempoolPlainChunk* p, size_t s)
+MEMPOOL_INLINE void mempool_util_setfoot(MempoolPlainChunk* p, size_t s)
 {
     (((MempoolPlainChunk*)((char*)(p) + (s)))->prev_foot = (s));
 }
 
 /* Set size, pinuse bit, and foot */
-static MEMPOOL_INLINE void mempool_util_setsizeand_pinuseoffreechunk(MempoolPlainChunk* p, size_t s)
+MEMPOOL_INLINE void mempool_util_setsizeand_pinuseoffreechunk(MempoolPlainChunk* p, size_t s)
 {
     (p)->head = (s | MEMPOOL_PINUSE_BIT);
     mempool_util_setfoot(p, s);
 }
 
 /* Set size, pinuse bit, foot, and clear next pinuse */
-static MEMPOOL_INLINE void mempool_util_setfreewithpinuse(MempoolPlainChunk* p, size_t s, MempoolPlainChunk* n)
+MEMPOOL_INLINE void mempool_util_setfreewithpinuse(MempoolPlainChunk* p, size_t s, MempoolPlainChunk* n)
 {
     mempool_util_clearpinuse(n);
     mempool_util_setsizeand_pinuseoffreechunk(p, s);
 }
 
-static MEMPOOL_INLINE bool mempool_util_isdirect(MempoolPlainChunk* p)
+MEMPOOL_INLINE bool mempool_util_isdirect(MempoolPlainChunk* p)
 {
     return (!((p)->head & MEMPOOL_PINUSE_BIT) && ((p)->prev_foot & MEMPOOL_ISDIRECTBIT));
 }
 
 /* Get the internal overhead associated with chunk p */
-static MEMPOOL_INLINE size_t mempool_util_overheadfor(MempoolPlainChunk* p)
+MEMPOOL_INLINE size_t mempool_util_overheadfor(MempoolPlainChunk* p)
 {
     return (mempool_util_isdirect(p) ? MEMPOOL_DIRECT_CHUNK_OVERHEAD : MEMPOOL_CHUNK_OVERHEAD);
 }
@@ -423,12 +427,12 @@ static MEMPOOL_INLINE size_t mempool_util_overheadfor(MempoolPlainChunk* p)
 /* ---------------------- Overlaid data structures ----------------------- */
 
 /* A little helper macro for trees */
-static MEMPOOL_INLINE MempoolTreeChunk* mempool_util_leftmostchild(MempoolTreeChunk* t)
+MEMPOOL_INLINE MempoolTreeChunk* mempool_util_leftmostchild(MempoolTreeChunk* t)
 {
     return ((t)->child[0] != 0 ? (t)->child[0] : (t)->child[1]);
 }
 
-static MEMPOOL_INLINE bool mempool_util_isstateinitialized(MempoolState* mst)
+MEMPOOL_INLINE bool mempool_util_isstateinitialized(MempoolState* mst)
 {
     return ((mst)->top != 0);
 }
@@ -436,24 +440,24 @@ static MEMPOOL_INLINE bool mempool_util_isstateinitialized(MempoolState* mst)
 /* -------------------------- system alloc setup ------------------------- */
 
 /* page-align a size */
-static MEMPOOL_INLINE size_t mempool_util_pagealign(size_t sz)
+MEMPOOL_INLINE size_t mempool_util_pagealign(size_t sz)
 {
     return (((sz) + (MEMPOOL_PAGESIZE - MEMPOOL_CONST_SIZETONE)) & ~(MEMPOOL_PAGESIZE - MEMPOOL_CONST_SIZETONE));
 }
 
 /* granularity-align a size */
-static MEMPOOL_INLINE size_t mempool_util_granularityalign(size_t sz)
+MEMPOOL_INLINE size_t mempool_util_granularityalign(size_t sz)
 {
     return (((sz) + (MEMPOOL_CONST_DEFAULTGRANULARITY - MEMPOOL_CONST_SIZETONE)) & ~(MEMPOOL_CONST_DEFAULTGRANULARITY - MEMPOOL_CONST_SIZETONE));
 }
 
 /*  True if segment segm holds address a */
-static MEMPOOL_INLINE bool mempool_util_segmentholds(MempoolSegment* segm, void* a)
+MEMPOOL_INLINE bool mempool_util_segmentholds(MempoolSegment* segm, void* a)
 {
     return ((char*)(a) >= segm->base && (char*)(a) < segm->base + segm->size);
 }
 
-static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
+MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
 {
     #if defined(MEMPOOL_TARGET_WINDOWS)
         return mempool_util_granularityalign(sz);
@@ -468,13 +472,13 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
         typedef long (*PNTAVM)(HANDLE handle, void** addr, ULONG zbits, size_t* size, ULONG alloctype, ULONG prot);
         static PNTAVM ntavm;
 
-        static MEMPOOL_INLINE void mempool_util_initmmap()
+        MEMPOOL_INLINE void mempool_util_initmmap()
         {
             ntavm = (PNTAVM)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtAllocateVirtualMemory");
         }
 
         /* Win64 32 bit MMAP via NtAllocateVirtualMemory. */
-        static MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+        MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
         {
             long st;
             DWORD olderr;
@@ -487,7 +491,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
         }
 
         /* For direct MMAP, use MEM_TOP_DOWN to minimize interference */
-        static MEMPOOL_INLINE void* mempool_util_calldirectmmap(size_t size)
+        MEMPOOL_INLINE void* mempool_util_calldirectmmap(size_t size)
         {
             long st;
             DWORD olderr;
@@ -500,7 +504,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
         }
     #else
         /* Win32 MMAP via VirtualAlloc */
-        static MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+        MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
         {
             void* ptr;
             DWORD olderr;
@@ -511,7 +515,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
         }
 
         /* For direct MMAP, use MEM_TOP_DOWN to minimize interference */
-        static MEMPOOL_INLINE void* mempool_util_calldirectmmap(size_t size)
+        MEMPOOL_INLINE void* mempool_util_calldirectmmap(size_t size)
         {
             void* ptr;
             DWORD olderr;
@@ -523,7 +527,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
     #endif
 
     /* This function supports releasing coalesed segments */
-    static MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
+    MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
     {
         char* cptr;
         DWORD olderr;
@@ -555,7 +559,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
     /* 64 bit mode needs special support for allocating memory in the lower 2GB. */
         #if defined(MAP_32BIT)
             /* Actually this only gives us max. 1GB in current Linux kernels. */
-            static MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+            MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
             {
                 int olderr;
                 void* ptr;
@@ -565,7 +569,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
                 return ptr;
             }
         #elif defined(MEMPOOL_TARGET_OSX) || defined(MEMPOOL_TARGET_PS4)
-            static MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+            MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
             {
                 int olderr;
                 int retry;
@@ -612,11 +616,11 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
                 return MEMPOOL_ON_CMFAIL;
             }
         #else
-            #error "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
+            #warning "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
         #endif
     #else
         /* 32 bit mode is easy. */
-        static MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+        MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
         {
             int olderr;
             void* ptr;
@@ -626,7 +630,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
             return ptr;
         }
     #endif
-    static MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
+    MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
     {
         int ret;
         int olderr;
@@ -638,7 +642,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
 
     #if defined(MEMPOOL_TARGET_LINUX)
         /* Need to define _GNU_SOURCE to get the mremap prototype. */
-        static MEMPOOL_INLINE void* mempool_util_callmremapactual(void* ptr, size_t osz, size_t nsz, int flags)
+        MEMPOOL_INLINE void* mempool_util_callmremapactual(void* ptr, size_t osz, size_t nsz, int flags)
         {
             int olderr;
             olderr = errno;
@@ -649,7 +653,7 @@ static MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
     #endif
 #endif
 
-static MEMPOOL_INLINE int mempool_util_nativebitscanreverse(uint64_t x)
+MEMPOOL_INLINE int mempool_util_nativebitscanreverse(uint64_t x)
 {
     static const char bsr_debruijntable[64] = {
         0,  47, 1,  56, 48, 27, 2,  60, 57, 49, 41, 37, 28, 16, 3,  61,
@@ -666,7 +670,7 @@ static MEMPOOL_INLINE int mempool_util_nativebitscanreverse(uint64_t x)
     return bsr_debruijntable[(x * 0x03f79d71b4cb0a89) >> 58];
 }
 
-static MEMPOOL_INLINE int mempool_util_nativebitscanforward(uint64_t x)
+MEMPOOL_INLINE int mempool_util_nativebitscanforward(uint64_t x)
 {
     uint32_t l, r;
     x &= -x;
@@ -681,7 +685,7 @@ static MEMPOOL_INLINE int mempool_util_nativebitscanforward(uint64_t x)
 }
 
 /* Return segment holding given address */
-static MEMPOOL_INLINE MempoolSegment* mempool_util_segmentholding(MempoolState* m, char* addr)
+MEMPOOL_INLINE MempoolSegment* mempool_util_segmentholding(MempoolState* m, char* addr)
 {
     MempoolSegment* sp;
     sp = &m->seg;
@@ -699,7 +703,7 @@ static MEMPOOL_INLINE MempoolSegment* mempool_util_segmentholding(MempoolState* 
 }
 
 /* Return true if segment contains a segment link */
-static MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSegment* ss)
+MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSegment* ss)
 {
     MempoolSegment* sp = &m->seg;
     for(;;)
@@ -716,41 +720,41 @@ static MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSe
   that may be needed to place segment records and fenceposts when new
   noncontiguous segments are added.
 */
-static MEMPOOL_INLINE size_t mempool_util_topfootsize()
+MEMPOOL_INLINE size_t mempool_util_topfootsize()
 {
     return (mempool_util_alignoffset(mempool_util_chunk2mem(0)) + mempool_util_padrequest(sizeof(MempoolSegment)) + MEMPOOL_MINCHUNKSIZE);
 }
 
 /* ---------------------------- Indexing Bins ---------------------------- */
 
-static MEMPOOL_INLINE bool mempool_util_issmall(size_t s)
+MEMPOOL_INLINE bool mempool_util_issmall(size_t s)
 {
     return (((s) >> MEMPOOL_CONST_SMALLBINSHIFT) < MEMPOOL_CONST_NSMALLBINS);
 }
 
-static MEMPOOL_INLINE MempoolBindex mempool_util_smallindex(MempoolBindex s)
+MEMPOOL_INLINE MempoolBindex mempool_util_smallindex(MempoolBindex s)
 {
     return ((s) >> MEMPOOL_CONST_SMALLBINSHIFT);
 }
 
-static MEMPOOL_INLINE size_t mempool_util_smallindex2size(MempoolBindex i)
+MEMPOOL_INLINE size_t mempool_util_smallindex2size(MempoolBindex i)
 {
     return ((i) << MEMPOOL_CONST_SMALLBINSHIFT);
 }
 
 /* addressing by index. See above about smallbin repositioning */
-static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_smallbinat(MempoolState* mst, size_t i)
+MEMPOOL_INLINE MempoolPlainChunk* mempool_util_smallbinat(MempoolState* mst, size_t i)
 {
     return ((MempoolPlainChunk*)((char*)&((mst)->smallbins[(i) << 1])));
 }
 
-static MEMPOOL_INLINE MempoolTreeChunk** mempool_util_treebinat(MempoolState* mst, size_t i)
+MEMPOOL_INLINE MempoolTreeChunk** mempool_util_treebinat(MempoolState* mst, size_t i)
 {
     return (&((mst)->treebins[i]));
 }
 
 /* assign tree index for size sz to variable desti */
-static MEMPOOL_INLINE void mempool_util_computetreeindex(size_t sz, size_t* desti)
+MEMPOOL_INLINE void mempool_util_computetreeindex(size_t sz, size_t* desti)
 {
     unsigned int x;
     x = (unsigned int)(sz >> MEMPOOL_CONST_TREEBINSHIFT);
@@ -770,7 +774,7 @@ static MEMPOOL_INLINE void mempool_util_computetreeindex(size_t sz, size_t* dest
 }
 
 /* Shift placing maximum resolved bit in a treebin at i as sign bit */
-static MEMPOOL_INLINE size_t mempool_util_leftshiftfortreeindex(size_t i)
+MEMPOOL_INLINE size_t mempool_util_leftshiftfortreeindex(size_t i)
 {
     if(i == MEMPOOL_CONST_NTREEBINS - 1)
     {
@@ -783,50 +787,50 @@ static MEMPOOL_INLINE size_t mempool_util_leftshiftfortreeindex(size_t i)
 /* ------------------------ Operations on bin maps ----------------------- */
 
 /* bit corresponding to given index */
-static MEMPOOL_INLINE MempoolBinMap mempool_util_idx2bit(size_t i)
+MEMPOOL_INLINE MempoolBinMap mempool_util_idx2bit(size_t i)
 {
     return ((MempoolBinMap)(1) << (i));
 }
 
 /* Mark/Clear bits with given index */
-static MEMPOOL_INLINE void mempool_util_marksmallmap(MempoolState* mst, size_t i)
+MEMPOOL_INLINE void mempool_util_marksmallmap(MempoolState* mst, size_t i)
 {
     (mst)->smallmap |= mempool_util_idx2bit(i);
 }
 
-static MEMPOOL_INLINE void mempool_util_clearsmallmap(MempoolState* mst, size_t i)
+MEMPOOL_INLINE void mempool_util_clearsmallmap(MempoolState* mst, size_t i)
 {
     (mst)->smallmap &= ~mempool_util_idx2bit(i);
 }
 
-static MEMPOOL_INLINE bool mempool_util_smallmapismarked(MempoolState* mst, size_t i)
+MEMPOOL_INLINE bool mempool_util_smallmapismarked(MempoolState* mst, size_t i)
 {
     return ((mst)->smallmap & mempool_util_idx2bit(i));
 }
 
-static MEMPOOL_INLINE void mempool_util_marktreemap(MempoolState* mst, size_t i)
+MEMPOOL_INLINE void mempool_util_marktreemap(MempoolState* mst, size_t i)
 {
     (mst)->treemap |= mempool_util_idx2bit(i);
 }
 
-static MEMPOOL_INLINE void mempool_util_cleartreemap(MempoolState* mst, size_t i)
+MEMPOOL_INLINE void mempool_util_cleartreemap(MempoolState* mst, size_t i)
 {
     (mst)->treemap &= ~mempool_util_idx2bit(i);
 }
 
-static MEMPOOL_INLINE bool mempool_util_treemapismarked(MempoolState* mst, size_t i)
+MEMPOOL_INLINE bool mempool_util_treemapismarked(MempoolState* mst, size_t i)
 {
     return ((mst)->treemap & mempool_util_idx2bit(i));
 }
 
 /* mask with all bits to left of least bit of x on */
-static MEMPOOL_INLINE MempoolBinMap mempool_util_leftbits(MempoolBinMap x)
+MEMPOOL_INLINE MempoolBinMap mempool_util_leftbits(MempoolBinMap x)
 {
     return ((x << 1) | (~(x << 1) + 1));
 }
 
 /* Set cinuse bit and pinuse bit of next chunk */
-static MEMPOOL_INLINE void mempool_util_setinuse(MempoolState* mst, MempoolPlainChunk* p, size_t s)
+MEMPOOL_INLINE void mempool_util_setinuse(MempoolState* mst, MempoolPlainChunk* p, size_t s)
 {
     (void)mst;
     (p)->head = (((p)->head & MEMPOOL_PINUSE_BIT) | s | MEMPOOL_CINUSE_BIT);
@@ -836,7 +840,7 @@ static MEMPOOL_INLINE void mempool_util_setinuse(MempoolState* mst, MempoolPlain
 /* ----------------------- Operations on smallbins ----------------------- */
 
 /* Link a free chunk into a smallbin  */
-static MEMPOOL_INLINE void mempool_util_insertsmallchunk(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
+MEMPOOL_INLINE void mempool_util_insertsmallchunk(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
 {
     MempoolBindex i = mempool_util_smallindex(sz);
     MempoolPlainChunk* b = mempool_util_smallbinat(mst, i);
@@ -856,7 +860,7 @@ static MEMPOOL_INLINE void mempool_util_insertsmallchunk(MempoolState* mst, Memp
 }
 
 /* Unlink a chunk from a smallbin  */
-static MEMPOOL_INLINE void mempool_util_unlinksmallchunk(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
+MEMPOOL_INLINE void mempool_util_unlinksmallchunk(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
 {
     MempoolPlainChunk* f = p->fd;
     MempoolPlainChunk* b = p->bk;
@@ -873,7 +877,7 @@ static MEMPOOL_INLINE void mempool_util_unlinksmallchunk(MempoolState* mst, Memp
 }
 
 /* Unlink the first chunk from a smallbin */
-static MEMPOOL_INLINE void mempool_util_unlinkfirstsmallchunk(MempoolState* mst, MempoolPlainChunk* b, MempoolPlainChunk* p, size_t i)
+MEMPOOL_INLINE void mempool_util_unlinkfirstsmallchunk(MempoolState* mst, MempoolPlainChunk* b, MempoolPlainChunk* p, size_t i)
 {
     MempoolPlainChunk* f = p->fd;
     if(b == f)
@@ -889,7 +893,7 @@ static MEMPOOL_INLINE void mempool_util_unlinkfirstsmallchunk(MempoolState* mst,
 
 /* Replace dv node, binning the old one */
 /* Used only when dvsize known to be small */
-static MEMPOOL_INLINE void mempool_util_replacedv(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
+MEMPOOL_INLINE void mempool_util_replacedv(MempoolState* mst, MempoolPlainChunk* p, size_t sz)
 {
     size_t DVS = mst->dvsize;
     if(DVS != 0)
@@ -905,7 +909,7 @@ static MEMPOOL_INLINE void mempool_util_replacedv(MempoolState* mst, MempoolPlai
 /* ------------------------- Operations on trees ------------------------- */
 
 /* Insert chunk into tree */
-static MEMPOOL_INLINE void mempool_util_insertlargechunk(MempoolState* mst, MempoolTreeChunk* tchunk, size_t psz)
+MEMPOOL_INLINE void mempool_util_insertlargechunk(MempoolState* mst, MempoolTreeChunk* tchunk, size_t psz)
 {
     MempoolTreeChunk** hp;
     MempoolBindex i;
@@ -955,7 +959,7 @@ static MEMPOOL_INLINE void mempool_util_insertlargechunk(MempoolState* mst, Memp
     }
 }
 
-static MEMPOOL_INLINE void mempool_util_unlinklargechunk(MempoolState* mst, MempoolTreeChunk* tchunk)
+MEMPOOL_INLINE void mempool_util_unlinklargechunk(MempoolState* mst, MempoolTreeChunk* tchunk)
 {
     MempoolTreeChunk* xp = tchunk->parent;
     MempoolTreeChunk* r;
@@ -1015,7 +1019,7 @@ static MEMPOOL_INLINE void mempool_util_unlinklargechunk(MempoolState* mst, Memp
 
 /* Relays to large vs small bin operations */
 
-static MEMPOOL_INLINE void mempool_util_insertchunk(MempoolState* mst, MempoolPlainChunk* p, size_t psz)
+MEMPOOL_INLINE void mempool_util_insertchunk(MempoolState* mst, MempoolPlainChunk* p, size_t psz)
 {
     if(mempool_util_issmall(psz))
     {
@@ -1028,7 +1032,7 @@ static MEMPOOL_INLINE void mempool_util_insertchunk(MempoolState* mst, MempoolPl
     }
 }
 
-static MEMPOOL_INLINE void mempool_util_unlinkchunk(MempoolState* mst, MempoolPlainChunk* p, size_t psz)
+MEMPOOL_INLINE void mempool_util_unlinkchunk(MempoolState* mst, MempoolPlainChunk* p, size_t psz)
 {
     if(mempool_util_issmall(psz))
     {
@@ -1043,7 +1047,7 @@ static MEMPOOL_INLINE void mempool_util_unlinkchunk(MempoolState* mst, MempoolPl
 
 /* -----------------------  Direct-mmapping chunks ----------------------- */
 
-static MEMPOOL_INLINE void* mempool_util_directalloc(size_t nb)
+MEMPOOL_INLINE void* mempool_util_directalloc(size_t nb)
 {
     size_t mmsize = mempool_util_mmapalign(nb + MEMPOOL_CONST_SIXSIZETSIZES + MEMPOOL_CHUNK_ALIGNMASK);
     if(MEMPOOL_LIKELY(mmsize > nb))
@@ -1064,7 +1068,7 @@ static MEMPOOL_INLINE void* mempool_util_directalloc(size_t nb)
     return NULL;
 }
 
-static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_directresize(MempoolPlainChunk* oldp, size_t nb)
+MEMPOOL_INLINE MempoolPlainChunk* mempool_util_directresize(MempoolPlainChunk* oldp, size_t nb)
 {
     size_t oldsize = mempool_util_chunksize(oldp);
     if(mempool_util_issmall(nb)) /* Can't shrink direct regions below small size */
@@ -1097,7 +1101,7 @@ static MEMPOOL_INLINE MempoolPlainChunk* mempool_util_directresize(MempoolPlainC
 /* -------------------------- mspace management -------------------------- */
 
 /* Initialize top chunk and its size */
-static MEMPOOL_INLINE void mempool_util_inittop(MempoolState* m, MempoolPlainChunk* p, size_t psize)
+MEMPOOL_INLINE void mempool_util_inittop(MempoolState* m, MempoolPlainChunk* p, size_t psize)
 {
     /* Ensure alignment */
     size_t offset = mempool_util_alignoffset(mempool_util_chunk2mem(p));
@@ -1113,7 +1117,7 @@ static MEMPOOL_INLINE void mempool_util_inittop(MempoolState* m, MempoolPlainChu
 }
 
 /* Initialize bins for a new state that is otherwise zeroed out */
-static MEMPOOL_INLINE void mempool_util_initbins(MempoolState* m)
+MEMPOOL_INLINE void mempool_util_initbins(MempoolState* m)
 {
     /* Establish circular links for smallbins */
     MempoolBindex i;
@@ -1125,7 +1129,7 @@ static MEMPOOL_INLINE void mempool_util_initbins(MempoolState* m)
 }
 
 /* Allocate chunk and prepend remainder with chunk in successor base. */
-static MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* newbase, char* oldbase, size_t nb)
+MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* newbase, char* oldbase, size_t nb)
 {
     MempoolPlainChunk* p = mempool_util_alignaschunk(newbase);
     MempoolPlainChunk* oldfirst = mempool_util_alignaschunk(oldbase);
@@ -1164,7 +1168,7 @@ static MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* new
 }
 
 /* Add a segment to hold a new noncontiguous region */
-static MEMPOOL_INLINE void mempool_util_addsegment(MempoolState* m, char* tbase, size_t tsize)
+MEMPOOL_INLINE void mempool_util_addsegment(MempoolState* m, char* tbase, size_t tsize)
 {
     /* Determine locations and sizes of segment, fenceposts, old top */
     char* old_top = (char*)m->top;
@@ -1214,7 +1218,7 @@ static MEMPOOL_INLINE void mempool_util_addsegment(MempoolState* m, char* tbase,
 
 /* -------------------------- System allocation -------------------------- */
 
-static MEMPOOL_INLINE void* mempool_util_allocsys(MempoolState* m, size_t nb)
+MEMPOOL_INLINE void* mempool_util_allocsys(MempoolState* m, size_t nb)
 {
     char* tbase = MEMPOOL_ON_CMFAIL;
     size_t tsize = 0;
@@ -1287,7 +1291,7 @@ static MEMPOOL_INLINE void* mempool_util_allocsys(MempoolState* m, size_t nb)
 /* -----------------------  system deallocation -------------------------- */
 
 /* Unmap and unlink any mmapped segments that don't contain used chunks */
-static MEMPOOL_INLINE size_t mempool_util_releaseunusedsegments(MempoolState* m)
+MEMPOOL_INLINE size_t mempool_util_releaseunusedsegments(MempoolState* m)
 {
     size_t released = 0;
     size_t nsegs = 0;
@@ -1338,7 +1342,7 @@ static MEMPOOL_INLINE size_t mempool_util_releaseunusedsegments(MempoolState* m)
     return released;
 }
 
-static MEMPOOL_INLINE int mempool_util_alloctrim(MempoolState* m, size_t pad)
+MEMPOOL_INLINE int mempool_util_alloctrim(MempoolState* m, size_t pad)
 {
     size_t released = 0;
     if(pad < MEMPOOL_REQUESTS_MAX && mempool_util_isstateinitialized(m))
@@ -1383,7 +1387,7 @@ static MEMPOOL_INLINE int mempool_util_alloctrim(MempoolState* m, size_t pad)
 /* ---------------------------- malloc support --------------------------- */
 
 /* allocate a large request from the best fitting chunk in a treebin */
-static MEMPOOL_INLINE void* mempool_util_tmalloclarge(MempoolState* m, size_t nb)
+MEMPOOL_INLINE void* mempool_util_tmalloclarge(MempoolState* m, size_t nb)
 {
     MempoolTreeChunk* v = 0;
     size_t rsize = ~nb + 1; /* Unsigned negation */
@@ -1458,7 +1462,7 @@ static MEMPOOL_INLINE void* mempool_util_tmalloclarge(MempoolState* m, size_t nb
 }
 
 /* allocate a small request from the best fitting chunk in a treebin */
-static MEMPOOL_INLINE void* mempool_util_tmallocsmall(MempoolState* m, size_t nb)
+MEMPOOL_INLINE void* mempool_util_tmallocsmall(MempoolState* m, size_t nb)
 {
     MempoolTreeChunk* t;
     MempoolTreeChunk* v;

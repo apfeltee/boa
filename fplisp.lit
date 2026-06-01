@@ -1,0 +1,417 @@
+
+//
+// fpLISP.js: fpLISP in JavaScript
+//
+// (C) 2021 TAKIZAWA Yozo
+// This code is licensed under CC0.
+// https://creativecommons.org/publicdomain/zero/1.0/
+//
+
+
+// Basic functions for conscell operations:
+// cons, car, cdr, eq, atom
+function cons(x, y) {
+    return [x, y];
+}
+
+function car(s) {
+    return s[0];
+}
+
+function cdr(s) {
+    return s[1];
+}
+
+function eq(s1, s2) {
+    if ((s1 == false && s2 == null) || (s1 == null && s2 == false)) {
+        return true;
+    } else if ((s1 == false && s2 == "nil") || (s1 == "nil" && s2 == false)) {
+        return true;
+    } else if ((s1 == null && s2 == "nil") || (s1 == "nil" && s2 == null)) {
+        return true;
+    }
+    return s1 == s2;
+}
+
+function atom(s) {
+    return (
+        (typeof(s) == "string") ||
+        (typeof(s) == "number") ||
+        eq(s, null) ||
+        eq(s, true) ||
+        eq(s, false)
+    );
+}
+
+function fplex_issingledigit(b) {
+    return ((b >= 48) && (b <= 57));
+}
+
+function fplex_isnumber(buf) {
+    var i;
+    for (i = 0; i < buf.length; i++) {
+        var b = buf.charCodeAt(i);
+        if (!fplex_issingledigit(b)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function fp_tokenize(src) {
+    var tokens = [];
+    var chars = src.split("");
+    var buffer = "";
+    // Writes characters in the buffer as a token, takes the positions, and clears the buffer
+    var flushbuffer = function() {
+        if (buffer.length > 0) {
+            if (fplex_isnumber(buffer)) {
+                tokens.push(Number(buffer));
+            } else {
+                tokens.push(buffer);
+            }
+        }
+        buffer = "";
+    };
+    for (var i = 0; i < chars.length; i++) {
+        var ch = chars[i];
+        var nextch = chars[i + 1];
+        if (ch == "\n") {
+            continue;
+        }
+        // Support the ability to escape symbols
+        if (ch == "\\") {
+            buffer += (ch + nextch);
+            // skip lexing the next character altogether
+            i += 1;
+            continue;
+        }
+        // Tokenize grouping symbols
+        if (ch == "(" || ch == ")" || ch == "\"") {
+            flushbuffer();
+            buffer += ch;
+            flushbuffer();
+            continue;
+        }
+        // Build up tokens
+        //if(ch.match(/\S/))
+        //if((ch != " ") || (ch != "\t") || (ch != "\n") || (ch != "\r"))
+        if ((ch != " ") && (ch != "\t") && (ch != "\n") && (ch != "\r")) {
+            buffer += ch;
+        } else {
+            flushbuffer();
+            // account for whitespace
+        }
+    }
+    // Tokenize anything remaining in the buffer
+    flushbuffer();
+    return tokens;
+}
+
+var quote = function(x, qs)
+{
+    if (qs.length != 0 && qs.slice(-1)[0] == "'") {
+        qs.pop();
+        return cons("quote", cons(x, null));
+    } else {
+        return x
+    }
+};
+
+function fp_syn(s)
+{
+    var t = s.pop();
+    if (t == ")")
+    {
+        var r = null;
+        while (s.slice(-1)[0] != "(")
+        {
+            if (s.slice(-1)[0] == ".")
+            {
+                s.pop();
+                r = cons(fp_syn(s), car(r));
+            }
+            else
+            {
+                r = cons(fp_syn(s), r);
+            }
+        }
+        s.pop();
+        return quote(r, s);
+    }
+    return quote(t, s);
+}
+
+function fp_read(s) {
+    return fp_syn(fp_tokenize(s));
+}
+
+// S-expression output: fp_string
+
+function fp_strcons(s) {
+    var sa_r = fp_string(car(s));
+    var sd = cdr(s);
+    if (fp_null(sd)) {
+        return sa_r;
+    } else if (atom(sd)) {
+        return sa_r + " . " + sd;
+    }
+    return sa_r + " " + fp_strcons(sd);
+}
+
+function fp_string(s) {
+    if (eq(s, null)) {
+        return "nil";
+    } else if (eq(s, true)) {
+        return "t";
+    } else if (eq(s, false)) {
+        return "nil";
+    } else if (atom(s)) {
+        return s;
+    }
+    return "(" + fp_strcons(s) + ")";
+}
+
+// The evaluator: fp_eval and utility functions
+
+function caar(x) {
+    return car(car(x));
+}
+
+function cadr(x) {
+    return car(cdr(x));
+}
+
+function cdar(x) {
+    return cdr(car(x));
+}
+
+function cadar(x) {
+    return car(cdr(car(x)));
+}
+
+function caddr(x) {
+    return car(cdr(cdr(x)));
+}
+
+function cadddr(x) {
+    return car(cdr(cdr(cdr(x))));
+}
+
+function fp_null(x) {
+    return eq(x, null);
+}
+
+function fp_append(x, y) {
+    if (fp_null(x)) {
+        return y;
+    }
+    return cons(car(x), fp_append(cdr(x), y));
+}
+
+function fp_pair(x, y) {
+    if (fp_null(x) || fp_null(y)) {
+        return null;
+    } else if (!atom(x) && !atom(y)) {
+        return cons(cons(car(x), car(y)), fp_pair(cdr(x), cdr(y)));
+    }
+    return null;
+}
+
+function fp_assq(x, y) {
+    if (fp_null(y)) {
+        return null;
+    } else if (eq(caar(y), x)) {
+        return cdar(y);
+    }
+    return fp_assq(x, cdr(y));
+}
+
+function debugargs(name, a, b) {
+    printf("%s: a=(%s) %q | b=(%s) %q", name, typeof(a), a, typeof(b), b);
+}
+
+function do_plus(v) {
+    var a = car(v);
+    var b = cadr(v);
+    //debugargs("do_plus", a, b);
+    return a + b;
+    //return String(Number(a) + Number(b));
+}
+
+function do_minus(v) {
+    var a = car(v);
+    var b = cadr(v);
+    //debugargs("do_minus", a, b);
+    return a - b;
+}
+
+function do_mult(v) {
+    var a = car(v);
+    var b = cadr(v);
+    //debugargs("do_mult", a, b);
+    return a * b;
+    //return String(Number(a) * Number(b));
+}
+
+function do_div(v) {
+    var a = car(v);
+    var b = cadr(v);
+    //debugargs("do_div", a, b);
+    return a / b;
+    //return String(Number(a) / Number(b));
+}
+
+function do_mod(v) {
+    var a = car(v);
+    var b = cadr(v);
+    //debugargs("do_mod", a, b);
+    return a % b;
+    //return String(Number(a) % Number(b));
+}
+
+function do_lessthan(v) {
+    var a = car(v);
+    var b = cadr(v);
+    return Number(a) < Number(b);
+}
+
+function do_atom(v) {
+    return atom(car(v));
+}
+
+function do_eq(v) {
+    var a = car(v);
+    var b = cadr(v);
+    return eq(a, b);
+}
+
+function do_cdr(v) {
+    return cdr(car(v));
+}
+
+function do_car(v) {
+    return car(car(v));
+}
+
+function do_cons(v) {
+    var a = car(v);
+    var b = cadr(v);
+    return cons(a, b);
+}
+
+var fp_builtins = {
+    "cons": do_cons,
+    "car": do_car,
+    "cdr": do_cdr,
+    "eq": do_eq,
+    "atom": do_atom,
+    "+": do_plus,
+    "-": do_minus,
+    "*": do_mult,
+    "/": do_div,
+    "%": do_mod,
+    "lt": do_lessthan,
+};
+
+function fp_apply(f, v) {
+    if (atom(f)) {
+        return fp_builtins[f](v);
+    }
+
+    var lvars = cadr(f);
+    var lbody = caddr(f);
+    var lenvs;
+    if (fp_null(cdr(cdr(cdr(f))))) {
+        lenvs = null;
+    } else {
+        lenvs = cadddr(f);
+    }
+    if (atom(lvars)) {
+        if (fp_null(lvars)) {
+            return fp_eval(lbody, lenvs);
+        } else {
+            return fp_eval(lbody, fp_append(cons(cons(lvars, v), null), lenvs));
+        }
+    }
+    return fp_eval(lbody, fp_append(fp_pair(lvars, v), lenvs));
+}
+
+function fp_lookup(t, a) {
+    if (eq(t, "t")) {
+        return true;
+    } else if (eq(t, "nil")) {
+        return false;
+    } else if (Object.keys(fp_builtins).includes(t) || (t != null)) {
+        return t;
+    }
+    return fp_assq(t, fp_append(a, envinit));
+}
+
+function fp_eargs(v, a) {
+    if (fp_null(v)) {
+        return null;
+    }
+    return cons(fp_eval(car(v), a), fp_eargs(cdr(v), a));
+}
+
+function fp_eval(e, a) {
+    if (atom(e)) {
+        return fp_lookup(e, a);
+    } else if (eq(car(e), "quote")) {
+        return cadr(e);
+    } else if (eq(car(e), "if")) {
+        if (fp_eval(cadr(e), a)) {
+            return fp_eval(caddr(e), a);
+        } else {
+            return fp_eval(cadddr(e), a);
+        }
+    } else if (eq(car(e), "lambda")) {
+        return cons(car(e), cons(cadr(e), cons(caddr(e), cons(a, null))));
+    }
+    return fp_apply(fp_eval(car(e), a), fp_eargs(cdr(e), a));
+}
+
+// REP (no Loop): fp_rep
+var ENVINIT = `(quote (
+(unfold .
+ (lambda a
+   ((lambda (f seed i)
+      (((lambda (u) (u u)) (lambda (u) (lambda (e r)
+          (if (eq e nil) r
+              ((u u) (f (car e)) (cons (cdr e) r))))))
+       (f seed) (if (eq i nil) nil (car i))))
+    (car a) (car (cdr a)) (cdr (cdr a)))))
+(fold .
+ (lambda x
+   ((lambda (f i0 a0 b0)
+      (((lambda (u) (u u)) (lambda (u) (lambda (i a b)
+          (if (eq a nil) i
+          (if (eq b nil)
+              ((u u) (f i (car a)) (cdr a) b)
+              ((u u) (f i (car a) (car b))
+                     (cdr a) (cdr b)))))))
+       i0 a0 (if (eq b0 nil) nil (car b0))))
+    (car x) (car (cdr x)) (car (cdr (cdr x)))
+    (cdr (cdr (cdr x))))))
+(unfold-stream .
+ (lambda (f seed)
+   (((lambda (u) (u u)) (lambda (u) (lambda (e)
+       (cons (car e) (lambda () ((u u) (f (cdr e))))))))
+    (f seed))))
+(take-stream .
+ (lambda (s k)
+   (((lambda (u) (u u)) (lambda (u) (lambda (s k)
+       (if (eq k 0) nil
+           (cons (car s) ((u u) ((cdr s)) (- k 1)))))))
+    s k)))
+))`;
+var envinit = fp_eval(fp_read(ENVINIT), null);
+
+function fp_rep(e) {
+    return fp_string(fp_eval(fp_read(e), fp_read("()")));
+}
+
+println(fp_rep("(+ 5 5)"));
+
+

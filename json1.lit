@@ -92,13 +92,13 @@ class JSONParser
     {
         if(literal.length > (this.m_source.length - this.m_index))
         {
-            throw Exception(`Expecting '${literal}'`);
+            throw `Expecting '${literal}'`;
         }
         for (var i = 0; i < literal.length; i++)
         {
             if(literal[i] != this.m_source[this.m_index])
             {
-                throw Exception(`Expecting '${literal}'`);
+                throw `Expecting '${literal}'`;
             }
             this.m_index++
         }
@@ -128,43 +128,43 @@ class JSONParser
         var startIndex = this.m_index;
         this.m_index++;
         var c = 0;
-        var s = "";
+        var s = [];
         while ((c = this.m_source[this.m_index]) != quote)
         {
-            if(c == "\\++"[0])
+            if(c == "\\")
             {
                 this.m_index++;
                 c = this.m_source[this.m_index];
                 if(c == "r")
                 {
-                    s += "\r";
+                    s.push("\r");
                 }
                 else if (c == "n")
                 {
-                    s += "\n";
+                    s.push("\n");
                 }
                 else if (c == "t")
                 {
-                    s += "\t";
+                    s.push("\t");
                 }
                 else if (c == "f")
                 {
-                    s += "\f";
+                    s.push("\f");
                 }
                 // Note escaped unicode not handled
                 else
                 {
-                    s += c;
+                    s.push(c);
                 }
             }
             else
             {
-                s += c;
+                s.push(c);
             }
             this.m_index++;
         }
         this.m_index++;
-        return s;
+        return s.join();
     }
 
     parseObject()
@@ -185,7 +185,7 @@ class JSONParser
             c = this.m_source[this.m_index];
             if (c != ":")
             {
-                throw Exception("Expecting ':'");
+                throw "Expecting ':'";
             }
             this.m_index++;
             this.skipWhiteSpace();
@@ -208,7 +208,7 @@ class JSONParser
         }
         if(c != "}")
         {
-            throw Exception("Expecting '}'");
+            throw "Expecting '}'";
         }
         this.m_index++;
         return o;

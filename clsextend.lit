@@ -1,0 +1,36 @@
+
+class Code
+{
+    static var T_OP = 46
+}
+
+println(Code.T_OP)
+
+String.qurk = function()
+{
+    return "QURKED("+this+")"
+}
+
+s = "foo";
+println(s.qurk())
+
+println("ok?");
+
+class Token
+{
+    constructor(type, lexeme, literal, line)
+    {
+        this.type = type
+        this.lexeme = lexeme
+        this.literal = literal
+        this.line = line
+    }
+}
+
+Token.toFork = function() {
+    return `<<${this.type} / ${this.lexeme} / ${this.literal}>>`
+}
+
+t = Token(45, "gabba", "gabba(goo)", 666)
+println(t.toFork())
+
