@@ -634,10 +634,11 @@ typedef LitValue (*LitNativeFunctionFn)(LitState*, LitValue, size_t, LitValue*);
 struct LitStrBuffer
 {
     uint8_t isintern;
-    /* capacity should be >= length+1 to allow for \0 */
+    uint8_t isshort;
     uint32_t capacity;
     uint32_t length;
     char* data;
+    char sso[16];
 };
 
 struct LitIOStream
@@ -1960,6 +1961,7 @@ size_t lit_strbufutil_inpreplace(char* target, size_t tgtlen, int findme, const 
 LitStrBuffer* lit_strbuf_makelongfromptr(LitStrBuffer* sb, size_t len)
 {
     /* fprintf(stderr, "in makelong...\n"); */
+    sb->isshort = false;
     sb->isintern = false;
     sb->length = 0;
 #if 0
@@ -1980,14 +1982,23 @@ bool lit_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool isintern, bool
 {
     memset(sb, 0, sizeof(LitStrBuffer));
     sb->isintern = isintern;
-    sb->capacity = len;
+    sb->isshort = true;
+    sb->capacity = 15;
     sb->length = 0;
-    sb->data = NULL;
+    sb->data = sb->sso;
+    sb->data[0] = '\0';
+
     if(preallocated)
     {
+        if (len > 15)
+        {
+            sb->isshort = false;
+            sb->capacity = len;
+            sb->data = NULL;
+        }
         return true;
     }
-    if(len > 0)
+    if(len > 15)
     {
         lit_strbuf_resize(sb, len);
     }
@@ -2019,7 +2030,7 @@ LitStrBuffer* lit_strbuf_makebasicempty(const char* str, size_t len)
 
 bool lit_strbuf_destroyfromstack(LitStrBuffer* sb)
 {
-    if(!sb->isintern)
+    if(!sb->isintern && !sb->isshort)
     {
         lit_sysmem_free(sb->data);
     }
@@ -2046,37 +2057,35 @@ void lit_strbuf_reset(LitStrBuffer* sb)
 /* Ensure capacity for len characters plus '\0' character - exits on FAILURE */
 bool lit_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
 {
-    bool mustcopy;
     char* ptr;
-    char* tmpbuf;
-    mustcopy = false;
-    tmpbuf = NULL;
 
     /* for nul byte */
     len++;
-    if((sb->capacity == 0) || (sb->capacity < len))
+    if(sb->capacity < len)
     {
-        sb->capacity = lit_strbufutil_rndup2pow64(len);
-        /* fprintf(stderr, "sizeptr=%ld\n", sb->capacity); */
-        if(mustcopy /*|| sb->data == NULL*/)
+        size_t new_capacity = lit_strbufutil_rndup2pow64(len);
+        if (sb->isshort)
         {
-            ptr = (char*)lit_sysmem_malloc(sb->capacity);
+            ptr = (char*)lit_sysmem_malloc(new_capacity);
+            if (ptr == NULL)
+            {
+                fprintf(stderr, "[%s:%i] out of memory: tried to allocate %ld bytes\n", __FILE__, __LINE__, (long)new_capacity);
+                return false;
+            }
+            memcpy(ptr, sb->data, sb->length + 1);
+            sb->isshort = false;
         }
         else
         {
-            ptr = (char*)lit_sysmem_realloc(sb->data, sb->capacity);
-        }
-        if(ptr == NULL)
-        {
-            fprintf(stderr, "[%s:%i] out of memory: tried to allocate %d bytes\n", __FILE__, __LINE__, sb->capacity);
-            return false;
-        }
-        if(mustcopy)
-        {
-            /* fprintf(stderr, "ensurecapacity: copying from short ((%d) <<%.*s>>)\n", (int)sb->length, (int)sb->length, tmpbuf); */
-            memcpy(ptr, tmpbuf, sb->length);
+            ptr = (char*)lit_sysmem_realloc(sb->data, new_capacity);
+            if(ptr == NULL)
+            {
+                fprintf(stderr, "[%s:%i] out of memory: tried to allocate %ld bytes\n", __FILE__, __LINE__, (long)new_capacity);
+                return false;
+            }
         }
         sb->data = ptr;
+        sb->capacity = (uint32_t)new_capacity;
     }
     return true;
 }
@@ -2099,6 +2108,7 @@ bool lit_strbuf_setlength(LitStrBuffer* sb, size_t len)
 
 bool lit_strbuf_setdata(LitStrBuffer* sb, char* str)
 {
+    sb->isshort = false;
     sb->data = str;
     return true;
 }
@@ -5345,6 +5355,10 @@ LitString* lit_string_makewithstrbuf(LitState* state, LitString* target, LitStrB
     }
     sobj->strhash = 0;
     sobj->strbuf = sb;
+    if (sobj->strbuf.isshort)
+    {
+        sobj->strbuf.data = sobj->strbuf.sso;
+    }
     return sobj;
 }
 
