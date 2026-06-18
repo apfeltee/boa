@@ -26,8 +26,8 @@
     #endif
 #endif
 
-#if !defined(NEON_CONF_OSPATHSIZE)
-    #define NEON_CONF_OSPATHSIZE 1024
+#if !defined(OSLIB_CONF_OSPATHSIZE)
+    #define OSLIB_CONF_OSPATHSIZE 1024
 #endif
 
 #ifndef S_IREAD
@@ -82,6 +82,12 @@
     #define S_IFLNK 0120000
 #endif
 
+
+#if !defined(S_IFMT)
+    #define S_IFMT  00170000
+#endif
+
+
 #if !defined (S_ISDIR)
     #define	S_ISDIR(m)	(((m)&S_IFMT) == S_IFDIR)	/* directory */
 #endif
@@ -132,34 +138,68 @@ struct LitFSStat
 
 struct FSDirReader
 {
-    void* handle;
+    #if defined(OSFN_ISWINNT)
+        HANDLE handle;
+        WIN32_FIND_DATA fdfile;
+    #elif defined(OSFN_ISUNIXLIKE)
+        DIR* handle;
+    #endif
+        
 };
 
 struct FSDirItem
 {
-    char name[NEON_CONF_OSPATHSIZE + 1];
+    char name[OSLIB_CONF_OSPATHSIZE + 1];
     bool isdir;
     bool isfile;
 };
 
-bool fslib_diropen(FSDirReader* rd, const char* path)
+static bool fslib_diropen(FSDirReader* rd, const char* path)
 {
-    #if defined(OSFN_ISLINUX)
+    #if defined(OSFN_ISUNIXLIKE)
         if((rd->handle = opendir(path)) == NULL)
         {
             return false;
         }
         return true;
+    #else
+        /*
+        * windows' directory reading api expects a glob pattern.
+        * i wish i was making this up!
+        */
+        enum { kExtra = 5 };
+        bool b;
+        size_t pslen;
+        size_t buflen;
+        char* winsillypath;
+        b = false;
+        pslen = strlen(path);
+        buflen = (pslen + kExtra);
+        winsillypath = (char*)malloc(buflen);
+        if(winsillypath == NULL)
+        {
+            return false;
+        }
+        memset(winsillypath, 0, buflen);
+        strcat(winsillypath, path);
+        strcat(winsillypath, "\\*.*");
+        fprintf(stderr, "sillypath=%s\n", winsillypath);
+        rd->handle = FindFirstFile(winsillypath, &rd->fdfile);
+        if(rd->handle != INVALID_HANDLE_VALUE)
+        {
+            b = true;
+        }
+        free(winsillypath);
+        return b;
     #endif
-    return false;
 }
 
-bool fslib_dirread(FSDirReader* rd, FSDirItem* itm)
+static bool fslib_dirread(FSDirReader* rd, FSDirItem* itm)
 {
     itm->isdir = false;
     itm->isfile = false;
-    memset(itm->name, 0, NEON_CONF_OSPATHSIZE);
-    #if defined(OSFN_ISLINUX)
+    memset(itm->name, 0, OSLIB_CONF_OSPATHSIZE);
+    #if defined(OSFN_ISUNIXLIKE)
         struct dirent* ent;
         if((ent = readdir((DIR*)(rd->handle))) == NULL)
         {
@@ -175,18 +215,33 @@ bool fslib_dirread(FSDirReader* rd, FSDirItem* itm)
         }
         strcpy(itm->name, ent->d_name);
         return true;
+    #else
+        if(FindNextFile(rd->handle, &rd->fdfile))
+        {
+            if((rd->fdfile.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            {
+                itm->isdir = true;
+            }
+            else
+            {
+                itm->isfile = true;
+            }
+            strcpy(itm->name, rd->fdfile.cFileName);
+            return true;            
+        }
     #endif
     return false;
 }
 
-bool fslib_dirclose(FSDirReader* rd)
+static bool fslib_dirclose(FSDirReader* rd)
 {
-    #if defined(OSFN_ISLINUX)
-        closedir((DIR*)(rd->handle));
+    #if defined(OSFN_ISUNIXLIKE)
+        closedir(rd->handle);
+    #else
+        FindClose(rd->handle);
     #endif
     return false;
 }
-
 
 static const char* lit_util_filestatinternmodetoname(int t)
 {

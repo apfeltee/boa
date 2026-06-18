@@ -81,6 +81,9 @@ endif
 CFLAGS += $(INCFLAGS) $(OPTFLAGS) -g3 -ggdb3
 #CFLAGS += -DNEON_INLINE="__attribute__((hot, optimize(5)))"
 
+#CFLAGS += -ansi -pedantic
+
+
 CC = gcc $(WFLAGS) $(EXTRAFLAGS)
 #CC = clang -gdwarf-4 -ferror-limit=1000 $(WFLAGS) $(EXTRAFLAGS)
 	
