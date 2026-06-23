@@ -4,3 +4,11 @@ println(a) // Expected: 32
 println(a / 2) // Expected: 16
 println(a += 2) // Expected: 34
 println(a) // Expected: 34
+
+var $var = "dollar prefix"
+var var$with$dollar = "contains dollar"
+var $$ = "only dollars"
+
+println($var) // Expected: dollar prefix
+println(var$with$dollar) // Expected: contains dollar
+println($$) // Expected: only dollars

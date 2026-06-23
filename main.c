@@ -3069,7 +3069,7 @@ bool lit_util_charisdigit(char c)
 
 bool lit_util_charisalpha(char c)
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$';
 }
 
 /* http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2Float */
