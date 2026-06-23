@@ -39,7 +39,6 @@
     #endif
 #endif
 
-
 #if defined(__GNUC__) || defined(__clang__)
     #define LIT_LIKELY(x) (__builtin_expect(!!(x), 1))
     #define LIT_UNLIKELY(x) (__builtin_expect(!!(x), 0))
@@ -50,13 +49,103 @@
 
 #include "allocator.h"
 #include "optparse.h"
-#include "oslib.h"
 #include "lino.h"
 
 #if defined(__unix__) || defined(__linux__)
-    #define LIT_PLATFORM_UNIXLIKE
-#elif (defined(WIN32) || defined(_WIN32) || defined(__WIN32)) && !defined(__CYGWIN__)
-    #define LIT_PLATFORM_WINDOWS
+    #define LIT_OSPLATFORM_ISUNIXLIKE 1
+#endif
+
+#if defined(__unix__) || defined(__linux__)
+    #define LIT_OSPLATFORM_ISLINUX 1
+#else
+    #if (defined(WIN32) || defined(_WIN32) || defined(__WIN32)) && !defined(__CYGWIN__)
+        #define LIT_OSPLATFORM_ISWINNT 1
+    #endif
+#endif
+
+#if defined(LIT_OSPLATFORM_ISLINUX)
+    #include <unistd.h>
+    #include <dirent.h>
+    #include <libgen.h>
+    #include <sys/time.h>
+#else
+    #if defined(LIT_OSPLATFORM_ISWINNT)
+        #include <windows.h>
+    #endif
+#endif
+
+#if !defined(OSLIB_CONF_OSPATHSIZE)
+    #define OSLIB_CONF_OSPATHSIZE 1024
+#endif
+
+#ifndef S_IREAD
+    #define S_IREAD     0400
+#endif /* S_IREAD */
+#ifndef S_IWRITE
+    #define S_IWRITE    0200
+#endif /* S_IWRITE */
+#ifndef S_IEXEC
+    #define S_IEXEC     0100
+#endif /* S_IEXEC */
+#if !defined(S_IRUSR)
+    #define S_IRUSR (S_IREAD)
+#endif
+#if !defined(S_IWUSR)
+    #define S_IWUSR (S_IWRITE)
+#endif
+#if !defined(S_IXUSR)
+    #define S_IXUSR (S_IEXEC)
+#endif
+#if !defined(S_IRGRP)
+    #define S_IRGRP (S_IRUSR >> 3)
+#endif
+#if !defined(S_IWGRP)
+    #define S_IWGRP (S_IWUSR >> 3)
+#endif
+#if !defined(S_IXGRP)
+    #define S_IXGRP (S_IXUSR >> 3)
+#endif
+#if !defined(S_IROTH)
+    #define S_IROTH (S_IRUSR >> 6)
+#endif
+#if !defined(S_IWOTH)
+    #define S_IWOTH (S_IWUSR >> 6)
+#endif
+#if !defined(S_IXOTH)
+    #define S_IXOTH (S_IXUSR >> 6)
+#endif
+#if !defined(S_IRWXU)
+    #define S_IRWXU (S_IRUSR|S_IWUSR|S_IXUSR)
+#endif
+#if !defined(S_IRWXG)
+    #define S_IRWXG (S_IRGRP|S_IWGRP|S_IXGRP)
+#endif
+#if !defined(S_IRWXO)
+    #define S_IRWXO (S_IROTH|S_IWOTH|S_IXOTH)
+#endif
+#if !defined(S_IFLNK)
+    #define S_IFLNK 0120000
+#endif
+#if !defined(S_IFMT)
+    #define S_IFMT  00170000
+#endif
+#if !defined (S_ISDIR)
+    #define	S_ISDIR(m)	(((m)&S_IFMT) == S_IFDIR)	/* directory */
+#endif
+#if !defined (S_ISREG)
+    #define	S_ISREG(m)	(((m)&S_IFMT) == S_IFREG)	/* file */
+#endif
+#if !defined(S_ISLNK)
+    #define S_ISLNK(m)    (((m) & S_IFMT) == S_IFLNK)
+#endif
+#if !defined(DT_DIR)
+    #define DT_DIR 4
+#endif
+#if !defined(DT_REG)
+    #define DT_REG 8
+#endif
+#if !defined(PATH_MAX)
+    #define PATH_MAX 1024
 #endif
 
 #if !defined(va_copy)
@@ -82,6 +171,8 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
     #define LIT_CONST_M_PI 3.14
 #endif
 
+#define LIT_CONFIG_MAXSHORTSTRLENGTH (16)
+
 #define LIT_CONFIG_DEBUGTRACECHUNK 0
 #define LIT_CONFIG_DEBUGLOGGC 0
 #define LIT_CONFIG_DEBUGLOGALLOCATION 0
@@ -90,28 +181,22 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 
 /* make sure that we did not break anything */
 #define LIT_CONFIG_DEBUGSTRESSTESTGC 0
-
 #define LIT_CONFIG_TPLSTRINGNMAXNESTING 4
-
 #define LIT_CONFIG_GCHEAPGROWFACTOR (2)
 #define LIT_CONFIG_INITIALCALLFRAMES (1024)
-
 #define LIT_CONFIG_UINT8COUNT (UINT8_MAX + 1)
 #define LIT_CONFIG_UINT16COUNT (UINT16_MAX + 1)
-
 /* do not change these, or old bytecode files will break! */
 #define LIT_CONFIG_BCVERSION 0
 #define LIT_CONFIG_BCMAGICNUMBER (6932)
 #define LIT_CONFIG_BCENDNUMBER (2942)
 #define LIT_CONFIG_BCSTRINGKEY (48)
-
 /* top load of a table before reallocation kicks in */
 #define LIT_CONFIG_TABLEMAXLOAD 0.75
 #define LIT_CONFIG_LONGESTOPNAME 13
 
 /* can't be over 255 */
 #define LIT_CONFIG_REGISTERSMAX 255
-
 #define LIT_CONFIG_OPCODESIZE (0x3f)
 #define LIT_CONFIG_ARGSIZEA (0xff)
 #define LIT_CONFIG_ARGSIZEB (0x1ff)
@@ -120,7 +205,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_CONFIG_ARGSIZEBX (0x3ffff)
 /* 17 bits max */
 #define LIT_CONFIG_ARGSIZESBX (0x1ffff)
-
 #define LIT_CONFIG_ARGPOSA (6)
 #define LIT_CONFIG_ARGPOSB (14)
 #define LIT_CONFIG_ARGPOSC (23)
@@ -258,7 +342,6 @@ enum LitFuncType
     LIT_FUNCTYPE_CONSTRUCTOR
 };
 
-
 enum LitStatusCode
 {
     LIT_STATUS_OK,
@@ -281,7 +364,6 @@ enum LitAstTokType
     LIT_ASTTOKTYP_COMMA,
     LIT_ASTTOKTYP_SEMICOLON,
     LIT_ASTTOKTYP_COLON,
-
     /* one or two character tokens */
     LIT_ASTTOKTYP_BAREQUAL,
     LIT_ASTTOKTYP_BAR,
@@ -325,13 +407,11 @@ enum LitAstTokType
     LIT_ASTTOKTYP_DOTDOTDOT,
     LIT_ASTTOKTYP_SHARP,
     LIT_ASTTOKTYP_SHARPEQUAL,
-
     /* literals */
     LIT_ASTTOKTYP_IDENTIFIER,
     LIT_ASTTOKTYP_STRING,
     LIT_ASTTOKTYP_STRTEMPLATE,
     LIT_ASTTOKTYP_NUMBER,
-
     /* keywords */
     LIT_ASTTOKTYP_KWEXTENDS,
     LIT_ASTTOKTYP_KWCLASS,
@@ -357,12 +437,10 @@ enum LitAstTokType
     LIT_ASTTOKTYP_KWIN,
     LIT_ASTTOKTYP_KWCONST,
     LIT_ASTTOKTYP_KWREF,
-
     LIT_ASTTOKTYP_KWTRY,
     LIT_ASTTOKTYP_KWCATCH,
     LIT_ASTTOKTYP_KWFINALLY,
     LIT_ASTTOKTYP_KWTHROW,
-
     LIT_ASTTOKTYP_ERROR,
     LIT_ASTTOKTYP_EOF
 };
@@ -519,7 +597,6 @@ typedef enum LitValType LitValType;
 typedef enum LitAstExprType LitAstExprType;
 typedef enum LitInstrucType LitInstrucType;
 typedef enum LitOpCode LitOpCode;
-
 typedef struct /**/ LitAstLexer LitAstLexer;
 typedef struct /**/ LitState LitState;
 typedef struct /**/ LitAstParser LitAstParser;
@@ -620,16 +697,52 @@ typedef struct ListDynListPtr ListDynListPtr;
 typedef struct LitAstPrinter LitAstPrinter;
 typedef struct LitConstStrings LitConstStrings;
 typedef struct LitConfig LitConfig;
-
-
+typedef struct LitFSStat LitFSStat;
+typedef struct LitFSDirReader LitFSDirReader;
+typedef struct LitFSDirItem LitFSDirItem;
 typedef void (*LitErrorFn)(LitState* state, const char* message);
 typedef LitAstExpression* (*LitParsePrefixFn)(LitAstParser*, bool);
 typedef LitAstExpression* (*LitParseInfixFn)(LitAstParser*, LitAstExpression*, bool);
 typedef void (*LitCleanupFn)(LitState*, LitUserdata*, bool);
 typedef LitValue (*LitOnMapSetFn)(LitState*, LitMap*, LitString*, LitValue*);
 typedef LitValue (*LitOnMapGetFn)(LitState*, LitMap*, LitString*, LitValue*);
-
 typedef LitValue (*LitNativeFunctionFn)(LitState*, LitValue, size_t, LitValue*);
+
+struct LitFSStat
+{
+    struct stat rawstbuf;
+    int mode;
+    int inode;
+    int numlinks;
+    int owneruid;
+    int ownergid;
+    const char* modename;
+    bool isfile;
+    size_t blocksize;
+    size_t blockcount;
+    size_t filesize;
+    const time_t* tmlastchanged;
+    const time_t* tmlastaccessed;
+    const time_t* tmlastmodified;
+};
+
+struct LitFSDirReader
+{
+    #if defined(LIT_OSPLATFORM_ISWINNT)
+        HANDLE handle;
+        WIN32_FIND_DATA fdfile;
+    #elif defined(LIT_OSPLATFORM_ISUNIXLIKE)
+        DIR* handle;
+    #endif
+        
+};
+
+struct LitFSDirItem
+{
+    char name[OSLIB_CONF_OSPATHSIZE + 1];
+    bool isdir;
+    bool isfile;
+};
 
 struct LitStrBuffer
 {
@@ -638,7 +751,7 @@ struct LitStrBuffer
     uint32_t capacity;
     uint32_t length;
     char* data;
-    char sso[16];
+    char sso[LIT_CONFIG_MAXSHORTSTRLENGTH+1];
 };
 
 struct LitIOStream
@@ -664,7 +777,7 @@ struct LitIOStream
 
 struct LitAstPrinter
 {
-    int indent;
+    size_t indentlevel;
     LitIOStream* printer;
 };
 
@@ -873,7 +986,7 @@ struct LitFiber
     LitUpvalue* openupvalues;
     LitModule* module;
     LitValue error;
-    bool abort;
+    bool muststop;
     bool catcher;
     bool caught;
     LitHandler* handleritems;
@@ -1076,16 +1189,11 @@ struct LitAstToken
     LitValue tokvalue;
 };
 
-/*
- * Expressions
- */
-
 struct LitAstPrivate
 {
     bool initialized;
     bool constant;
 };
-
 
 struct LitAstLocal
 {
@@ -1096,7 +1204,6 @@ struct LitAstLocal
     bool constant;
     uint32_t reg;
 };
-
 
 struct LitAstUpvalue
 {
@@ -1249,8 +1356,6 @@ struct LitAstFuncParamExpr
     uint32_t reg;
     LitAstExpression* defaultval;
 };
-
-
 
 struct LitAstLiteralArrayExpr
 {
@@ -1443,7 +1548,6 @@ struct LitFileData
     #define LIT_ATTRIB(...)
 #endif
 
-
 LIT_INLINE size_t lit_string_getlength(LitString* string);
 LIT_INLINE void lit_string_setlength(LitString* string, size_t ns);
 LIT_INLINE char* lit_string_getdata(LitString* string);
@@ -1451,6 +1555,95 @@ LIT_INLINE char lit_string_at(LitString* string, size_t pos);
 bool lit_vm_raisefatalerror(LitState *state, const char *format, ...) LIT_ATTRIB((format(printf, 2, 3)));
 
 jmp_buf g_vmglobaljumpbuf;
+
+static bool fslib_diropen(LitFSDirReader* rd, const char* path)
+{
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
+        if((rd->handle = opendir(path)) == NULL)
+        {
+            return false;
+        }
+        return true;
+    #else
+        /*
+        * windows' directory reading api expects a glob pattern.
+        * i wish i was making this up!
+        */
+        enum { kExtra = 5 };
+        bool b;
+        size_t pslen;
+        size_t buflen;
+        char* winsillypath;
+        b = false;
+        pslen = strlen(path);
+        buflen = (pslen + kExtra);
+        winsillypath = (char*)malloc(buflen);
+        if(winsillypath == NULL)
+        {
+            return false;
+        }
+        memset(winsillypath, 0, buflen);
+        strcat(winsillypath, path);
+        strcat(winsillypath, "\\*.*");
+        fprintf(stderr, "sillypath=%s\n", winsillypath);
+        rd->handle = FindFirstFile(winsillypath, &rd->fdfile);
+        if(rd->handle != INVALID_HANDLE_VALUE)
+        {
+            b = true;
+        }
+        free(winsillypath);
+        return b;
+    #endif
+}
+
+static bool fslib_dirread(LitFSDirReader* rd, LitFSDirItem* itm)
+{
+    itm->isdir = false;
+    itm->isfile = false;
+    memset(itm->name, 0, OSLIB_CONF_OSPATHSIZE);
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
+        struct dirent* ent;
+        if((ent = readdir((DIR*)(rd->handle))) == NULL)
+        {
+            return false;
+        }
+        if(ent->d_type == DT_DIR)
+        {
+            itm->isdir = true;
+        }
+        if(ent->d_type == DT_REG)
+        {
+            itm->isfile = true;
+        }
+        strcpy(itm->name, ent->d_name);
+        return true;
+    #else
+        if(FindNextFile(rd->handle, &rd->fdfile))
+        {
+            if((rd->fdfile.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            {
+                itm->isdir = true;
+            }
+            else
+            {
+                itm->isfile = true;
+            }
+            strcpy(itm->name, rd->fdfile.cFileName);
+            return true;            
+        }
+    #endif
+    return false;
+}
+
+static bool fslib_dirclose(LitFSDirReader* rd)
+{
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
+        closedir(rd->handle);
+    #else
+        FindClose(rd->handle);
+    #endif
+    return false;
+}
 
 LitResult lit_result_make(LitStatusCode type, LitValue result)
 {
@@ -1983,14 +2176,13 @@ bool lit_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool isintern, bool
     memset(sb, 0, sizeof(LitStrBuffer));
     sb->isintern = isintern;
     sb->isshort = true;
-    sb->capacity = 15;
+    sb->capacity = LIT_CONFIG_MAXSHORTSTRLENGTH;
     sb->length = 0;
     sb->data = sb->sso;
     sb->data[0] = '\0';
-
     if(preallocated)
     {
-        if (len > 15)
+        if (len > LIT_CONFIG_MAXSHORTSTRLENGTH)
         {
             sb->isshort = false;
             sb->capacity = len;
@@ -1998,7 +2190,7 @@ bool lit_strbuf_initbasicempty(LitStrBuffer* sb, size_t len, bool isintern, bool
         }
         return true;
     }
-    if(len > 15)
+    if(len > LIT_CONFIG_MAXSHORTSTRLENGTH)
     {
         lit_strbuf_resize(sb, len);
     }
@@ -2058,7 +2250,6 @@ void lit_strbuf_reset(LitStrBuffer* sb)
 bool lit_strbuf_ensurecapacity(LitStrBuffer* sb, size_t len)
 {
     char* ptr;
-
     /* for nul byte */
     len++;
     if(sb->capacity < len)
@@ -2325,11 +2516,13 @@ bool lit_strbuf_appendnumulong(LitStrBuffer* sb, unsigned long value)
     char* dst;
     char* data;
     /* Append two digits at a time */
-    static const char* digits = ("0001020304050607080910111213141516171819"
-                                 "2021222324252627282930313233343536373839"
-                                 "4041424344454647484950515253545556575859"
-                                 "6061626364656667686970717273747576777879"
-                                 "8081828384858687888990919293949596979899");
+    static const char* digits = (
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899"
+    );
     numdigits = lit_strbufutil_numofdigits(value);
     pos = numdigits - 1;
     lit_strbuf_ensurecapacity(sb, sb->length + numdigits);
@@ -3226,10 +3419,9 @@ const char* lit_util_fsgetbasename(const char* opath)
     return strbeg;
 }
 
-
 int lit_util_isatty(int fd)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return isatty(fd);
     #else
         return 0;
@@ -3238,10 +3430,10 @@ int lit_util_isatty(int fd)
 
 char* lit_util_getcwd(char* buf, size_t size)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return getcwd(buf, size);
     #else
-        #if defined(OSFN_ISWINNT)
+        #if defined(LIT_OSPLATFORM_ISWINNT)
             GetCurrentDirectory(size, buf);
             return buf;
         #endif
@@ -3251,7 +3443,7 @@ char* lit_util_getcwd(char* buf, size_t size)
 
 unsigned int lit_util_sleep(unsigned int seconds)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return sleep(seconds);
     #else
         return 0;
@@ -3260,7 +3452,7 @@ unsigned int lit_util_sleep(unsigned int seconds)
 
 int lit_util_mkdir(const char* path, size_t mode)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return mkdir(path, mode);
     #else
         return -1;
@@ -3269,7 +3461,7 @@ int lit_util_mkdir(const char* path, size_t mode)
 
 int lit_util_rmdir(const char* path)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return rmdir(path);
     #else
         return -1;
@@ -3278,7 +3470,7 @@ int lit_util_rmdir(const char* path)
 
 int lit_util_unlink(const char* path)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return unlink(path);
     #else
         return -1;
@@ -3292,7 +3484,7 @@ const char* lit_util_getenv(const char* key)
 
 bool lit_util_setenv(const char* key, const char* value, bool replace)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return (setenv(key, value, replace) == 0);
     #else
         int errcode;
@@ -3314,7 +3506,7 @@ bool lit_util_setenv(const char* key, const char* value, bool replace)
 
 int lit_util_chdir(const char* path)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return chdir(path);
     #else
         return -1;
@@ -3323,7 +3515,7 @@ int lit_util_chdir(const char* path)
 
 int lit_util_getpid()
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return getpid();
     #endif
     return -1;
@@ -3331,7 +3523,7 @@ int lit_util_getpid()
 
 int lit_util_kill(int pid, int code)
 {
-    #if defined(LIT_PLATFORM_UNIXLIKE)
+    #if defined(LIT_OSPLATFORM_ISUNIXLIKE)
         return kill(pid, code);
     #else
         return -1;
@@ -3340,7 +3532,7 @@ int lit_util_kill(int pid, int code)
 
 bool lit_util_fsfileexists(const char* filepath)
 {
-    #if !defined(LIT_PLATFORM_WINDOWS)
+    #if !defined(LIT_OSPLATFORM_ISWINNT)
         return access(filepath, F_OK) == 0;
     #else
         struct stat st;
@@ -3630,7 +3822,6 @@ void lit_dynlistbyte_push(LitDynListByte* list, uint8_t val)
     list->listitems[list->listcount] = val;
     list->listcount++;
 }
-
 
 void lit_table_init(LitState* state, LitTable* table)
 {
@@ -4437,7 +4628,6 @@ bool lit_iostream_printf(LitIOStream* pr, const char* fmt, ...)
     va_end(va);
     return b;
 }
-
 
 bool lit_value_isbool(LitValue v)
 {
@@ -5579,24 +5769,24 @@ LitString* lit_string_fromrange(LitState* state, LitString* source, int start, u
     uint8_t* to;
     uint8_t* from;
     LitString* res;
-    from = (uint8_t*)source->strbuf.data;
+    from = (uint8_t*)lit_string_getdata(source);
     length = 0;
     for(i = 0; i < count; i++)
     {
         length += lit_util_stringutfgetcountdecode(from[start + i]);
     }
     res = lit_string_makeemptystring(state, length, false);
-    to = (uint8_t*)res->strbuf.data;
+    to = (uint8_t*)lit_string_getdata(res);
     for(i = 0; i < count; i++)
     {
         index = start + i;
-        codepoint = lit_util_stringutfdecode(from + index, source->strbuf.length - index);
+        codepoint = lit_util_stringutfdecode(from + index, lit_string_getlength(source) - index);
         if(codepoint != -1)
         {
             to += lit_util_stringutfencode(codepoint, to);
         }
     }
-    res->strbuf.length = length;
+    lit_string_setlength(res, length);
     return res;
 }
 
@@ -5658,7 +5848,7 @@ LitValue lit_string_valformat(LitState* state, const char* format, ...)
                 string = lit_value_asstring(va_arg(arglist, LitValue));
                 if(string != NULL)
                 {
-                    lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                    lit_string_appendlen(result, lit_string_getdata(string), lit_string_getlength(string));
                     break;
                 }
                 goto defaultendingcopying;
@@ -5667,7 +5857,7 @@ LitValue lit_string_valformat(LitState* state, const char* format, ...)
             {
                 LitString* string;
                 string = lit_value_asstring(lit_string_numbertostring(state, va_arg(arglist, double)));
-                lit_string_appendlen(result, string->strbuf.data, string->strbuf.length);
+                lit_string_appendlen(result, lit_string_getdata(string), lit_string_getlength(string));
                 break;
             }
             default:
@@ -5679,12 +5869,11 @@ LitValue lit_string_valformat(LitState* state, const char* format, ...)
         }
     }
     va_end(arglist);
-    result->strhash = lit_string_hash(result->strbuf.data, result->strbuf.length);
+    result->strhash = lit_string_hash(lit_string_getdata(result), lit_string_getlength(result));
     lit_string_register(state, result);
     state->gcallowgc = wasallowed;
     return lit_value_fromobject(result);
 }
-
 
 void lit_value_printobjtable(LitIOStream* pr, LitObject* self, LitTable* tab)
 {
@@ -5709,7 +5898,7 @@ void lit_value_printobjtable(LitIOStream* pr, LitObject* self, LitTable* tab)
             {
                 /* Special hidden key */
                 field = entry->entvalue;
-                lit_iostream_putlen(pr, entry->entkey->strbuf.data, entry->entkey->strbuf.length);
+                lit_iostream_putlen(pr, lit_string_getdata(entry->entkey), lit_string_getlength(entry->entkey));
                 lit_iostream_puts(pr, ": ");
                 if((lit_value_ismap(field) && (lit_value_asobject(field) == self)))
                 {
@@ -5750,7 +5939,7 @@ void lit_value_printobjinstance(LitIOStream* pr, LitClass* klass, LitInstance* s
     }
     else
     {
-        lit_iostream_printf(pr, "<instance of %s: ", klass->name->strbuf.data);
+        lit_iostream_printf(pr, "<instance of %s: ", lit_string_getdata(klass->name));
         lit_value_printobjtable(pr, (LitObject*)self, &self->fields);
         lit_iostream_printf(pr, "  >");
     }
@@ -5807,11 +5996,11 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
                 str = lit_value_asstring(value);
                 if(reprmode)
                 {
-                    lit_iostream_putquotedstring(pr, str->strbuf.data, str->strbuf.length, true);
+                    lit_iostream_putquotedstring(pr, lit_string_getdata(str), lit_string_getlength(str), true);
                 }
                 else
                 {
-                    lit_iostream_putlen(pr, str->strbuf.data, str->strbuf.length);
+                    lit_iostream_putlen(pr, lit_string_getdata(str), lit_string_getlength(str));
                 }
             }
             break;
@@ -5819,35 +6008,35 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
             {
                 LitFuncScript* fn;
                 fn = lit_value_asfuncscript(value);
-                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+                lit_iostream_printf(pr, "function %s", lit_string_getdata(fn->name));
             }
             break;
         case LIT_OBJTYPE_FUNCCLOSURE:
             {
                 LitFuncClosure* fn;
                 fn = lit_value_asfuncclosure(value);
-                lit_iostream_printf(pr, "closure %s", fn->function->name->strbuf.data);
+                lit_iostream_printf(pr, "closure %s", lit_string_getdata(fn->function->name));
             }
             break;
         case LIT_OBJTYPE_CLSPROTOTYPE:
             {
                 LitClsPrototype* fnprot;
                 fnprot = lit_value_asclsproto(value);
-                lit_iostream_printf(pr, "closure %s", fnprot->function->name->strbuf.data);
+                lit_iostream_printf(pr, "closure %s", lit_string_getdata(fnprot->function->name));
             }
             break;
         case LIT_OBJTYPE_FUNCNATIVE:
             {
                 LitFuncNative* fn;
                 fn = lit_value_asfuncnative(value);
-                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+                lit_iostream_printf(pr, "function %s", lit_string_getdata(fn->name));
             }
             break;
         case LIT_OBJTYPE_FUNCNATMETHOD:
             {
                 LitFuncNative* fn;
                 fn = lit_value_asfuncmethod(value);
-                lit_iostream_printf(pr, "function %s", fn->name->strbuf.data);
+                lit_iostream_printf(pr, "function %s", lit_string_getdata(fn->name));
             }
             break;
         case LIT_OBJTYPE_FIBER:
@@ -5862,7 +6051,7 @@ void lit_value_printobject(LitIOStream* pr, LitValue value, bool reprmode)
             {
                 LitModule* mod;
                 mod = lit_value_asmodule(value);
-                lit_iostream_printf(pr, "<module %s>", mod->name->strbuf.data);
+                lit_iostream_printf(pr, "<module %s>", lit_string_getdata(mod->name));
             }
             break;
         case LIT_OBJTYPE_UPVALUE:
@@ -6031,8 +6220,6 @@ void lit_value_printvalue(LitIOStream* pr, LitValue value, bool reprmode)
     }
 }
 
-
-
 LitClass* lit_class_make(LitState* state, const char* name, LitClass* super)
 {
     LitClass* klass;
@@ -6073,7 +6260,6 @@ void lit_class_bindmethod(LitClass* selfclass, const char* name, LitNativeFuncti
     nm = lit_string_copylen(state, name, strlen(name));
     lit_table_set(&selfclass->mthtable, nm, lit_value_fromobject(lit_object_makenativemethod(state, fn, nm)));
 }
-
 
 void lit_class_bindconstructor(LitClass* selfclass, LitNativeFunctionFn fn)
 {
@@ -6204,7 +6390,6 @@ void lit_state_defnative(LitState* state, const char* name, LitNativeFunctionFn 
     lit_state_poproots(state, 2);
 }
 
-
 double lit_args_checknumber(LitState* state, const char* sourcefname, LitValue* args, size_t argc, size_t id)
 {
     if(argc <= id || !lit_value_isnumber(args[id]))
@@ -6220,7 +6405,7 @@ const char* lit_args_checkstring(LitState* state, LitValue* args, size_t argc, s
     {
         lit_vm_raisefatalerror(state, "expected a string as argument #%i, got a %s", (int)id, id >= argc ? "null" : lit_value_valtypename(args[id]));
     }
-    return lit_value_asstring(args[id])->strbuf.data;
+    return lit_string_getdata(lit_value_asstring(args[id]));
 }
 
 const char* lit_args_getstring(LitValue* args, size_t argc, size_t id, const char* def)
@@ -6229,7 +6414,7 @@ const char* lit_args_getstring(LitValue* args, size_t argc, size_t id, const cha
     {
         return def;
     }
-    return lit_value_asstring(args[id])->strbuf.data;
+    return lit_string_getdata(lit_value_asstring(args[id]));
 }
 
 LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc, size_t id)
@@ -6240,7 +6425,6 @@ LitString* lit_args_checkobjstring(LitState* state, LitValue* args, size_t argc,
     }
     return lit_value_asstring(args[id]);
 }
-
 
 void lit_ast_destroyparamlist(LitState* state, LitDynListParam* parameters)
 {
@@ -6661,7 +6845,6 @@ LitAstRefExpr* lit_ast_makerefexpr(size_t line, LitAstExpression* to)
     return expr;
 }
 
-
 LitAstExprStmtExpr* lit_ast_makeexprstmt(size_t line, LitAstExpression* exv)
 {
     LitAstExprStmtExpr* expr = (LitAstExprStmtExpr*)lit_ast_allocexpression(line, sizeof(LitAstExprStmtExpr), LIT_ASTEXPRTYP_EXPRESSION);
@@ -6752,7 +6935,6 @@ LitAstFunctionExpr* lit_ast_makelambdaexpr(size_t line)
     lit_dynlistparam_init(&expr->parameters);
     return expr;
 }
-
 
 LitAstReturnExpr* lit_ast_makereturnstmt(size_t line, LitAstExpression* exv)
 {
@@ -6882,8 +7064,8 @@ LitAstToken lit_astlex_makeerrortoken(LitAstLexer* lex, const char* fmt, ...)
     va_end(args);
     LitAstToken token;
     token.type = LIT_ASTTOKTYP_ERROR;
-    token.start = result->strbuf.data;
-    token.length = result->strbuf.length;
+    token.start = lit_string_getdata(result);
+    token.length = lit_string_getlength(result);
     token.line = lex->sourcecurrentline;
     return token;
 }
@@ -7515,7 +7697,7 @@ void lit_astparser_failactual(LitAstParser* prs, LitAstToken* token, const char*
 
 void lit_astparser_failatv(LitAstParser* prs, LitAstToken* token, const char* fmt, va_list args)
 {
-    lit_astparser_failactual(prs, token, lit_state_errorfmtv(prs->pstate, token->line, fmt, args)->strbuf.data);
+    lit_astparser_failactual(prs, token, lit_string_getdata(lit_state_errorfmtv(prs->pstate, token->line, fmt, args)));
 }
 
 void lit_astparser_failherefmt(LitAstParser* prs, const char* fmt, ...)
@@ -7581,13 +7763,15 @@ bool lit_astparser_matchident(LitAstParser* prs, const char* type)
 void lit_astparser_consume(LitAstParser* prs, LitAstTokType type, const char* error)
 {
     bool line;
+    LitString* r;
     if(prs->current.type == type)
     {
         lit_astparser_advance(prs);
         return;
     }
     line = prs->previous.type == LIT_ASTTOKTYP_LINEFEED;
-    lit_astparser_failactual(prs, &prs->current, lit_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got '%.*s'", error, line ? 8 : prs->previous.length, line ? "new line" : prs->previous.start)->strbuf.data);
+    r = lit_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got '%.*s'", error, line ? 8 : prs->previous.length, line ? "new line" : prs->previous.start);
+    lit_astparser_failactual(prs, &prs->current, lit_string_getdata(r));
 }
 
 bool lit_astparser_matchlinefeed(LitAstParser* prs)
@@ -8096,7 +8280,7 @@ LitAstExpression* lit_astparser_ruleinterpolation(LitAstParser* prs, bool canass
         str = lit_value_asstring(tval);
         if(str != NULL)
         {
-            if(str->strbuf.length > 0)
+            if(lit_string_getlength(str) > 0)
             {
                 lit_dynlistexpr_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, tval));
             }
@@ -8109,7 +8293,7 @@ LitAstExpression* lit_astparser_ruleinterpolation(LitAstParser* prs, bool canass
     str = lit_value_asstring(tval);
     if(str != NULL)
     {
-        if(str->strbuf.length > 0)
+        if(lit_string_getlength(str) > 0)
         {
             lit_dynlistexpr_push(&expr->expressions, (LitAstExpression*)lit_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
         }
@@ -8144,7 +8328,6 @@ LitAstExpression* lit_astparser_rulearray(LitAstParser* prs, bool canassign)
     }
     return (LitAstExpression*)array;
 }
-
 
 LitAstExpression* lit_astparser_ruleobject(LitAstParser* prs, bool canassign)
 {
@@ -8300,7 +8483,6 @@ LitAstExpression* lit_astparser_ruleternaryorquestion(LitAstParser* prs, LitAstE
     elsebranch = lit_astparser_parseexpr(prs);
     return (LitAstExpression*)lit_ast_maketernaryexpr(line, previous, ifbranch, elsebranch);
 }
-
 
 LitAstExpression* lit_astparser_parsesubscript(LitAstParser* prs, LitAstExpression* previous, bool canassign)
 {
@@ -9025,7 +9207,6 @@ bool lit_astparser_parsesource(LitAstParser* prs, const char* filename, const ch
     return prs->haderror || prs->pstate->activelexer->haderror;
 }
 
-
 LitAstRule lit_astparser_makerule(LitParsePrefixFn prefix, LitParseInfixFn infix, LitPrecedence precedence)
 {
     LitAstRule pr;
@@ -9097,7 +9278,6 @@ void lit_astparser_setuprules()
     gastparserules[LIT_ASTTOKTYP_SEMICOLON] = lit_astparser_makerule(lit_astparser_rulenothing, NULL, LIT_ASTPREC_NONE);
     gastparserules[LIT_ASTTOKTYP_KWFUNCTION] = lit_astparser_makerule(lit_astparser_rulefunction, NULL, LIT_ASTPREC_NONE);
 }
-
 
 const char* lit_astprint_tokname(int t)
 {
@@ -9270,22 +9450,22 @@ const char* lit_astprint_tokopstring(int t)
 
 void lit_astprint_indentpush(LitAstPrinter* apr)
 {
-    apr->indent++;
+    apr->indentlevel++;
 }
 
 void lit_astprint_indentpop(LitAstPrinter* apr)
 {
-    apr->indent--;
-    if(apr->indent < 0)
+    apr->indentlevel--;
+    if(((int)apr->indentlevel) <= 0)
     {
-        apr->indent = 0;
+        apr->indentlevel = 0;
     }
 }
 
 void lit_astprint_indentprint(LitAstPrinter* apr)
 {
     size_t i;
-    for(i=0; i<apr->indent; i++)
+    for(i=0; i<apr->indentlevel; i++)
     {
         lit_iostream_puts(apr->printer, "    ");
     }
@@ -9501,7 +9681,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 if(oex->methodname != NULL)
                 {
                     lit_iostream_puts(apr->printer, ".");
-                    lit_iostream_putlen(apr->printer, oex->methodname->strbuf.data, oex->methodname->strbuf.length);
+                    lit_iostream_putlen(apr->printer, lit_string_getdata(oex->methodname), lit_string_getlength(oex->methodname));
                 }
             }
             break;
@@ -9752,13 +9932,13 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 bool notoper;
                 LitAstMethodExpr* oex;
                 oex = (LitAstMethodExpr*)expr;
-                notoper = lit_util_charisalpha(oex->name->strbuf.data[0]);
+                notoper = lit_util_charisalpha(lit_string_at(oex->name, 0));
                 lit_astprint_indentprint(apr);
                 if(!notoper)
                 {
                     lit_iostream_puts(apr->printer, "operator ");
                 }
-                lit_iostream_putlen(apr->printer, oex->name->strbuf.data, oex->name->strbuf.length);
+                lit_iostream_putlen(apr->printer, lit_string_getdata(oex->name), lit_string_getlength(oex->name));
                 lit_astprint_printfuncparams(apr, &oex->parameters);
                 lit_iostream_puts(apr->printer, "\n");
                 lit_astprint_printexpression(apr, oex->body);
@@ -9773,11 +9953,11 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 count = oex->staticfields.listcount;
                 lit_astprint_indentprint(apr);
                 lit_iostream_puts(apr->printer, "class ");
-                lit_iostream_putlen(apr->printer, oex->name->strbuf.data, oex->name->strbuf.length);
+                lit_iostream_putlen(apr->printer, lit_string_getdata(oex->name), lit_string_getlength(oex->name));
                 if(oex->parent != NULL)
                 {
                     lit_iostream_puts(apr->printer, ": ");
-                    lit_iostream_putlen(apr->printer, oex->parent->strbuf.data, oex->parent->strbuf.length);
+                    lit_iostream_putlen(apr->printer, lit_string_getdata(oex->parent), lit_string_getlength(oex->parent));
                 }
                 lit_iostream_puts(apr->printer, "\n");
                 lit_astprint_indentprint(apr);
@@ -9798,7 +9978,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstFieldExpr* oex;
                 oex = (LitAstFieldExpr*)expr;
                 lit_iostream_puts(apr->printer, "<FIELD>");
-                lit_iostream_putlen(apr->printer, oex->name->strbuf.data, oex->name->strbuf.length);
+                lit_iostream_putlen(apr->printer, lit_string_getdata(oex->name), lit_string_getlength(oex->name));
                 lit_iostream_puts(apr->printer, ";\n");
             }
             break;
@@ -9817,26 +9997,37 @@ void lit_astprint_printexprlist(LitAstPrinter* apr, LitDynListExpr* elist)
     }
 }
 
-void lit_astprint_printbeginlist(FILE* ofh, LitDynListExpr* statements)
+void lit_astprint_printbeginlist(LitState* state, FILE* ofh, LitDynListExpr* statements)
 {
+    bool printtrailing;
     LitAstPrinter apr;
-    apr.indent = 0;
+    printtrailing = true;
+    if(state->config.quitafterdump)
+    {
+       printtrailing = false;
+    }
+    apr.indentlevel = 0;
     apr.printer = lit_iostream_makeio(ofh, false);
-    lit_iostream_puts(apr.printer, "<<<astdump begin>>>\n");
+    if(printtrailing)
+    {
+        lit_iostream_puts(apr.printer, "<<<astdump begin>>>\n");
+    }
     lit_astprint_printexprlist(&apr, statements);
-    lit_iostream_puts(apr.printer, "\n<<<astdump end>>>\n");
+    if(printtrailing)
+    {
+        lit_iostream_puts(apr.printer, "\n<<<astdump end>>>\n");
+    }
     lit_iostream_destroy(apr.printer);
 }
 
 void lit_astprint_printbeginone(FILE* ofh, LitAstExpression* expr)
 {
     LitAstPrinter apr;
-    apr.indent = 0;
+    apr.indentlevel = 0;
     apr.printer = lit_iostream_makeio(ofh, false);
     lit_astprint_printexpression(&apr, expr);
     lit_iostream_destroy(apr.printer);
 }
-
 
 void lit_emitter_resolvestmtlist(LitAstEmitter* emt, LitDynListExpr* statements)
 {
@@ -9933,7 +10124,6 @@ uint64_t lit_emitter_reserveregister(LitAstEmitter* emt)
     ++ccx->registersused;
     return ccx->registersused - 1;
 }
-
 
 void lit_emitter_freeregister(LitAstEmitter* emt, uint64_t reg)
 {
@@ -12174,9 +12364,9 @@ void lit_debug_printregister(LitIOStream* pr, uint16_t reg)
     lit_iostream_printf(pr, " \t%hu", reg);
 }
 
-void lit_debug_printconstarg(LitIOStream* pr, LitChunk* chunk, uint32_t arg, bool indent)
+void lit_debug_printconstarg(LitIOStream* pr, LitChunk* chunk, uint32_t arg, bool doindent)
 {
-    lit_iostream_printf(pr, "%sc%u (", indent ? " \t" : "", arg);
+    lit_iostream_printf(pr, "%sc%u (", doindent ? " \t" : "", arg);
     lit_debug_printconst(pr, chunk->constantlist.listitems[arg]);
     lit_iostream_printf(pr, ")");
 }
@@ -12714,14 +12904,11 @@ LitValue lit_objfnobject_iscallable(LitState* state, LitValue instance, size_t a
 LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitString* tgname;
-    LitObjType type;
     LitInstance* inst;
     LitValue value;
-    (void)type;
     if(!lit_value_isinstance(instance))
     {
-        type = lit_value_objtype(instance);
-        lit_vm_raisefatalerror(state, "cannot modify built-in types");
+        lit_vm_raisefatalerror(state, "cannot modify built-in type '%s'", lit_value_valtypename(instance));
     }
     inst = lit_value_asinstance(instance);
     if(!lit_value_isstring(args[0]))
@@ -12775,6 +12962,7 @@ LitValue lit_objfnnumber_constructor(LitState* state, LitValue instance, size_t 
     LitAstToken tok;
     LitString* strv;
     const char* cstr;
+    (void)instance;
     if(argc > 0)
     {
         arg = args[0];
@@ -12860,7 +13048,6 @@ LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, L
     res = lit_iostream_takestring(state, &pr);
     return lit_value_fromobject(res);
 }
-
 
 LitValue lit_objfnstring_lessthan(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
@@ -13485,7 +13672,7 @@ LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t a
 
 bool lit_coreutil_isfiberdone(LitFiber* fiber)
 {
-    return fiber->framecount == 0 || fiber->abort;
+    return fiber->framecount == 0 || fiber->muststop;
 }
 
 LitValue lit_objfnfiber_done(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -13634,11 +13821,6 @@ LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, L
     return lit_value_makenull();
 }
 
-/*
- * Module
- */
-
-
 LitValue lit_objfnmodule_privates(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitModule* module;
@@ -13672,10 +13854,6 @@ LitValue lit_objfnmodule_name(LitState* state, LitValue instance, size_t argc, L
     (void)state;
     return lit_value_fromobject(lit_value_asmodule(instance)->name);
 }
-
-/*
- * Array
- */
 
 LitValue lit_objfnarray_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
@@ -13756,7 +13934,6 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
     int64_t index;
     LitRange* range;
     int index_v;
-
     if(argc == 2)
     {
         if(!lit_value_isnumber(args[0]))
@@ -13814,7 +13991,6 @@ LitValue lit_objfnarray_insert(LitState* state, LitValue instance, size_t argc, 
     int index;
     LitValue value;
     LitDynListVal* list;
-
     LIT_ARGS_ENSURECOUNT(2);
     list = &lit_value_asarray(instance)->innerlist;
     index = LIT_ARGS_GETNUMBER(0);
@@ -14542,6 +14718,7 @@ LitValue lit_cfn_println(LitState* state, LitValue instance, size_t argc, LitVal
 LitValue lit_cfn_typeof(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitString* r;
+    (void)argc;
     (void)instance;
     r = lit_string_copy(state, lit_value_valtypename(args[0]));
     return lit_value_fromobject(r);
@@ -14893,7 +15070,6 @@ void lit_bcfile_writestring(FILE* file, LitString* string)
         lit_bcfile_writeuint8(file, wch);
     }
 }
-
 
 LitString* lit_bcemu_readstring(LitState* state, LitEmulatedFile* file)
 {
@@ -15519,8 +15695,8 @@ LitValue lit_objfndirectory_read(LitState* state, LitValue instance, size_t argc
     const char* topdname;
     const char* fname;
     LitIOStream pr;
-    FSDirReader rd;
-    FSDirItem ent;
+    LitFSDirReader rd;
+    LitFSDirItem ent;
     (void)instance;
     topdstring = LIT_ARGS_GETSTRING(0);
     topdname = lit_string_getdata(topdstring);
@@ -15830,8 +16006,6 @@ void lit_corelib_installmath(LitState* state)
     }
     lit_vmexec_popgc(state);
 }
-
-
 
 bool lit_fiber_ensureframes(LitState* state, LitFiber* fiber)
 {
@@ -16293,8 +16467,6 @@ bool lit_value_iscallablefunction(LitValue value)
     }
     return false;
 }
-
-
 LitObject* lit_object_allocobject(LitState* state, size_t size, LitObjType type)
 {
     LitObject* object;
@@ -16436,7 +16608,6 @@ LitFuncNative* lit_object_makenativefunc(LitState* state, LitNativeFunctionFn fu
     return native;
 }
 
-
 LitFuncNative* lit_object_makenativemethod(LitState* state, LitNativeFunctionFn method, LitString* name)
 {
     LitFuncNative* native;
@@ -16445,7 +16616,6 @@ LitFuncNative* lit_object_makenativemethod(LitState* state, LitNativeFunctionFn 
     native->name = name;
     return native;
 }
-
 
 LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFuncScript* function)
 {
@@ -16480,7 +16650,7 @@ LitFiber* lit_object_makefiber(LitState* state, LitModule* module, LitFuncScript
     fiber->caught = false;
     fiber->error = lit_value_makenull();
     fiber->openupvalues = NULL;
-    fiber->abort = false;
+    fiber->muststop = false;
     fiber->returnaddress = NULL;
     fiber->handleritems = NULL;
     fiber->handlercount = 0;
@@ -17048,7 +17218,6 @@ LitClass* lit_state_getclassfor(LitState* state, LitValue value)
     return NULL;
 }
 
-
 LitResult lit_state_interpretsource(LitState* state, const char* modname, const char* code)
 {
     return lit_state_interninterpretsource(state, lit_string_copylen(state, modname, strlen(modname)), code);
@@ -17078,7 +17247,7 @@ LitModule* lit_state_compilemodulesource(LitState* state, LitString* modname, co
         }
         if(state->config.dumpast)
         {
-            lit_astprint_printbeginlist(stderr, &statements);
+            lit_astprint_printbeginlist(state, stderr, &statements);
             if(state->config.quitafterdump)
             {
                 lit_ast_destroyexprlist(state, &statements);
@@ -17105,7 +17274,6 @@ LitResult lit_state_interninterpretsource(LitState* state, LitString* modname, c
     state->lastmodule = module;
     return result;
 }
-
 
 bool lit_state_compileandsavefile(LitState* state, const char* inputfile, const char* outputfile)
 {
@@ -17309,11 +17477,11 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
         fiber = caller;
     }
     fiber = state->vmstate.fiber;
-    fiber->abort = true;
+    fiber->muststop = true;
     fiber->error = error;
     if(fiber->parent != NULL)
     {
-        fiber->parent->abort = true;
+        fiber->parent->muststop = true;
     }
     count = (int)fiber->framecount - 1;
     lit_iostream_setcolor(pr, 'r');
@@ -17436,7 +17604,7 @@ bool lit_vmexec_callcallable(LitState* state, LitFuncScript* function, LitFuncCl
     return true;
 }
 
-bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t argc, LitValue alternatecallee)
+bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t argc, LitValue alternatecallee, const char* fname)
 {
     bool caught;
     LitValue callee;
@@ -17483,7 +17651,7 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                 {
                     value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, frame->slots + calleeregister + 1);
                     frame->slots[calleeregister] = value;
-                    return !state->vmstate.fiber->abort;
+                    return !state->vmstate.fiber->muststop;
                 }
                 break;
             case LIT_OBJTYPE_FUNCNATMETHOD:
@@ -17494,7 +17662,7 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                     value = method->natfuncptr(state, *(frame->slots + calleeregister), argc, frame->slots + calleeregister + 1);
                     frame->slots[calleeregister] = value;
                     lit_vmexec_popgc(state);
-                    return !fiber->abort;
+                    return !fiber->muststop;
                 }
                 break;
             case LIT_OBJTYPE_CLASS:
@@ -17504,7 +17672,7 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                     frame->slots[calleeregister] = lit_value_fromobject(instance);
                     if(klass->mthconstructor != NULL)
                     {
-                        return lit_vmexec_actualcallvalue(state, calleeregister, argc, lit_value_fromobject(klass->mthconstructor));
+                        return lit_vmexec_actualcallvalue(state, calleeregister, argc, lit_value_fromobject(klass->mthconstructor), lit_string_getdata(state->strings.strconstructor));
                     }
                     return true;
                 }
@@ -17519,14 +17687,14 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                         value = lit_value_asfuncmethod(mth)->natfuncptr(state, boundmethod->receiver, argc, frame->slots + calleeregister + 1);
                         frame->slots[calleeregister] = value;
                         lit_vmexec_popgc(state);
-                        return !state->vmstate.fiber->abort;
+                        return !state->vmstate.fiber->muststop;
                     }
                     else
                     {
                         frame->slots[calleeregister] = boundmethod->receiver;
                         return lit_vmexec_callcallable(state, lit_value_asfuncscript(mth), NULL, argc, calleeregister);
                     }
-                    return !state->vmstate.fiber->abort;
+                    return !state->vmstate.fiber->muststop;
                 }
                 break;
             default:
@@ -17537,7 +17705,13 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
     }
     if(lit_value_isnull(callee))
     {
-        return lit_vm_raiseerror(state, "cannot call a null value");
+        #if 0
+        if(fname == NULL)
+        {
+            abort();
+        }
+        #endif
+        return lit_vm_raiseerror(state, "cannot call a null value (name '%s')", fname);
     }
     else
     {
@@ -17641,7 +17815,7 @@ LIT_INLINE bool lit_vmmac_recoverstate(LitState* state, LitFiber** fiber, LitRes
         *result = lit_result_make(LIT_STATUS_OK, lit_value_makenull());
         return false;
     }
-    if((*fiber)->abort)
+    if((*fiber)->muststop)
     {
         lit_vmexec_popgc(state);
         *result = lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
@@ -17660,9 +17834,9 @@ LIT_INLINE LitValue lit_vmmac_getrc(LitState* state, int64_t r)
     return state->vmstate.vmregisteritems[r];
 }
 
-LIT_INLINE bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, size_t reg, size_t argc, LitResult* res)
+LIT_INLINE bool lit_vmmac_callvalue(LitState* state, LitFiber** fiber, LitValue callee, size_t reg, size_t argc, LitResult* res, const char* fname)
 {
-    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee))
+    if(!lit_vmexec_actualcallvalue(state, reg, argc, callee, fname))
     {
         if(!lit_vmmac_recoverstate(state, fiber, res))
         {
@@ -17715,7 +17889,7 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethoddefault(LitState* state, LitF
     }
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->mthtable, mthname, &method))
     {
-        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &tmpres))
+        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &tmpres, lit_string_getdata(mthname)))
         {
             return tmpres;
         }
@@ -17768,7 +17942,7 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethodandcontinue(LitState* state, 
     }
     if((lit_value_isinstance(bv) && (lit_table_getentry(&lit_value_asinstance(bv)->fields, mthname, &method))) || lit_table_getentry(&klass->mthtable, mthname, &method))
     {
-        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &invmcres))
+        if(!lit_vmmac_callvalue(state, fiber, method, reg, argc, &invmcres, lit_string_getdata(mthname)))
         {
            return invmcres;
         }
@@ -17949,7 +18123,6 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethodandcontinue(LitState* state, 
         state->vmstate.vmregisteritems[ra + 1] = tmpb; \
     }
 
-
 LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
 {
     assert(fiber->framecount > 0);
@@ -18028,7 +18201,7 @@ LitResult lit_state_execfiber(LitState* state, LitFiber* fiber)
     LitTable* currentvmglobals;
     state->vmstate.fiber = fiber;
     currentvmglobals = &state->vmstate.globals->innertable;
-    lit_vmexec_pushgc(state, true) fiber->abort = false;
+    lit_vmexec_pushgc(state, true) fiber->muststop = false;
     lit_vmmac_readframe(state, &fiber);
     state->vmstate.fiber = fiber;
     state->vmstate.vmregisteritems[0] = lit_value_fromobject(state->vmstate.frame->function);
@@ -18683,7 +18856,7 @@ dispatch:
             lit_vmmac_writeframe(state);
             ra = LIT_INST_GETA(state->vmstate.instruction);
             rb = LIT_INST_GETB(state->vmstate.instruction);
-            if(!lit_vmexec_actualcallvalue(state, ra, rb - 1, lit_value_makenull()))
+            if(!lit_vmexec_actualcallvalue(state, ra, rb - 1, lit_value_makenull(), NULL))
             {
                 lit_vmexec_popgc(state);
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());                
@@ -18799,7 +18972,8 @@ dispatch:
                                 lit_vmmac_fail(state, "class %s does not have a getter for the field %s", lit_string_getdata(instance->klass->name), lit_string_getdata(name));
                             }
                             lit_vmmac_writeframe(state);
-                            if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(lit_value_asfield(value)->getter), ra, 0, &tmpres))
+                            field = lit_value_asfield(value);
+                            if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->getter), ra, 0, &tmpres, "<Field::getter>"))
                             {
                                 return tmpres;
                             }
@@ -18834,7 +19008,7 @@ dispatch:
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", lit_string_getdata(klass->name), lit_string_getdata(name));
                         }
                         lit_vmmac_writeframe(state);
-                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->getter), ra, 0, &tmpres))
+                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->getter), ra, 0, &tmpres, "<Field::getter>"))
                         {
                             return tmpres;
                         }
@@ -18864,7 +19038,8 @@ dispatch:
                             lit_vmmac_fail(state, "class %s does not have a getter for the field %s", lit_string_getdata(klass->name), lit_string_getdata(name));
                         }
                         lit_vmmac_writeframe(state);
-                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(lit_value_asfield(value)->getter), ra, 0, &tmpres))
+                        field = lit_value_asfield(value);
+                        if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->getter), ra, 0, &tmpres, "<Field::setter>"))
                         {
                             return tmpres;
                         }
@@ -18934,7 +19109,7 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", lit_string_getdata(klass->name), lit_string_getdata(fieldname));
                     }
                     lit_vmmac_writeframe(state);
-                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres, "<Field::setter>"))
                     {
                         return tmpres;
                     }
@@ -18968,7 +19143,7 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", lit_string_getdata(inst->klass->name), lit_string_getdata(fieldname));
                     }
                     lit_vmmac_writeframe(state);
-                    if(!lit_vmmac_callvalue(state, &fiber,lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    if(!lit_vmmac_callvalue(state, &fiber,lit_value_fromobject(field->setter), ra, 1, &tmpres, "Field::setter"))
                     {
                         return tmpres;
                     }
@@ -18999,7 +19174,7 @@ dispatch:
                         lit_vmmac_fail(state, "class %s does not have a setter for the field %s", lit_string_getdata(klass->name), lit_string_getdata(fieldname));
                     }
                     lit_vmmac_writeframe(state);
-                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres))
+                    if(!lit_vmmac_callvalue(state, &fiber, lit_value_fromobject(field->setter), ra, 1, &tmpres, "<Field::setter>"))
                     {
                         return tmpres;
                     }
@@ -19082,21 +19257,21 @@ dispatch:
             argc = LIT_INST_GETB(state->vmstate.instruction) - 1;
             if(lit_value_isinstance(instance) && (lit_table_getentry(&lit_value_asinstance(instance)->fields, mthname, &method)))
             {
-                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres, lit_string_getdata(mthname)))
                 {
                     return tmpres;
                 }
             }
             else if(lit_value_isclass(instance) && lit_table_getentry(&klass->staticstable, mthname, &method))
             {
-                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres, lit_string_getdata(mthname)))
                 {
                     return tmpres;
                 }
             }
             else if(lit_table_getentry(&klass->mthtable, mthname, &method))
             {
-                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres, lit_string_getdata(mthname)))
                 {
                     return tmpres;
                 }
@@ -19138,7 +19313,7 @@ dispatch:
                 {
                     state->vmstate.vmregisteritems[i] = state->vmstate.vmregisteritems[i + 1];
                 }
-                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres))
+                if(!lit_vmmac_callvalue(state, &fiber, method, ra, argc, &tmpres, lit_string_getdata(mthname)))
                 {
                     return tmpres;
                 }
@@ -19394,7 +19569,6 @@ void lit_cli_interupthandler(int signalid)
     exit(0);
 }
 
-
 static char* lit_cli_getinput(linocontext_t* lictx, const char* prompt)
 {
     return lino_context_readline(lictx, prompt);
@@ -19444,7 +19618,6 @@ void lit_cli_runrepl(LitState* state, linocontext_t* lictx)
         lit_cli_freeline(lictx, line);
     }
 }
-
 
 static void lit_cli_parseenv(LitState* state, char** envp)
 {
@@ -19576,6 +19749,7 @@ int main(int argc, char* argv[], char** envp)
     LitState* state;
     LitArray* argarray;
     LitStatusCode result;
+    longindex = 0;
     result = LIT_STATUS_OK;
     static optlongflags_t longopts[] =
     {
@@ -19590,7 +19764,7 @@ int main(int argc, char* argv[], char** envp)
         {"quit", 'q', OPTPARSE_NONE, "when dumping flags (like '-a' or '-d') are specified, quit immediately after"},
         {0, 0, (optargtype_t)0, NULL}
     };
-    #if defined(LIT_PLATFORM_WINDOWS) || defined(_MSC_VER)
+    #if defined(LIT_OSPLATFORM_ISWINNT) || defined(_MSC_VER)
         _setmode(fileno(stdin), _O_BINARY);
         _setmode(fileno(stdout), _O_BINARY);
         _setmode(fileno(stderr), _O_BINARY);

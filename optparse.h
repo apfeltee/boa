@@ -408,6 +408,7 @@ static int optprs_nextlongflag(optcontext_t* ox, const optlongflags_t* longopts,
     char* arg;
     char* option;
     const char* name;
+    *longindex = 0;
     option = ox->argv[ox->optind];
     if(option == 0)
     {
