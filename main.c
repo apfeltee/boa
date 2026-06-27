@@ -441,6 +441,9 @@ enum LitAstTokType
     LIT_ASTTOKTYP_KWCATCH,
     LIT_ASTTOKTYP_KWFINALLY,
     LIT_ASTTOKTYP_KWTHROW,
+    LIT_ASTTOKTYP_KWSWITCH,
+    LIT_ASTTOKTYP_KWCASE,
+    LIT_ASTTOKTYP_KWDEFAULT,
     LIT_ASTTOKTYP_ERROR,
     LIT_ASTTOKTYP_EOF
 };
@@ -502,6 +505,7 @@ enum LitAstExprType
     LIT_ASTEXPRTYP_CLASS,
     LIT_ASTEXPRTYP_FIELD,
     LIT_ASTEXPRTYP_TRY,
+    LIT_ASTEXPRTYP_SWITCH,
     LIT_ASTEXPRTYP_THROW
 };
 
@@ -635,6 +639,7 @@ typedef struct /**/ LitAstExprStmtExpr LitAstExprStmtExpr;
 typedef struct /**/ LitAstBlockExpr LitAstBlockExpr;
 typedef struct /**/ LitAstVarDeclExpr LitAstVarDeclExpr;
 typedef struct /**/ LitAstIfExpr LitAstIfExpr;
+typedef struct /**/ LitAstSwitchExpr LitAstSwitchExpr;
 typedef struct /**/ LitAstWhileExpr LitAstWhileExpr;
 typedef struct /**/ LitAstForExpr LitAstForExpr;
 typedef struct /**/ LitAstContinueExpr LitAstContinueExpr;
@@ -1222,6 +1227,7 @@ struct LitAstCompiler
     LitAstCompiler* enclosing;
     bool skipreturn;
     size_t loopdepth;
+    size_t switchdepth;
 };
 
 struct LitAstEmitter
@@ -1446,6 +1452,14 @@ struct LitAstIfExpr
     LitAstExpression* branchelse;
     LitDynListExpr* elseifcondlist;
     LitDynListExpr* branchelseiflist;
+};
+
+struct LitAstSwitchExpr
+{
+    LitAstExpression exprbase;
+    LitAstExpression* condition;
+    LitDynListExpr caseconditions;
+    LitDynListExpr casebodies;
 };
 
 struct LitAstWhileExpr
@@ -6614,6 +6628,15 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
             lit_sysmem_free(topexpr);
             break;
         }
+        case LIT_ASTEXPRTYP_SWITCH:
+        {
+            LitAstSwitchExpr* stmt = (LitAstSwitchExpr*)topexpr;
+            lit_ast_destroyexpression(state, stmt->condition);
+            lit_ast_destroyexprlist(state, &stmt->caseconditions);
+            lit_ast_destroyexprlist(state, &stmt->casebodies);
+            lit_sysmem_free(topexpr);
+            break;
+        }
         case LIT_ASTEXPRTYP_WHILE:
         {
             LitAstWhileExpr* stmt = (LitAstWhileExpr*)topexpr;
@@ -6885,6 +6908,15 @@ LitAstIfExpr* lit_ast_makeifstatement(size_t line, LitAstExpression* condition, 
     expr->branchelse = elsebranch;
     expr->elseifcondlist = elseifconditions;
     expr->branchelseiflist = elseifbranches;
+    return expr;
+}
+
+LitAstSwitchExpr* lit_ast_makeswitchstatement(size_t line, LitAstExpression* condition)
+{
+    LitAstSwitchExpr* expr = (LitAstSwitchExpr*)lit_ast_allocexpression(line, sizeof(LitAstSwitchExpr), LIT_ASTEXPRTYP_SWITCH);
+    expr->condition = condition;
+    lit_dynlistexpr_init(&expr->caseconditions);
+    lit_dynlistexpr_init(&expr->casebodies);
     return expr;
 }
 
@@ -7455,6 +7487,9 @@ LitAstTokType lit_astlex_scanidenttype(LitAstLexer* lex)
         { LIT_ASTTOKTYP_KWCATCH, "catch" },
         { LIT_ASTTOKTYP_KWFINALLY, "finally" },
         { LIT_ASTTOKTYP_KWTHROW, "throw" },
+        { LIT_ASTTOKTYP_KWSWITCH, "switch" },
+        { LIT_ASTTOKTYP_KWCASE, "case" },
+        { LIT_ASTTOKTYP_KWDEFAULT, "default" },
         { (LitAstTokType)0, NULL },
     };
     /* clang-format on */
@@ -8727,6 +8762,55 @@ LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
     return (LitAstExpression*)lit_ast_makeifstatement(line, condition, ifbranch, elsebranch, elseifconditions, elseifbranches);
 }
 
+LitAstExpression* lit_astparser_parseswitch(LitAstParser* prs)
+{
+    size_t line = prs->previous.line;
+    bool hadparen = lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN);
+    LitAstExpression* condition = lit_astparser_parseexpr(prs);
+    if(hadparen)
+    {
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after switch condition");
+    }
+    lit_astparser_ignorelinefeeds(prs);
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "'{' before switch body");
+    lit_astparser_ignorelinefeeds(prs);
+
+    LitAstSwitchExpr* switchexpr = lit_ast_makeswitchstatement(line, condition);
+
+    while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE) && !lit_astparser_check(prs, LIT_ASTTOKTYP_EOF))
+    {
+        LitAstExpression* casecond = NULL;
+        if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCASE))
+        {
+            casecond = lit_astparser_parseexpr(prs);
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after case expression");
+        }
+        else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWDEFAULT))
+        {
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after default");
+        }
+        else
+        {
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCASE, "expected 'case' or 'default'");
+        }
+        lit_astparser_ignorelinefeeds(prs);
+
+        LitAstBlockExpr* body_block = lit_ast_makeblockstmt(prs->previous.line);
+        while(!lit_astparser_check(prs, LIT_ASTTOKTYP_KWCASE) &&
+              !lit_astparser_check(prs, LIT_ASTTOKTYP_KWDEFAULT) &&
+              !lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE) &&
+              !lit_astparser_check(prs, LIT_ASTTOKTYP_EOF))
+        {
+            lit_dynlistexpr_push(&body_block->statements, lit_astparser_parsestmt(prs));
+            lit_astparser_ignorelinefeeds(prs);
+        }
+        lit_dynlistexpr_push(&switchexpr->caseconditions, casecond);
+        lit_dynlistexpr_push(&switchexpr->casebodies, (LitAstExpression*)body_block);
+    }
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}' after switch body");
+    return (LitAstExpression*)switchexpr;
+}
+
 LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
 {
     LitAstExpression* var;
@@ -9089,6 +9173,7 @@ void lit_astparser_sync(LitAstParser* prs)
             case LIT_ASTTOKTYP_KWFOR:
             case LIT_ASTTOKTYP_KWSTATIC:
             case LIT_ASTTOKTYP_KWIF:
+            case LIT_ASTTOKTYP_KWSWITCH:
             case LIT_ASTTOKTYP_KWWHILE:
             case LIT_ASTTOKTYP_KWRETURN:
             {
@@ -9119,6 +9204,10 @@ LitAstExpression* lit_astparser_parsestmt(LitAstParser* prs)
     else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWIF))
     {
         return lit_astparser_parseif(prs);
+    }
+    else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWSWITCH))
+    {
+        return lit_astparser_parseswitch(prs);
     }
     else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWTRY))
     {
@@ -9360,6 +9449,9 @@ const char* lit_astprint_tokname(int t)
         case LIT_ASTTOKTYP_KWIN: return "LIT_ASTTOKTYP_KWIN";
         case LIT_ASTTOKTYP_KWCONST: return "LIT_ASTTOKTYP_KWCONST";
         case LIT_ASTTOKTYP_KWREF: return "LIT_ASTTOKTYP_KWREF";
+        case LIT_ASTTOKTYP_KWSWITCH: return "LIT_ASTTOKTYP_KWSWITCH";
+        case LIT_ASTTOKTYP_KWCASE: return "LIT_ASTTOKTYP_KWCASE";
+        case LIT_ASTTOKTYP_KWDEFAULT: return "LIT_ASTTOKTYP_KWDEFAULT";
         case LIT_ASTTOKTYP_ERROR: return "LIT_ASTTOKTYP_ERROR";
         case LIT_ASTTOKTYP_EOF: return "LIT_ASTTOKTYP_EOF";
 
@@ -9442,6 +9534,9 @@ const char* lit_astprint_tokopstring(int t)
         case LIT_ASTTOKTYP_KWSTATIC: return "statis";
         case LIT_ASTTOKTYP_KWIN: return "in";
         case LIT_ASTTOKTYP_KWCONST: return "const";
+        case LIT_ASTTOKTYP_KWSWITCH: return "switch";
+        case LIT_ASTTOKTYP_KWCASE: return "case";
+        case LIT_ASTTOKTYP_KWDEFAULT: return "default";
         default:
             break;
     }
@@ -9787,6 +9882,40 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                     lit_iostream_puts(apr->printer, "else\n");
                     lit_astprint_printexpression(apr, oex->branchelse);
                 }
+            }
+            break;
+        case LIT_ASTEXPRTYP_SWITCH:
+            {
+                size_t i;
+                size_t count;
+                LitAstSwitchExpr* oex = (LitAstSwitchExpr*)expr;
+                lit_astprint_indentprint(apr);
+                lit_iostream_puts(apr->printer, "switch(");
+                lit_astprint_printexpression(apr, oex->condition);
+                lit_iostream_puts(apr->printer, ") {\n");
+                lit_astprint_indentpush(apr);
+                count = oex->caseconditions.listcount;
+                for(i = 0; i < count; i++)
+                {
+                    LitAstExpression* cond = oex->caseconditions.listitems[i];
+                    lit_astprint_indentprint(apr);
+                    if(cond == NULL)
+                    {
+                        lit_iostream_puts(apr->printer, "default:\n");
+                    }
+                    else
+                    {
+                        lit_iostream_puts(apr->printer, "case ");
+                        lit_astprint_printexpression(apr, cond);
+                        lit_iostream_puts(apr->printer, ":\n");
+                    }
+                    lit_astprint_indentpush(apr);
+                    lit_astprint_printexpression(apr, oex->casebodies.listitems[i]);
+                    lit_astprint_indentpop(apr);
+                }
+                lit_astprint_indentpop(apr);
+                lit_astprint_indentprint(apr);
+                lit_iostream_puts(apr->printer, "}\n");
             }
             break;
         case LIT_ASTEXPRTYP_WHILE:
@@ -10161,6 +10290,7 @@ void lit_emitter_compilerinit(LitAstEmitter* emt, LitAstCompiler* ccx, LitFuncTy
     ccx->skipreturn = false;
     ccx->function = lit_object_makefunction(emt->pstate, emt->module);
     ccx->loopdepth = 0;
+    ccx->switchdepth = 0;
     ccx->registersused = 0;
     emt->compiler = ccx;
     name = emt->pstate->activelexer->sourcefilename;
@@ -11511,6 +11641,80 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
             lit_sysmem_free(endjumps);
             break;
         }
+        case LIT_ASTEXPRTYP_SWITCH:
+        {
+            LitAstSwitchExpr* switchexpr = (LitAstSwitchExpr*)topexpr;
+            LitDynListUInt oldbreaks;
+            size_t count = switchexpr->caseconditions.listcount;
+            uint64_t* body_jumps = (uint64_t*)lit_sysmem_malloc(count * sizeof(uint64_t));
+            size_t default_idx = (size_t)-1;
+            uint64_t default_start_pc = 0;
+
+            lit_emitter_scopebegin(emt);
+            emt->compiler->switchdepth++;
+            oldbreaks = emt->breaks;
+            lit_dynlistuint_init(&emt->breaks);
+
+            // 1. Evaluate condition/scrutinee
+            uint16_t condreg = lit_emitter_reserveregister(emt);
+            lit_emitter_emitexpr(emt, switchexpr->condition, condreg);
+
+            // 2. Emit checks
+            uint16_t rc = lit_emitter_reserveregister(emt);
+            for(size_t i = 0; i < count; i++)
+            {
+                LitAstExpression* casecond = switchexpr->caseconditions.listitems[i];
+                if(casecond == NULL)
+                {
+                    default_idx = i;
+                    body_jumps[i] = 0;
+                    continue;
+                }
+                uint16_t b = lit_emitter_parsearg(emt, casecond, rc);
+                lit_emitter_emitabc(emt, casecond->line, LIT_OPCODE_EQUAL, rc, condreg, b);
+                body_jumps[i] = lit_emitter_emittmp(emt);
+            }
+            lit_emitter_freeregister(emt, rc);
+            lit_emitter_freeregister(emt, condreg);
+
+            // 3. Fallback jump (if no cases matched)
+            uint64_t fallback_jump = lit_emitter_emittmp(emt);
+
+            // 4. Emit bodies
+            for(size_t i = 0; i < count; i++)
+            {
+                uint64_t body_start_pc = emt->chunk->compiledcodecount;
+                if(i == default_idx)
+                {
+                    default_start_pc = body_start_pc;
+                }
+                else
+                {
+                    lit_emitter_patchinstr(emt, body_jumps[i], LIT_REG_FORMABXINST(LIT_OPCODE_JUMPIFTRUE, rc, (int64_t)body_start_pc - body_jumps[i] - 1));
+                }
+                // Emit body statements
+                lit_emitter_emitstmt(emt, switchexpr->casebodies.listitems[i]);
+            }
+
+            // 5. Patch fallback jump
+            if(default_idx != (size_t)-1)
+            {
+                lit_emitter_patchinstr(emt, fallback_jump, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)default_start_pc - fallback_jump - 1));
+            }
+            else
+            {
+                lit_emitter_patchinstr(emt, fallback_jump, LIT_REG_FORMASBXINST(LIT_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - fallback_jump - 1));
+            }
+
+            // 6. Patch breaks and clean up
+            lit_emitter_patchloopjumps(emt, &emt->breaks);
+            emt->breaks = oldbreaks;
+            emt->compiler->switchdepth--;
+            lit_emitter_scopeend(emt);
+
+            lit_sysmem_free(body_jumps);
+            break;
+        }
         case LIT_ASTEXPRTYP_THROW:
         {
             LitAstThrowExpr* throwexpr;
@@ -11875,9 +12079,9 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_BREAK:
         {
-            if(emt->compiler->loopdepth == 0)
+            if(emt->compiler->loopdepth == 0 && emt->compiler->switchdepth == 0)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops", "break");
+                lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops/switch", "break");
             }
             lit_dynlistuint_push(&emt->breaks, lit_emitter_emittmp(emt));
             break;

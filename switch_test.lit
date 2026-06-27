@@ -1,0 +1,69 @@
+// Test basic switch-case behavior
+var x = 2
+var result = ""
+
+switch (x) {
+    case 1:
+        result = "one"
+        break
+    case 2:
+        result = "two"
+        break
+    case 3:
+        result = "three"
+        break
+    default:
+        result = "other"
+}
+println("Test 1 (basic match): " + result) // Should print "two"
+
+// Test fallthrough
+var y = 1
+var fallthrough_result = ""
+switch (y) {
+    case 1:
+        fallthrough_result = fallthrough_result + "1"
+        // no break
+    case 2:
+        fallthrough_result = fallthrough_result + "2"
+        break
+    case 3:
+        fallthrough_result = fallthrough_result + "3"
+}
+println("Test 2 (fallthrough): " + fallthrough_result) // Should print "12"
+
+// Test default case
+var z = 42
+var default_result = ""
+switch (z) {
+    case 1:
+        default_result = "one"
+        break
+    default:
+        default_result = "default"
+        break
+}
+println("Test 3 (default): " + default_result) // Should print "default"
+
+// Test switch inside loop with break
+var loop_count = 0
+for (var i = 1; i <= 3; i++) {
+    switch (i) {
+        case 2:
+            // This break should exit the switch, NOT the loop
+            break
+    }
+    loop_count = loop_count + i
+}
+println("Test 4 (switch break in loop): " + loop_count) // Should print 1+2+3 = 6
+
+// Test continue in switch in loop
+var sum = 0
+for (var i = 1; i <= 3; i++) {
+    switch (i) {
+        case 2:
+            continue // Should continue the loop, bypassing the sum = sum + i line
+    }
+    sum = sum + i
+}
+println("Test 5 (continue in switch in loop): " + sum) // Should print 1 + 3 = 4
