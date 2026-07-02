@@ -221,9 +221,6 @@ void *mempool_usermalloc(void *msp, size_t nsize);
 void *mempool_userfree(void *msp, void *ptr);
 void *mempool_userrealloc(void *msp, void *ptr, size_t nsize);
 
-/* internal functions */
-MEMPOOL_INLINE size_t mempool_util_topfootsize();
-
 
 MEMPOOL_CPP_ENDEXTERN()
 
