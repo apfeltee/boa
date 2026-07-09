@@ -3592,24 +3592,29 @@ bool lit_util_fsfileisdirectory(const char* filepath)
 
 /* endutils */
 
+bool lit_value_istype(LitValue v, LitValType t)
+{
+    return v.type == t;
+}
+
 bool lit_value_isbool(LitValue v)
 {
-    return (v.type == LIT_VALTYPE_BOOL);
+    return lit_value_istype(v, LIT_VALTYPE_BOOL);
 }
 
 bool lit_value_isnull(LitValue v)
 {
-    return (v.type == LIT_VALTYPE_NULL);
+    return lit_value_istype(v, LIT_VALTYPE_NULL);
 }
 
 bool lit_value_isnumber(LitValue v)
 {
-    return (v.type == LIT_VALTYPE_NUMBER);
+    return lit_value_istype(v, LIT_VALTYPE_NUMBER);
 }
 
 bool lit_value_isobject(LitValue v)
 {
-    return (v.type == LIT_VALTYPE_OBJECT);
+    return lit_value_istype(v, LIT_VALTYPE_OBJECT);
 }
 
 bool lit_value_isobjtype(LitValue value, LitObjType t)

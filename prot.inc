@@ -107,6 +107,7 @@ bool lit_util_fsfileexists(const char *filepath);
 bool lit_util_fsfileistype(const char *filepath, int typ);
 bool lit_util_fsfileisfile(const char *filepath);
 bool lit_util_fsfileisdirectory(const char *filepath);
+bool lit_value_istype(LitValue v, LitValType t);
 bool lit_value_isbool(LitValue v);
 bool lit_value_isnull(LitValue v);
 bool lit_value_isnumber(LitValue v);
