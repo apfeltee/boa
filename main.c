@@ -3592,6 +3592,388 @@ bool lit_util_fsfileisdirectory(const char* filepath)
 
 /* endutils */
 
+bool lit_value_isbool(LitValue v)
+{
+    return (v.type == LIT_VALTYPE_BOOL);
+}
+
+bool lit_value_isnull(LitValue v)
+{
+    return (v.type == LIT_VALTYPE_NULL);
+}
+
+bool lit_value_isnumber(LitValue v)
+{
+    return (v.type == LIT_VALTYPE_NUMBER);
+}
+
+bool lit_value_isobject(LitValue v)
+{
+    return (v.type == LIT_VALTYPE_OBJECT);
+}
+
+bool lit_value_isobjtype(LitValue value, LitObjType t)
+{
+    if(lit_value_isobject(value))
+    {
+        return (lit_value_asobject(value)->type == t);
+    }
+    return false;
+}
+
+bool lit_value_ismap(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_MAP);
+}
+
+bool lit_value_isstring(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_STRING);
+}
+
+bool lit_value_isfuncscript(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_FUNCSCRIPT);
+}
+
+bool lit_value_isfuncmethod(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_FUNCNATMETHOD);
+}
+
+bool lit_value_ismodule(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_MODULE);
+}
+
+bool lit_value_isclass(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_CLASS);
+}
+
+bool lit_value_isinstance(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_INSTANCE);
+}
+
+bool lit_value_isvargarray(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_VARARGARRAY);
+}
+
+bool lit_value_isarray(LitValue value)
+{
+    return (lit_value_isobjtype(value, LIT_OBJTYPE_ARRAY) || lit_value_isvargarray(value));
+}
+
+bool lit_value_isrange(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_RANGE);
+}
+
+bool lit_value_isfield(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_FIELD);
+}
+
+bool lit_value_isreference(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_REFERENCE);
+}
+
+double lit_value_asnumber(LitValue value)
+{
+    return value.as.numval;
+}
+
+bool lit_value_asbool(LitValue v)
+{
+    return (v.as.boolval);
+}
+
+LitObjType lit_value_objtype(LitValue value)
+{
+    return lit_value_asobject(value)->type;
+}
+
+LitObject* lit_value_asobject(LitValue v)
+{
+    return (v.as.obj);
+}
+
+LitString* lit_value_asstring(LitValue value)
+{
+    return ((LitString*)lit_value_asobject(value));
+}
+
+LitFuncScript* lit_value_asfuncscript(LitValue value)
+{
+    return ((LitFuncScript*)lit_value_asobject(value));
+}
+
+LitFuncNative* lit_value_asfuncnative(LitValue value)
+{
+    return ((LitFuncNative*)lit_value_asobject(value));
+}
+
+LitFuncNative* lit_value_asfuncmethod(LitValue value)
+{
+    return ((LitFuncNative*)lit_value_asobject(value));
+}
+
+LitModule* lit_value_asmodule(LitValue value)
+{
+    return ((LitModule*)lit_value_asobject(value));
+}
+
+LitFuncClosure* lit_value_asfuncclosure(LitValue value)
+{
+    return ((LitFuncClosure*)lit_value_asobject(value));
+}
+
+LitClsPrototype* lit_value_asclsproto(LitValue value)
+{
+    return ((LitClsPrototype*)lit_value_asobject(value));
+}
+
+LitUpvalue* lit_value_asupvalue(LitValue value)
+{
+    return ((LitUpvalue*)lit_value_asobject(value));
+}
+
+LitClass* lit_value_asclass(LitValue value)
+{
+    return ((LitClass*)lit_value_asobject(value));
+}
+
+LitInstance* lit_value_asinstance(LitValue value)
+{
+    return ((LitInstance*)lit_value_asobject(value));
+}
+
+LitArray* lit_value_asarray(LitValue value)
+{
+    return ((LitArray*)lit_value_asobject(value));
+}
+
+LitMap* lit_value_asmap(LitValue value)
+{
+    return ((LitMap*)lit_value_asobject(value));
+}
+
+LitFuncBound* lit_value_asfuncboundmethod(LitValue value)
+{
+    return ((LitFuncBound*)lit_value_asobject(value));
+}
+
+LitUserdata* lit_value_asuserdata(LitValue value)
+{
+    return ((LitUserdata*)lit_value_asobject(value));
+}
+
+LitRange* lit_value_asrange(LitValue value)
+{
+    return ((LitRange*)lit_value_asobject(value));
+}
+
+LitField* lit_value_asfield(LitValue value)
+{
+    return ((LitField*)lit_value_asobject(value));
+}
+
+LitFiber* lit_value_asfiber(LitValue value)
+{
+    return ((LitFiber*)lit_value_asobject(value));
+}
+
+LitReference* lit_value_asreference(LitValue value)
+{
+    return ((LitReference*)lit_value_asobject(value));
+}
+
+LitValue lit_value_makenull()
+{
+    LitValue rt;
+    rt.type = LIT_VALTYPE_NULL;
+    rt.as.numval = 0;
+    return rt;
+}
+
+LitValue lit_value_makebool(bool b)
+{
+    LitValue rt;
+    rt.type = LIT_VALTYPE_BOOL;
+    rt.as.boolval = b;
+    return rt;
+}
+
+LitValue lit_value_makenumber(double num)
+{
+    LitValue rt;
+    rt.type = LIT_VALTYPE_NUMBER;
+    rt.as.numval = num;
+    return rt;
+}
+
+#define lit_value_fromobject(obj) lit_value_fromobject_actual((LitObject*)(obj))
+
+LitValue lit_value_fromobject_actual(LitObject* obj)
+{
+    LitValue rt;
+    rt.type = LIT_VALTYPE_OBJECT;
+    rt.as.obj = obj;
+    return rt;
+}
+
+bool lit_value_isfalsy(LitValue value)
+{
+    LitString* str;
+    if(lit_value_isbool(value))
+    {
+        return (lit_value_asbool(value) == false);
+    }
+    else if(lit_value_isnull(value))
+    {
+        return true;
+    }
+    else if(lit_value_isnumber(value))
+    {
+        return (lit_value_asnumber(value) == 0);
+    }
+    else
+    {
+        if(lit_value_isstring(value))
+        {
+            str = lit_value_asstring(value);
+            if(lit_string_getlength(str) == 0)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool lit_value_compare(LitState* state, LitValue a, LitValue b)
+{
+    LitValue tmpargs[2];
+    LitString* as;
+    LitString* bs;
+
+    if(a.type == b.type)
+    {
+        if(lit_value_isnumber(a))
+        {
+            return lit_value_asnumber(a) == lit_value_asnumber(b);
+        }
+        if(lit_value_isnull(a))
+        {
+            return true;
+        }
+        if(lit_value_isbool(a))
+        {
+            return lit_value_asbool(a) == lit_value_asbool(b);
+        }
+        if(lit_value_asobject(a) == lit_value_asobject(b))
+        {
+            return true;
+        }
+        if(lit_value_isstring(a) && lit_value_isstring(b))
+        {
+            as = lit_value_asstring(a);
+            bs = lit_value_asstring(b);
+            return lit_string_getlength(as) == lit_string_getlength(bs) && memcmp(lit_string_getdata(as), lit_string_getdata(bs), lit_string_getlength(as)) == 0;
+        }
+    }
+    else
+    {
+        if(lit_value_isbool(a) && lit_value_isnumber(b))
+        {
+            return lit_value_asbool(a) == lit_value_asnumber(b);
+        }
+        if(lit_value_isnumber(a) && lit_value_isbool(b))
+        {
+            return lit_value_asnumber(a) == lit_value_asbool(b);
+        }
+        if(lit_value_isstring(a) || lit_value_isstring(b))
+        {
+            return false;
+        }
+    }
+    tmpargs[0] = b;
+    return !lit_value_isfalsy(lit_state_findandcallmethod(state, a, state->strings.stropequal, tmpargs, 1).result);
+}
+
+const char* lit_value_objtypename(int t)
+{
+    switch(t)
+    {
+        case LIT_OBJTYPE_STRING:
+            return "string";
+        case LIT_OBJTYPE_FUNCSCRIPT:
+        case LIT_OBJTYPE_FUNCNATIVE:
+        case LIT_OBJTYPE_FUNCNATMETHOD:
+        case LIT_OBJTYPE_FUNCCLOSURE:
+        case LIT_OBJTYPE_FUNCBOUNDMETHOD:
+            return "function";
+        case LIT_OBJTYPE_FIBER:
+            return "fiber";
+        case LIT_OBJTYPE_MODULE:
+            return "module";
+
+        case LIT_OBJTYPE_CLSPROTOTYPE:
+            return "prototype";
+        case LIT_OBJTYPE_UPVALUE:
+            return "upvalue";
+        case LIT_OBJTYPE_CLASS:
+            return "class";
+        case LIT_OBJTYPE_INSTANCE:
+            return "instance";
+        case LIT_OBJTYPE_ARRAY:
+            return "array";
+        case LIT_OBJTYPE_VARARGARRAY:
+            return "varargarray";
+        case LIT_OBJTYPE_MAP:
+            return "map";
+        case LIT_OBJTYPE_USERDATA:
+            return "userdata";
+        case LIT_OBJTYPE_RANGE:
+            return "range";
+        case LIT_OBJTYPE_FIELD:
+            return "field";
+        case LIT_OBJTYPE_REFERENCE:
+            return "reference";
+    }
+    return "?unknown?";
+}
+
+const char* lit_value_valtypefromtype(int t)
+{
+    switch(t)
+    {
+        case LIT_VALTYPE_NULL:
+            return "null";
+        case LIT_VALTYPE_BOOL:
+            return "bool";
+        case LIT_VALTYPE_NUMBER:
+            return "number";
+        /* technically never reached */
+        case LIT_VALTYPE_OBJECT:
+            return "object";
+    }
+    return "?unknown?";
+}
+
+const char* lit_value_valtypename(LitValue val)
+{
+    if(lit_value_isobject(val))
+    {
+        return lit_value_objtypename(lit_value_asobject(val)->type);
+    }
+    return lit_value_valtypefromtype(val.type);
+}
+
+
 void lit_dynlistval_init(LitDynListVal* list)
 {
     lit_dynlistval_reset(list);
@@ -4649,386 +5031,6 @@ bool lit_iostream_printf(LitIOStream* pr, const char* fmt, ...)
     return b;
 }
 
-bool lit_value_isbool(LitValue v)
-{
-    return (v.type == LIT_VALTYPE_BOOL);
-}
-
-bool lit_value_isnull(LitValue v)
-{
-    return (v.type == LIT_VALTYPE_NULL);
-}
-
-bool lit_value_isnumber(LitValue v)
-{
-    return (v.type == LIT_VALTYPE_NUMBER);
-}
-
-bool lit_value_isobject(LitValue v)
-{
-    return (v.type == LIT_VALTYPE_OBJECT);
-}
-
-bool lit_value_isobjtype(LitValue value, LitObjType t)
-{
-    if(lit_value_isobject(value))
-    {
-        return (lit_value_asobject(value)->type == t);
-    }
-    return false;
-}
-
-bool lit_value_ismap(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_MAP);
-}
-
-bool lit_value_isstring(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_STRING);
-}
-
-bool lit_value_isfuncscript(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_FUNCSCRIPT);
-}
-
-bool lit_value_isfuncmethod(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_FUNCNATMETHOD);
-}
-
-bool lit_value_ismodule(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_MODULE);
-}
-
-bool lit_value_isclass(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_CLASS);
-}
-
-bool lit_value_isinstance(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_INSTANCE);
-}
-
-bool lit_value_isvargarray(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_VARARGARRAY);
-}
-
-bool lit_value_isarray(LitValue value)
-{
-    return (lit_value_isobjtype(value, LIT_OBJTYPE_ARRAY) || lit_value_isvargarray(value));
-}
-
-bool lit_value_isrange(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_RANGE);
-}
-
-bool lit_value_isfield(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_FIELD);
-}
-
-bool lit_value_isreference(LitValue value)
-{
-    return lit_value_isobjtype(value, LIT_OBJTYPE_REFERENCE);
-}
-
-double lit_value_asnumber(LitValue value)
-{
-    return value.as.numval;
-}
-
-bool lit_value_asbool(LitValue v)
-{
-    return (v.as.boolval);
-}
-
-LitObjType lit_value_objtype(LitValue value)
-{
-    return lit_value_asobject(value)->type;
-}
-
-LitObject* lit_value_asobject(LitValue v)
-{
-    return (v.as.obj);
-}
-
-LitString* lit_value_asstring(LitValue value)
-{
-    return ((LitString*)lit_value_asobject(value));
-}
-
-LitFuncScript* lit_value_asfuncscript(LitValue value)
-{
-    return ((LitFuncScript*)lit_value_asobject(value));
-}
-
-LitFuncNative* lit_value_asfuncnative(LitValue value)
-{
-    return ((LitFuncNative*)lit_value_asobject(value));
-}
-
-LitFuncNative* lit_value_asfuncmethod(LitValue value)
-{
-    return ((LitFuncNative*)lit_value_asobject(value));
-}
-
-LitModule* lit_value_asmodule(LitValue value)
-{
-    return ((LitModule*)lit_value_asobject(value));
-}
-
-LitFuncClosure* lit_value_asfuncclosure(LitValue value)
-{
-    return ((LitFuncClosure*)lit_value_asobject(value));
-}
-
-LitClsPrototype* lit_value_asclsproto(LitValue value)
-{
-    return ((LitClsPrototype*)lit_value_asobject(value));
-}
-
-LitUpvalue* lit_value_asupvalue(LitValue value)
-{
-    return ((LitUpvalue*)lit_value_asobject(value));
-}
-
-LitClass* lit_value_asclass(LitValue value)
-{
-    return ((LitClass*)lit_value_asobject(value));
-}
-
-LitInstance* lit_value_asinstance(LitValue value)
-{
-    return ((LitInstance*)lit_value_asobject(value));
-}
-
-LitArray* lit_value_asarray(LitValue value)
-{
-    return ((LitArray*)lit_value_asobject(value));
-}
-
-LitMap* lit_value_asmap(LitValue value)
-{
-    return ((LitMap*)lit_value_asobject(value));
-}
-
-LitFuncBound* lit_value_asfuncboundmethod(LitValue value)
-{
-    return ((LitFuncBound*)lit_value_asobject(value));
-}
-
-LitUserdata* lit_value_asuserdata(LitValue value)
-{
-    return ((LitUserdata*)lit_value_asobject(value));
-}
-
-LitRange* lit_value_asrange(LitValue value)
-{
-    return ((LitRange*)lit_value_asobject(value));
-}
-
-LitField* lit_value_asfield(LitValue value)
-{
-    return ((LitField*)lit_value_asobject(value));
-}
-
-LitFiber* lit_value_asfiber(LitValue value)
-{
-    return ((LitFiber*)lit_value_asobject(value));
-}
-
-LitReference* lit_value_asreference(LitValue value)
-{
-    return ((LitReference*)lit_value_asobject(value));
-}
-
-LitValue lit_value_makenull()
-{
-    LitValue rt;
-    rt.type = LIT_VALTYPE_NULL;
-    rt.as.numval = 0;
-    return rt;
-}
-
-LitValue lit_value_makebool(bool b)
-{
-    LitValue rt;
-    rt.type = LIT_VALTYPE_BOOL;
-    rt.as.boolval = b;
-    return rt;
-}
-
-LitValue lit_value_makenumber(double num)
-{
-    LitValue rt;
-    rt.type = LIT_VALTYPE_NUMBER;
-    rt.as.numval = num;
-    return rt;
-}
-
-#define lit_value_fromobject(obj) lit_value_fromobject_actual((LitObject*)(obj))
-
-LitValue lit_value_fromobject_actual(LitObject* obj)
-{
-    LitValue rt;
-    rt.type = LIT_VALTYPE_OBJECT;
-    rt.as.obj = obj;
-    return rt;
-}
-
-bool lit_value_isfalsy(LitValue value)
-{
-    LitString* str;
-    if(lit_value_isbool(value))
-    {
-        return (lit_value_asbool(value) == false);
-    }
-    else if(lit_value_isnull(value))
-    {
-        return true;
-    }
-    else if(lit_value_isnumber(value))
-    {
-        return (lit_value_asnumber(value) == 0);
-    }
-    else
-    {
-        if(lit_value_isstring(value))
-        {
-            str = lit_value_asstring(value);
-            if(lit_string_getlength(str) == 0)
-            {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool lit_value_compare(LitState* state, LitValue a, LitValue b)
-{
-    LitValue tmpargs[2];
-    LitString* as;
-    LitString* bs;
-
-    if(a.type == b.type)
-    {
-        if(lit_value_isnumber(a))
-        {
-            return lit_value_asnumber(a) == lit_value_asnumber(b);
-        }
-        if(lit_value_isnull(a))
-        {
-            return true;
-        }
-        if(lit_value_isbool(a))
-        {
-            return lit_value_asbool(a) == lit_value_asbool(b);
-        }
-        if(lit_value_asobject(a) == lit_value_asobject(b))
-        {
-            return true;
-        }
-        if(lit_value_isstring(a) && lit_value_isstring(b))
-        {
-            as = lit_value_asstring(a);
-            bs = lit_value_asstring(b);
-            return lit_string_getlength(as) == lit_string_getlength(bs) && memcmp(lit_string_getdata(as), lit_string_getdata(bs), lit_string_getlength(as)) == 0;
-        }
-    }
-    else
-    {
-        if(lit_value_isbool(a) && lit_value_isnumber(b))
-        {
-            return lit_value_asbool(a) == lit_value_asnumber(b);
-        }
-        if(lit_value_isnumber(a) && lit_value_isbool(b))
-        {
-            return lit_value_asnumber(a) == lit_value_asbool(b);
-        }
-        if(lit_value_isstring(a) || lit_value_isstring(b))
-        {
-            return false;
-        }
-    }
-    tmpargs[0] = b;
-    return !lit_value_isfalsy(lit_state_findandcallmethod(state, a, state->strings.stropequal, tmpargs, 1).result);
-}
-
-const char* lit_value_objtypename(int t)
-{
-    switch(t)
-    {
-        case LIT_OBJTYPE_STRING:
-            return "string";
-        case LIT_OBJTYPE_FUNCSCRIPT:
-        case LIT_OBJTYPE_FUNCNATIVE:
-        case LIT_OBJTYPE_FUNCNATMETHOD:
-        case LIT_OBJTYPE_FUNCCLOSURE:
-        case LIT_OBJTYPE_FUNCBOUNDMETHOD:
-            return "function";
-        case LIT_OBJTYPE_FIBER:
-            return "fiber";
-        case LIT_OBJTYPE_MODULE:
-            return "module";
-
-        case LIT_OBJTYPE_CLSPROTOTYPE:
-            return "prototype";
-        case LIT_OBJTYPE_UPVALUE:
-            return "upvalue";
-        case LIT_OBJTYPE_CLASS:
-            return "class";
-        case LIT_OBJTYPE_INSTANCE:
-            return "instance";
-        case LIT_OBJTYPE_ARRAY:
-            return "array";
-        case LIT_OBJTYPE_VARARGARRAY:
-            return "varargarray";
-        case LIT_OBJTYPE_MAP:
-            return "map";
-        case LIT_OBJTYPE_USERDATA:
-            return "userdata";
-        case LIT_OBJTYPE_RANGE:
-            return "range";
-        case LIT_OBJTYPE_FIELD:
-            return "field";
-        case LIT_OBJTYPE_REFERENCE:
-            return "reference";
-    }
-    return "?unknown?";
-}
-
-const char* lit_value_valtypefromtype(int t)
-{
-    switch(t)
-    {
-        case LIT_VALTYPE_NULL:
-            return "null";
-        case LIT_VALTYPE_BOOL:
-            return "bool";
-        case LIT_VALTYPE_NUMBER:
-            return "number";
-        /* technically never reached */
-        case LIT_VALTYPE_OBJECT:
-            return "object";
-    }
-    return "?unknown?";
-}
-
-const char* lit_value_valtypename(LitValue val)
-{
-    if(lit_value_isobject(val))
-    {
-        return lit_value_objtypename(lit_value_asobject(val)->type);
-    }
-    return lit_value_valtypefromtype(val.type);
-}
 
 void lit_gcmem_deallocobject(LitState* state, size_t typesz, void* pointer)
 {
