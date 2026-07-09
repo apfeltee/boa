@@ -203,6 +203,25 @@ class LighTemplate
 
 class Response
 {
+    static htmlEncode(str)
+    {
+        var i;
+        var buffer = [];
+        for(i=0; i<str.length; i++)
+        {
+            var ch = str[i];
+            switch(ch) {
+                case '&':  buffer.push("&amp;");       break;
+                case '"': buffer.push("&quot;");      break;
+                case "'": buffer.push("&apos;");      break;
+                case '<':  buffer.push("&lt;");        break;
+                case '>':  buffer.push("&gt;");        break;
+                default:   buffer.push(ch); break;
+            }
+        }
+        return buffer.join();
+    }
+
     write(args, ...)
     {
         var i;
@@ -214,7 +233,12 @@ class Response
     }
 }
 
-var src = File.read("src.tpl")
+var filename = "src1.tpl";
+if(ARGV.length > 1)
+{
+    filename = ARGV[1];
+}
+var src = File.read(filename)
 var tpl = new LighTemplate(src)
 var rs = new Response()
 tpl.run(rs)

@@ -187,7 +187,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_CONFIG_UINT8COUNT (UINT8_MAX + 1)
 #define LIT_CONFIG_UINT16COUNT (UINT16_MAX + 1)
 
-
 /* do not change these, or old bytecode files will break! */
 #define LIT_CONFIG_BCVERSION 0
 #define LIT_CONFIG_BCMAGICNUMBER (6932)
@@ -3679,7 +3678,10 @@ void lit_dynlistpriv_reset(LitDynListPriv* list)
 
 void lit_dynlistpriv_destroy(LitDynListPriv* list)
 {
-    lit_sysmem_free(list->listitems);
+    if(list->listitems != NULL && ((list->listcount > 0) && (list->listcapacity > 0)))
+    {
+        lit_sysmem_free(list->listitems);
+    }
     lit_dynlistpriv_reset(list);
 }
 
@@ -4595,7 +4597,7 @@ bool lit_iostream_putquotedstring(LitIOStream* pr, const char* str, size_t len, 
     bch = 0;
     if(withquot)
     {
-        lit_iostream_writechar(pr, '"');
+        lit_iostream_writechar(pr, 34);
     }
     for(i = 0; i < len; i++)
     {
@@ -4611,7 +4613,7 @@ bool lit_iostream_putquotedstring(LitIOStream* pr, const char* str, size_t len, 
     }
     if(withquot)
     {
-        lit_iostream_writechar(pr, '"');
+        lit_iostream_writechar(pr, 34);
     }
     return true;
 }
@@ -5659,7 +5661,7 @@ LitString* lit_string_copylen_real(LitState* state, const char* chars, size_t le
     memcpy(heapchars, chars, length);
     heapchars[length] = '\0';
 #if defined(LIT_CONFIG_DEBUGLOGALLOCATION) && (LIT_CONFIG_DEBUGLOGALLOCATION == 1)
-    printf("allocated new string '%s'\n", chars);
+    printf("allocated new string <%s>\n", chars);
 #endif
     return lit_string_makestringfrom(state, heapchars, length, hash, true);
 }
@@ -6635,7 +6637,8 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_IF:
         {
-            LitAstIfExpr* stmt = (LitAstIfExpr*)topexpr;
+            LitAstIfExpr* stmt;
+            stmt = (LitAstIfExpr*)topexpr;
             lit_ast_destroyexpression(state, stmt->condition);
             lit_ast_destroyexpression(state, stmt->branchif);
             lit_ast_destroyallocatedexprlist(state, stmt->elseifcondlist);
@@ -6646,7 +6649,8 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_SWITCH:
         {
-            LitAstSwitchExpr* stmt = (LitAstSwitchExpr*)topexpr;
+            LitAstSwitchExpr* stmt;
+            stmt = (LitAstSwitchExpr*)topexpr;
             lit_ast_destroyexpression(state, stmt->condition);
             lit_ast_destroyexprlist(state, &stmt->caseconditions);
             lit_ast_destroyexprlist(state, &stmt->casebodies);
@@ -6655,7 +6659,8 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_WHILE:
         {
-            LitAstWhileExpr* stmt = (LitAstWhileExpr*)topexpr;
+            LitAstWhileExpr* stmt;
+            stmt = (LitAstWhileExpr*)topexpr;
             lit_ast_destroyexpression(state, stmt->condition);
             lit_ast_destroyexpression(state, stmt->body);
             lit_sysmem_free(topexpr);
@@ -6663,7 +6668,8 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
         }
         case LIT_ASTEXPRTYP_FOR:
         {
-            LitAstForExpr* stmt = (LitAstForExpr*)topexpr;
+            LitAstForExpr* stmt;
+            stmt = (LitAstForExpr*)topexpr;
             lit_ast_destroyexpression(state, stmt->increment);
             lit_ast_destroyexpression(state, stmt->condition);
             lit_ast_destroyexpression(state, stmt->init);
@@ -6745,7 +6751,8 @@ void lit_ast_destroyexpression(LitState* state, LitAstExpression* topexpr)
 
 LitAstExpression* lit_ast_allocexpression(uint64_t scriptsrcline, size_t size, LitAstExprType type)
 {
-    LitAstExpression* object = (LitAstExpression*)lit_sysmem_malloc(size);
+    LitAstExpression* object;
+    object = (LitAstExpression*)lit_sysmem_malloc(size);
     object->type = type;
     object->line = scriptsrcline;
     return object;
@@ -7335,7 +7342,7 @@ LitAstToken lit_astlex_scanstring(LitAstLexer* lex, bool istplstring, bool usees
                                 default:
                                     {
                                         lit_dynlistbyte_destroy(&tgtbuf);
-                                        return lit_astlex_makeerrortoken(lex, "invalid escape character '%c'", lex->sourcedatacurrent[-1]);
+                                        return lit_astlex_makeerrortoken(lex, "invalid escape character <%c>", lex->sourcedatacurrent[-1]);
                                     }
                                     break;
                             }
@@ -7634,9 +7641,28 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
         case '#':
             return lit_astlex_matchtoken(lex, '=', LIT_ASTTOKTYP_SHARPEQUAL, LIT_ASTTOKTYP_SHARP);
         case '!':
-            return lit_astlex_matchtoken(lex, '=', LIT_ASTTOKTYP_BANGEQUAL, LIT_ASTTOKTYP_BANG);
+            {
+                {
+                    if(lit_astlex_match(lex, '='))
+                    {
+                        if(lit_astlex_match(lex, '='))
+                        {
+                            /*js-ism: !== */
+                        }
+                        return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_BANGEQUAL);
+                    }
+                    else
+                    {
+                        return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_BANG);
+                    }
+                }
+            }
+            break;
         case '?':
-            return lit_astlex_matchtoken(lex, '?', LIT_ASTTOKTYP_QUESTIONQUESTION, LIT_ASTTOKTYP_QUESTION);
+            {
+                return lit_astlex_matchtoken(lex, '?', LIT_ASTTOKTYP_QUESTIONQUESTION, LIT_ASTTOKTYP_QUESTION);
+            }
+            break;
         case '%':
             return lit_astlex_matchtoken(lex, '=', LIT_ASTTOKTYP_PERCENTEQUAL, LIT_ASTTOKTYP_PERCENT);
         case '^':
@@ -7648,26 +7674,53 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
         case '*':
             return lit_astlex_matchtokens(lex, '=', '*', LIT_ASTTOKTYP_STAREQUAL, LIT_ASTTOKTYP_STARSTAR, LIT_ASTTOKTYP_STAR);
         case '=':
-            return lit_astlex_matchtokens(lex, '=', '>', LIT_ASTTOKTYP_EQUALEQUAL, LIT_ASTTOKTYP_ARROW, LIT_ASTTOKTYP_EQUAL);
-        case '|':
-            return lit_astlex_matchtokens(lex, '=', '|', LIT_ASTTOKTYP_BAREQUAL, LIT_ASTTOKTYP_BARBAR, LIT_ASTTOKTYP_BAR);
-        case '&':
-            return lit_astlex_matchtokens(lex, '=', '&', LIT_ASTTOKTYP_AMPERSANDEQUAL, LIT_ASTTOKTYP_AMPERSANDAMPERSAND, LIT_ASTTOKTYP_AMPERSAND);
-        case '.':
-        {
-            if(!lit_astlex_match(lex, '.'))
             {
-                return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_DOT);
+                {
+                    if(lit_astlex_match(lex, '='))
+                    {
+                        if(lit_astlex_match(lex, '='))
+                        {
+                            /*js-ism: === */
+                        }
+                        return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_EQUALEQUAL);
+                    }
+                    else
+                    {
+                        if(lit_astlex_match(lex, '>'))
+                        {
+                            return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_ARROW);
+                        }
+                        return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_EQUAL);
+                    }
+                }
             }
-            return lit_astlex_matchtoken(lex, '.', LIT_ASTTOKTYP_DOTDOTDOT, LIT_ASTTOKTYP_DOTDOT);
-        }
+            break;
+        case '|':
+            {
+                return lit_astlex_matchtokens(lex, '=', '|', LIT_ASTTOKTYP_BAREQUAL, LIT_ASTTOKTYP_BARBAR, LIT_ASTTOKTYP_BAR);
+            }
+            break;
+        case '&':
+            {
+                return lit_astlex_matchtokens(lex, '=', '&', LIT_ASTTOKTYP_AMPERSANDEQUAL, LIT_ASTTOKTYP_AMPERSANDAMPERSAND, LIT_ASTTOKTYP_AMPERSAND);
+            }
+            break;
+        case '.':
+            {
+                if(!lit_astlex_match(lex, '.'))
+                {
+                    return lit_astlex_maketoken(lex, LIT_ASTTOKTYP_DOT);
+                }
+                return lit_astlex_matchtoken(lex, '.', LIT_ASTTOKTYP_DOTDOTDOT, LIT_ASTTOKTYP_DOTDOT);
+            }
+            break;
         case '`':
             {
                 return lit_astlex_scanstring(lex, true, true, '`');
             }
-        case '"':
+        case 34:
             {
-                return lit_astlex_scanstring(lex, false, true, '"');
+                return lit_astlex_scanstring(lex, false, true, 34);
             }
             break;
         case '\'':
@@ -7677,7 +7730,7 @@ LitAstToken lit_astlex_scantoken(LitAstLexer* lex)
             break;
     }
     fprintf(stderr, "current=%s\n", lex->sourcedatacurrent);
-    return lit_astlex_makeerrortoken(lex, "unexpected character '%c'", c);
+    return lit_astlex_makeerrortoken(lex, "unexpected character <%c>", c);
 }
 
 static jmp_buf jumpbuffer;
@@ -7821,7 +7874,7 @@ void lit_astparser_consume(LitAstParser* prs, LitAstTokType type, const char* er
         return;
     }
     islinefeed = prs->previous.type == LIT_ASTTOKTYP_LINEFEED;
-    r = lit_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got '%.*s'", error, islinefeed ? 8 : prs->previous.length, islinefeed ? "new line" : prs->previous.start);
+    r = lit_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got <%.*s>", error, islinefeed ? 8 : prs->previous.length, islinefeed ? "new line" : prs->previous.start);
     lit_astparser_failactual(prs, &prs->current, lit_string_getdata(r));
 }
 
@@ -7863,6 +7916,7 @@ LitAstExpression* lit_astparser_parseprec(LitAstParser* prs, LitPrecedence prece
     LitAstToken previous;
     LitParsePrefixFn prefixrule;
     LitParseInfixFn infixrule;
+    LitAstRule* rule;
     LitAstExpression* expr;
     bool canassign;
     bool prevnewline;
@@ -7874,7 +7928,12 @@ LitAstExpression* lit_astparser_parseprec(LitAstParser* prs, LitPrecedence prece
     previous = prs->previous;
     lit_astparser_ignorelinefeeds(prs);
     lit_astparser_advance(prs);
-    prefixrule = lit_astparser_getrule(prs->previous.type)->prefix;
+    rule = lit_astparser_getrule(prs->previous.type);
+    if(rule == NULL)
+    {
+        lit_astparser_failfmt(prs, "no rule for this token found");
+    }
+    prefixrule = rule->prefix;
     if(prefixrule == NULL)
     {
         /* todo: file start */
@@ -7894,7 +7953,7 @@ LitAstExpression* lit_astparser_parseprec(LitAstParser* prs, LitPrecedence prece
             gotlen = prs->previous.length;
             gotstr = prs->previous.start;
         }
-        lit_astparser_failfmt(prs, "expected expression after '%.*s', got '%.*s'", exlen, exstr, gotlen, gotstr);
+        lit_astparser_failfmt(prs, "expected expression after <%.*s>, got <%.*s>", exlen, exstr, gotlen, gotstr);
         return NULL;
     }
     canassign = precedence <= LIT_ASTPREC_ASSIGNMENT;
@@ -8110,7 +8169,7 @@ LitAstExpression* lit_astparser_ruleparsecall(LitAstParser* prs, LitAstExpressio
     }
     if(expr->callargs.listcount > 255)
     {
-        lit_astparser_failfmt(prs, "function can't have more than 255 arguments, got %i", (int)expr->callargs.listcount);
+        lit_astparser_failfmt(prs, "function cannot have more than 255 arguments, got %i", (int)expr->callargs.listcount);
     }
     lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after arguments");
     return (LitAstExpression*)expr;
@@ -8160,7 +8219,7 @@ LitAstExpression* lit_astparser_rulebinary(LitAstParser* prs, LitAstExpression* 
     invert = prs->previous.type == LIT_ASTTOKTYP_BANG;
     if(invert)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWIS, "'is' after '!'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWIS, "<is> after <!>");
     }
     op = prs->previous.type;
     line = prs->previous.line;
@@ -8429,7 +8488,7 @@ LitAstExpression* lit_astparser_parsevarexprbase(LitAstParser* prs, bool canassi
         }
         else if(!hadargs)
         {
-            lit_astparser_failherefmt(prs, "expected %s, got '%.*s'", "argument list for instance creation", prs->previous.length, prs->previous.start);
+            lit_astparser_failherefmt(prs, "expected %s, got <%.*s>", "argument list for instance creation", prs->previous.length, prs->previous.start);
         }
         return (LitAstExpression*)call;
     }
@@ -8452,7 +8511,7 @@ LitAstExpression* lit_astparser_rulevarexpr(LitAstParser* prs, bool canassign)
 LitAstExpression* lit_astparser_rulenewexpr(LitAstParser* prs, bool canassign)
 {
     (void)canassign;
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "class name after 'new'");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "class name after <new>");
     return lit_astparser_parsevarexprbase(prs, false, true);
 }
 
@@ -8467,7 +8526,7 @@ LitAstExpression* lit_astparser_ruledot(LitAstParser* prs, LitAstExpression* pre
     /* class and super are allowed field names */
     if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCLASS) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWSUPER) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWTRY)))
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after '->'" : "property name after '.'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after < -> >" : "property name after <.>");
     }
     name = prs->previous.start;
     length = prs->previous.length;
@@ -8475,15 +8534,12 @@ LitAstExpression* lit_astparser_ruledot(LitAstParser* prs, LitAstExpression* pre
     {
         return (LitAstExpression*)lit_ast_makesetexpr(line, previous, name, length, lit_astparser_parseexpr(prs));
     }
-    else
+    LitAstExpression* expr = (LitAstExpression*)lit_ast_makegetexpr(line, previous, name, length, false, ignored);
+    if(!ignored && lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACKET))
     {
-        LitAstExpression* expr = (LitAstExpression*)lit_ast_makegetexpr(line, previous, name, length, false, ignored);
-        if(!ignored && lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACKET))
-        {
-            return lit_astparser_parsesubscript(prs, expr, canassign);
-        }
-        return expr;
+        return lit_astparser_parsesubscript(prs, expr, canassign);
     }
+    return expr;
 }
 
 LitAstExpression* lit_astparser_rulerange(LitAstParser* prs, LitAstExpression* previous, bool canassign)
@@ -8505,7 +8561,7 @@ LitAstExpression* lit_astparser_ruleternaryorquestion(LitAstParser* prs, LitAstE
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT) /* || lit_astparser_match(prs, LIT_ASTTOKTYP_SMALLARROW)*/)
     {
         ignored = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after '->'" : "property name after '.'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignored ? "property name after <->>" : "property name after <.>");
         return (LitAstExpression*)lit_ast_makegetexpr(line, previous, prs->previous.start, prs->previous.length, true, ignored);
     }
     ifbranch = lit_astparser_parseexpr(prs);
@@ -8556,12 +8612,12 @@ LitAstExpression* lit_astparser_rulesuper(LitAstParser* prs, bool canassign)
     if(!(lit_astparser_match(prs, LIT_ASTTOKTYP_DOT) || lit_astparser_match(prs, LIT_ASTTOKTYP_SMALLARROW)))
     {
         expr = (LitAstExpression*)lit_ast_makesuperexpr(line, prs->pstate->strings.strconstructor, false);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after 'super'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "<(> after <super>");
         res = lit_astparser_ruleparsecall(prs, expr, false);
         return res;
     }
     ignoring = prs->previous.type == LIT_ASTTOKTYP_SMALLARROW;
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignoring ? "super method name after '->'" : "super method name after '.'");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, ignoring ? "super method name after <->>" : "super method name after <.>");
     expr = (LitAstExpression*)lit_ast_makesuperexpr(line, lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length), ignoring);
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN))
     {
@@ -8635,7 +8691,7 @@ LitAstExpression* lit_astparser_parsetry(LitAstParser* prs)
     size_t catchvarlen;
     line = prs->previous.line;
     lit_astparser_ignorelinefeeds(prs);
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect '{' after 'try'");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "Expect <{> after <try>");
     tryblock = lit_astparser_parseblock(prs);
     catchblock = NULL;
     finallyblock = NULL;
@@ -8646,25 +8702,25 @@ LitAstExpression* lit_astparser_parsetry(LitAstParser* prs)
     {
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTPAREN))
         {
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "expected identifier after 'catch('");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "expected identifier after <catch(>");
             catchvarstr = prs->previous.start;
             catchvarlen = prs->previous.length;
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "expected ')' after catch identifier");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "expected <)> after catch identifier");
         }
         lit_astparser_ignorelinefeeds(prs);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected '{' after 'catch'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected <{> after <catch>");
         catchblock = lit_astparser_parseblock(prs);
     }
     lit_astparser_ignorelinefeeds(prs);
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWFINALLY))
     {
         lit_astparser_ignorelinefeeds(prs);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected '{' after 'finally'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "expected <{> after <finally>");
         finallyblock = lit_astparser_parseblock(prs);
     }
     if(catchblock == NULL && finallyblock == NULL)
     {
-        lit_state_raiseerror(prs->pstate, "expected 'catch' or 'finally' after 'try'");
+        lit_state_raiseerror(prs->pstate, "expected <catch> or <finally> after <try>");
     }
     return (LitAstExpression*)lit_ast_maketrystmt(line, tryblock, catchblock, finallyblock, catchvarstr, catchvarlen);
 }
@@ -8695,7 +8751,7 @@ LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
     condition = lit_astparser_parseexpr(prs);
     if(hadparen)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)>");
     }
     if(invert)
     {
@@ -8722,7 +8778,7 @@ LitAstExpression* lit_astparser_parseif(LitAstParser* prs)
             e = lit_astparser_parseexpr(prs);
             if(hadparen)
             {
-                lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
+                lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)>");
             }
             if(invert)
             {
@@ -8751,10 +8807,10 @@ LitAstExpression* lit_astparser_parseswitch(LitAstParser* prs)
     LitAstExpression* condition = lit_astparser_parseexpr(prs);
     if(hadparen)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after switch condition");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)> after switch condition");
     }
     lit_astparser_ignorelinefeeds(prs);
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "'{' before switch body");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "<{> before switch body");
     lit_astparser_ignorelinefeeds(prs);
     LitAstSwitchExpr* switchexpr = lit_ast_makeswitchstatement(line, condition);
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE) && !lit_astparser_check(prs, LIT_ASTTOKTYP_EOF))
@@ -8763,15 +8819,15 @@ LitAstExpression* lit_astparser_parseswitch(LitAstParser* prs)
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWCASE))
         {
             casecond = lit_astparser_parseexpr(prs);
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after case expression");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "<:> after case expression");
         }
         else if(lit_astparser_match(prs, LIT_ASTTOKTYP_KWDEFAULT))
         {
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "':' after default");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_COLON, "<:> after default");
         }
         else
         {
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCASE, "expected 'case' or 'default'");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCASE, "expected <case> or <default>");
         }
         lit_astparser_ignorelinefeeds(prs);
         LitAstBlockExpr* body_block = lit_ast_makeblockstmt(prs->previous.line);
@@ -8786,7 +8842,7 @@ LitAstExpression* lit_astparser_parseswitch(LitAstParser* prs)
         lit_dynlistexpr_push(&switchexpr->caseconditions, casecond);
         lit_dynlistexpr_push(&switchexpr->casebodies, (LitAstExpression*)body_block);
     }
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}' after switch body");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "<}> after switch body");
     return (LitAstExpression*)switchexpr;
 }
 
@@ -8819,9 +8875,9 @@ LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
     increment = NULL;
     if(cstyle)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_SEMICOLON, "';'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_SEMICOLON, "<;>");
         condition = lit_astparser_check(prs, LIT_ASTTOKTYP_SEMICOLON) ? NULL : lit_astparser_parseexpr(prs);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_SEMICOLON, "';'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_SEMICOLON, "<;>");
         increment = lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTPAREN) ? NULL : lit_astparser_parseexpr(prs);
     }
     else
@@ -8834,7 +8890,7 @@ LitAstExpression* lit_astparser_parsefor(LitAstParser* prs)
     }
     if(hadparen)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)>");
     }
     return (LitAstExpression*)lit_ast_makeforstmt(line, init, var, condition, increment, lit_astparser_parsestmt(prs), cstyle);
 }
@@ -8850,7 +8906,7 @@ LitAstExpression* lit_astparser_parsewhile(LitAstParser* prs)
     condition = lit_astparser_parseexpr(prs);
     if(hadparen)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)>");
     }
     body = lit_astparser_parsestmt(prs);
     return (LitAstExpression*)lit_ast_makewhilestmt(line, condition, body);
@@ -8873,7 +8929,7 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
     isexport = prs->previous.type == LIT_ASTTOKTYP_KWEXPORT;
     if(isexport)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWFUNCTION, "'function' after 'export'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWFUNCTION, "<function> after <export>");
     }
     line = prs->previous.line;
     if(lit_astparser_check(prs, LIT_ASTTOKTYP_IDENTIFIER))
@@ -8891,15 +8947,15 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
         lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "function name");
         lambda = lit_ast_makelambdaexpr(line);
         to = lit_ast_makesetexpr(line, (LitAstExpression*)lit_ast_makevargetexpr(line, fnname, namelen), prs->previous.start, prs->previous.length, (LitAstExpression*)lambda);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after function name");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "<(> after function name");
         lit_astparser_compilerinit(prs, &stackcc);
         lit_astparser_scopebegin(prs);
         lit_astparser_parseparams(prs, &lambda->parameters);
         if(lambda->parameters.listcount > 255)
         {
-            lit_astparser_failfmt(prs, "function can't have more than 255 arguments, got %i", (int)lambda->parameters.listcount);
+            lit_astparser_failfmt(prs, "function cannot have more than 255 arguments, got %i", (int)lambda->parameters.listcount);
         }
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after function arguments");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)> after function arguments");
         lambda->body = lit_astparser_parsestmt(prs);
         lit_astparser_scopeend(prs);
         lit_astparser_compilerend(prs, &stackcc);
@@ -8914,15 +8970,15 @@ LitAstExpression* lit_astparser_parsefunction(LitAstParser* prs)
         function = lit_ast_makefuncdefstmt(line, fnname, namelen);
     }
     function->exported = isexport;
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after function name");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "<(> after function name");
     lit_astparser_compilerinit(prs, &stackcc);
     lit_astparser_scopebegin(prs);
     lit_astparser_parseparams(prs, &function->parameters);
     if(function->parameters.listcount > 255)
     {
-        lit_astparser_failfmt(prs, "function can't have more than 255 arguments, got %i", (int)function->parameters.listcount);
+        lit_astparser_failfmt(prs, "function cannot have more than 255 arguments, got %i", (int)function->parameters.listcount);
     }
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after function arguments");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)> after function arguments");
     function->body = lit_astparser_parsestmt(prs);
     lit_astparser_scopeend(prs);
     lit_astparser_compilerend(prs, &stackcc);
@@ -8972,7 +9028,7 @@ LitAstExpression* lit_astparser_parsefield(LitAstParser* prs, LitString* name, b
             lit_astparser_failfmt(prs, "expected declaration of either getter or setter, got none");
         }
         lit_astparser_ignorelinefeeds(prs);
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}' after field declaration");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "<}> after field declaration");
     }
     return (LitAstExpression*)lit_ast_makefieldstmt(line, name, getter, setter, isstatic);
 }
@@ -9001,7 +9057,7 @@ LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool isstatic)
     {
         if(isstatic)
         {
-            lit_astparser_failfmt(prs, "operator methods can't be static or defined in static classes");
+            lit_astparser_failfmt(prs, "operator methods cannot be static or defined in static classes");
         }
         i = 0;
         while(operators[i] != LIT_ASTTOKTYP_EOF)
@@ -9014,7 +9070,7 @@ LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool isstatic)
         }
         if(prs->previous.type == LIT_ASTTOKTYP_LEFTBRACKET)
         {
-            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACKET, "']' after '[' in op method declaration");
+            lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACKET, "<]> after <[> in op method declaration");
             name = prs->pstate->strings.stropindex;
         }
         else
@@ -9034,13 +9090,13 @@ LitAstExpression* lit_astparser_parsemethod(LitAstParser* prs, bool isstatic)
     method = lit_ast_makemethoddefstmt(prs->previous.line, name, isstatic);
     lit_astparser_compilerinit(prs, &stackcc);
     lit_astparser_scopebegin(prs);
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "'(' after method name");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTPAREN, "<(> after method name");
     lit_astparser_parseparams(prs, &method->parameters);
     if(method->parameters.listcount > 255)
     {
-        lit_astparser_failfmt(prs, "function can't have more than 255 arguments, got %i", (int)method->parameters.listcount);
+        lit_astparser_failfmt(prs, "function cannot have more than 255 arguments, got %i", (int)method->parameters.listcount);
     }
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "')' after method arguments");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTPAREN, "<)> after method arguments");
     method->body = lit_astparser_parsestmt(prs);
     lit_astparser_scopeend(prs);
     lit_astparser_compilerend(prs, &stackcc);
@@ -9066,14 +9122,14 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
     isstatic = prs->previous.type == LIT_ASTTOKTYP_KWSTATIC;
     if(isstatic)
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCLASS, "'class' after 'static'");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_KWCLASS, "<class> after <static>");
     }
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "class name after 'class'");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "class name after <class>");
     name = lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
     super = NULL;
     if(lit_astparser_match(prs, LIT_ASTTOKTYP_COLON) || lit_astparser_match(prs, LIT_ASTTOKTYP_KWEXTENDS))
     {
-        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "super class name after ':' (or 'extends')");
+        lit_astparser_consume(prs, LIT_ASTTOKTYP_IDENTIFIER, "super class name after <:> (or <extends>)");
         super = lit_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
         if(super == name)
         {
@@ -9082,7 +9138,7 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
     }
     klass = lit_ast_makeclassdefstmt(line, name, super);
     lit_astparser_ignorelinefeeds(prs);
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "'{' before class body");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_LEFTBRACE, "<{> before class body");
     lit_astparser_ignorelinefeeds(prs);
     finishedparsingfields = false;
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTBRACE))
@@ -9121,7 +9177,7 @@ LitAstExpression* lit_astparser_parseclass(LitAstParser* prs)
         }
         lit_astparser_ignorelinefeeds(prs);
     }
-    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "'}' after class body");
+    lit_astparser_consume(prs, LIT_ASTTOKTYP_RIGHTBRACE, "<}> after class body");
     return (LitAstExpression*)klass;
 }
 
@@ -9222,7 +9278,11 @@ LitAstExpression* lit_astparser_parsestmt(LitAstParser* prs)
         return lit_astparser_parseblock(prs);
     }
     expr = lit_astparser_parseexpr(prs);
-    return expr == NULL ? NULL : (LitAstExpression*)lit_ast_makeexprstmt(prs->previous.line, expr);
+    if(expr == NULL)
+    {
+        return NULL;
+    }
+    return (LitAstExpression*)lit_ast_makeexprstmt(prs->previous.line, expr);
 }
 
 LitAstExpression* lit_astparser_parsedecl(LitAstParser* prs)
@@ -10382,7 +10442,7 @@ int lit_emitter_addprivate(LitAstEmitter* emt, const char* name, size_t length, 
     key = lit_table_findstring(privnames, name, length, lit_string_hash(name, length));
     if(key != NULL)
     {
-        lit_emitter_raiseerror(emt, line, "variable '%.*s' was already declared in this scope", length, name);
+        lit_emitter_raiseerror(emt, line, "variable <%.*s> was already declared in this scope", length, name);
         if(lit_table_getentry(privnames, key, &vidx))
         {
             return lit_value_asnumber(vidx);
@@ -10413,7 +10473,7 @@ int lit_emitter_resolveprivate(LitAstEmitter* emt, const char* name, size_t leng
             numberindex = lit_value_asnumber(index);
             if(!emt->privlist.listitems[numberindex].initialized)
             {
-                lit_emitter_raiseerror(emt, line, "variable '%.*s' can't use itself in its initializer", length, name);
+                lit_emitter_raiseerror(emt, line, "variable <%.*s> cannot use itself in its initializer", length, name);
             }
             return numberindex;
         }
@@ -10439,7 +10499,7 @@ int lit_emitter_addlocal(LitAstEmitter* emt, const char* name, size_t length, si
         }
         if(length == local->length && memcmp(local->name, name, length) == 0)
         {
-            lit_emitter_raiseerror(emt, line, "variable '%.*s' was already declared in this scope", length, name);
+            lit_emitter_raiseerror(emt, line, "variable <%.*s> was already declared in this scope", length, name);
         }
     }
     lit_dynlistloc_push(locals, lit_emitter_makelocal(name, length, UINT16_MAX, false, constant, reg));
@@ -10457,7 +10517,7 @@ int lit_emitter_resolvelocal(LitAstEmitter* emt, LitAstCompiler* ccx, const char
         {
             if(local->depth == UINT16_MAX)
             {
-                lit_emitter_raiseerror(emt, line, "variable '%.*s' can't use itself in its initializer", length, name);
+                lit_emitter_raiseerror(emt, line, "variable <%.*s> cannot use itself in its initializer", length, name);
             }
             return i;
         }
@@ -10674,7 +10734,7 @@ void lit_emitter_emitbinaryexpr(LitAstEmitter* emt, LitAstBinaryExpr* expr, uint
         {
             if(expr->right->type != LIT_ASTEXPRTYP_VARGET)
             {
-                lit_emitter_raiseerror(emt, ((LitAstExpression*)expr)->line, "'is' operator is not used with a var expression");
+                lit_emitter_raiseerror(emt, ((LitAstExpression*)expr)->line, "<is> operator is not used with a var expression");
                 return;
             }
             e = (LitAstVarGetExpr*)expr->right;
@@ -10912,7 +10972,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                         {
                             if(emt->privlist.listitems[index].constant)
                             {
-                                lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", vgetexpr->length, vgetexpr->name);
+                                lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant <%.*s>", vgetexpr->length, vgetexpr->name);
                             }
                             if(LIT_BIT_ISSET(b, LIT_BITFLAG_CONSTANT))
                             {
@@ -10935,7 +10995,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
                     originalreg = emt->compiler->locals.listitems[index].reg;
                     if(emt->compiler->locals.listitems[index].constant)
                     {
-                        lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant '%.*s'", vgetexpr->length, vgetexpr->name);
+                        lit_emitter_raiseerror(emt, topexpr->line, "attempt to modify constant <%.*s>", vgetexpr->length, vgetexpr->name);
                     }
                     if(aexpr->value->type == LIT_ASTEXPRTYP_LITERAL || aexpr->value->type == LIT_ASTEXPRTYP_VARGET)
                     {
@@ -11362,7 +11422,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             ftype = emt->compiler->type;
             if(ftype == LIT_FUNCTYPE_STATIC_METHOD)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "'this' can't be used %s", "in static methods");
+                lit_emitter_raiseerror(emt, topexpr->line, "<this> cannot be used %s", "in static methods");
             }
             if(ftype == LIT_FUNCTYPE_CONSTRUCTOR || ftype == LIT_FUNCTYPE_METHOD || ftype == LIT_FUNCTYPE_SCRIPT || ftype == LIT_FUNCTYPE_REGULAR)
             {
@@ -11373,7 +11433,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
             {
                 if(emt->compiler->enclosing == NULL)
                 {
-                    lit_emitter_raiseerror(emt, topexpr->line, "'this' can't be used %s", "in functions outside of any class");
+                    lit_emitter_raiseerror(emt, topexpr->line, "<this> cannot be used %s", "in functions outside of any class");
                 }
                 else
                 {
@@ -11414,11 +11474,11 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
 
             if(emt->compiler->type == LIT_FUNCTYPE_STATIC_METHOD)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "'super' can't be used %s", "in static methods");
+                lit_emitter_raiseerror(emt, topexpr->line, "<super> cannot be used %s", "in static methods");
             }
             else if(!emt->classhassuper)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "'super' can't be used in class '%s', because it doesn't have a super class", emt->classname->strbuf.data);
+                lit_emitter_raiseerror(emt, topexpr->line, "<super> cannot be used in class <%s>, because it does not have a super class", emt->classname->strbuf.data);
             }
             supexpr = (LitAstSuperExpr*)topexpr;
             if(!supexpr->ignoreemit)
@@ -11451,7 +11511,7 @@ void lit_emitter_emitexprfull(LitAstEmitter* emt, LitAstExpression* topexpr, uin
         }
         default:
         {
-            lit_emitter_raiseerror(emt, topexpr->line, "unknown expression with id '%i'", (int)topexpr->type);
+            lit_emitter_raiseerror(emt, topexpr->line, "unknown expression with id <%i>", (int)topexpr->type);
             break;
         }
     }
@@ -12050,7 +12110,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         {
             if(emt->compiler->loopdepth == 0 && emt->compiler->switchdepth == 0)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops/switch", "break");
+                lit_emitter_raiseerror(emt, topexpr->line, "cannot use <%s> outside of loops/switch", "break");
             }
             lit_dynlistuint_push(&emt->breaks, lit_emitter_emittmp(emt));
             break;
@@ -12059,7 +12119,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         {
             if(emt->compiler->loopdepth == 0)
             {
-                lit_emitter_raiseerror(emt, topexpr->line, "cannot use '%s' outside of loops", "continue");
+                lit_emitter_raiseerror(emt, topexpr->line, "cannot use <%s> outside of loops", "continue");
             }
             lit_dynlistuint_push(&emt->continues, lit_emitter_emittmp(emt));
             break;
@@ -12242,7 +12302,7 @@ bool lit_emitter_emitstmt(LitAstEmitter* emt, LitAstExpression* topexpr)
         }
         default:
         {
-            lit_emitter_raiseerror(emt, topexpr->line, "unknown statement with id '%i'", (int)topexpr->type);
+            lit_emitter_raiseerror(emt, topexpr->line, "unknown statement with id <%i>", (int)topexpr->type);
             break;
         }
     }
@@ -13111,11 +13171,27 @@ LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t ar
 
 LitValue lit_objfnobject_iterator(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    int index;
+    int value;
+    LitInstance* self;
     LIT_ARGS_ENSURECOUNT(1);
-    LitInstance* self = lit_value_asinstance(instance);
-    int index = lit_value_isnull(args[0]) ? -1 : lit_value_asnumber(args[0]);
-    int value = lit_coreutil_tableiterator(&self->fields, index);
-    return value == -1 ? lit_value_makenull() : lit_value_makenumber(value);
+    if(!lit_value_isinstance(instance))
+    {
+        lit_vm_raisefatalerror(state, "cannot iterate non-instance type %s", lit_value_valtypename(args[0]));
+        return lit_value_makenull();
+    }
+    self = lit_value_asinstance(instance);
+    index = -1;
+    if(!lit_value_isnull(args[0]))
+    {
+        index = lit_value_asnumber(args[0]);
+    }
+    value = lit_coreutil_tableiterator(&self->fields, index);
+    if(value == -1)
+    {
+        return lit_value_makenull();
+    }
+    return lit_value_makenumber(value);
 }
 
 LitValue lit_objfnobject_itervalue(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -13127,7 +13203,7 @@ LitValue lit_objfnobject_itervalue(LitState* state, LitValue instance, size_t ar
 
 /** Number object functions */
 
-LitValue lit_objfnnumber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnnumber_constructor_actual(LitState* state, LitValue instance, size_t argc, LitValue* args, bool isatoi)
 {
     LitValue res;
     LitValue arg;
@@ -13136,7 +13212,7 @@ LitValue lit_objfnnumber_constructor(LitState* state, LitValue instance, size_t 
     LitString* strv;
     const char* cstr;
     (void)instance;
-    if(argc > 0)
+    if((argc > 0) || isatoi)
     {
         arg = args[0];
         if(lit_value_isnumber(arg))
@@ -13166,6 +13242,11 @@ LitValue lit_objfnnumber_constructor(LitState* state, LitValue instance, size_t 
         }
     }
     return lit_value_makenumber(0);
+}
+
+LitValue lit_objfnnumber_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    return lit_objfnnumber_constructor_actual(state, instance, argc, args, false);
 }
 
 LitValue lit_objfnnumber_tostring(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -13201,11 +13282,23 @@ LitValue lit_objfnbool_tostring(LitState* state, LitValue instance, size_t argc,
 
 LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
+    size_t i;
     char ch;
+    LitString* res;
     (void)instance;
     (void)argc;
-    ch = lit_value_asnumber(args[0]);
-    return lit_value_fromobject(lit_string_copylen(state, &ch, 1));
+    if(argc == 1)
+    {
+        ch = lit_value_asnumber(args[0]);
+        return lit_value_fromobject(lit_string_copylen(state, &ch, 1));
+    }
+    res = lit_string_copylen(state, "", 0);
+    for(i=0; i<argc; i++)
+    {
+        ch = lit_value_asnumber(args[i]);
+        lit_string_appendbyte(res, ch);
+    }
+    return lit_value_fromobject(res);
 }
 
 LitValue lit_objfnstring_minus(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -14897,6 +14990,8 @@ LitValue lit_cfn_printvalues(LitState* state, LitValue instance, size_t argc, Li
     return lit_value_makenull();
 }
 
+
+
 LitValue lit_cfn_printchar(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     char ch;
@@ -14912,6 +15007,11 @@ LitValue lit_cfn_printchar(LitState* state, LitValue instance, size_t argc, LitV
         lit_iostream_putlen(state->streamstdout, &ch, 1);
     }
     return lit_value_makenull();
+}
+
+LitValue lit_cfn_atoi(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    return lit_objfnnumber_constructor_actual(state, instance, argc, args, true);
 }
 
 LitValue lit_cfn_println(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -15171,6 +15271,7 @@ void lit_state_opencorelibrary(LitState* state)
     lit_state_defnative(state, "print", lit_cfn_printvalues);
     lit_state_defnative(state, "printchar", lit_cfn_printchar);
     lit_state_defnative(state, "println", lit_cfn_println);
+    lit_state_defnative(state, "atoi", lit_cfn_atoi);
     lit_state_defnative(state, "typeof", lit_cfn_typeof);
     lit_state_defnative(state, "openLibrary", lit_cfn_openlibrary);
     lit_state_defnative(state, "eval", lit_cfn_eval);
@@ -15298,7 +15399,7 @@ LitString* lit_bcemu_readstring(LitState* state, LitEmulatedFile* emu)
     {
         /* return interned empty string instead of NULL, so that empty string
          * constants ("") round-trip correctly through serialization */
-        return lit_string_copylen(state, "", 0);
+        return state->strings.strempty;
     }
     char* buffer = (char*)lit_sysmem_malloc(length + 1);
     for(i = 0; i < length; i++)

@@ -507,6 +507,7 @@ LitValue lit_objfnobject_iscallable(LitState *state, LitValue instance, size_t a
 LitValue lit_objfnobject_subscript(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnobject_iterator(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnobject_itervalue(LitState *state, LitValue instance, size_t argc, LitValue *args);
+LitValue lit_objfnnumber_constructor_actual(LitState *state, LitValue instance, size_t argc, LitValue *args, bool isatoi);
 LitValue lit_objfnnumber_constructor(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnnumber_tostring(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_objfnnumber_chr(LitState *state, LitValue instance, size_t argc, LitValue *args);
@@ -608,6 +609,7 @@ LitValue lit_cfn_time(LitState *state, LitValue instance, size_t argc, LitValue 
 LitValue lit_cfn_systemtime(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_cfn_printvalues(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_cfn_printchar(LitState *state, LitValue instance, size_t argc, LitValue *args);
+LitValue lit_cfn_atoi(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_cfn_println(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_cfn_typeof(LitState *state, LitValue instance, size_t argc, LitValue *args);
 LitValue lit_cfn_openlibrary(LitState *state, LitValue instance, size_t argc, LitValue *args);
