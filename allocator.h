@@ -721,7 +721,7 @@ MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSegment* 
   that may be needed to place segment records and fenceposts when new
   noncontiguous segments are added.
 */
-MEMPOOL_INLINE size_t mempool_util_topfootsize()
+MEMPOOL_INLINE size_t mempool_util_topfootsize(void)
 {
     return (mempool_util_alignoffset(mempool_util_chunk2mem(0)) + mempool_util_padrequest(sizeof(MempoolSegment)) + MEMPOOL_MINCHUNKSIZE);
 }
