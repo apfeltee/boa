@@ -1,0 +1,261 @@
+
+/* 'normal' JSON parsing, with a class object. */
+
+function parseJson(str)
+{
+
+    var m_source = str;
+    var m_index = 0;
+    var nfirstchars = "-0123456789.";
+    var nchars = "-0123456789.eE";
+
+    function isWhiteSpace(c)
+    {
+        return (
+            (c == " ") ||
+            (c == "\r") ||
+            (c == "\n") ||
+            (c == "\t")
+        );
+    }
+
+    function skipWhiteSpace()
+    {
+        while(true)
+        {
+            if(m_index >= m_source.length)
+            {
+                break;
+            }
+            if(isWhiteSpace(m_source[m_index]))
+            {
+                m_index++;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    function parseArray()
+    {
+        m_index++;
+        skipWhiteSpace();
+        if(m_source[m_index] == "]")
+        {
+            m_index++;
+            return [];
+        }
+        var a = [];
+        var c = null;
+        while(true)
+        {
+            var value = parseValue();
+            a.push(value);
+            skipWhiteSpace();
+            c = m_source[m_index];
+            if (c == ",")
+            {
+                m_index++;
+                skipWhiteSpace();
+            }
+            else
+            {
+                break;
+            }
+        }
+        if(c != "]")
+        {
+            println("error: Expecting ']'");
+        }
+        m_index++;
+        return a;
+    }
+
+    function parseObject()
+    {
+        m_index++;
+        skipWhiteSpace();
+        if(m_source[m_index] == "}")
+        {
+            m_index++;
+            return {};
+        }
+        var o = {};
+        var c = null;
+        while (true)
+        {
+            var name = parseValue();
+            skipWhiteSpace();
+            c = m_source[m_index];
+            if (c != ":")
+            {
+                throw Exception("Expecting ':'");
+            }
+            m_index++;
+            skipWhiteSpace();
+            var value = parseValue();
+            skipWhiteSpace();
+            if(name != null)
+            {
+                o[name] = value;
+            }
+            c = m_source[m_index];
+            if (c == ",")
+            {
+                m_index++;
+                skipWhiteSpace();
+            }
+            else
+            {
+                break;
+            }
+        }
+        if(c != "}")
+        {
+            throw Exception("Expecting '}'");
+        }
+        m_index++;
+        return o;
+    }
+
+    function parseString(quote)
+    {
+        var startIndex = m_index;
+        m_index++;
+        var c = 0;
+        var s = "";
+        while ((c = m_source[m_index]) != quote)
+        {
+            if(c == "\\++"[0])
+            {
+                m_index++;
+                c = m_source[m_index];
+                if(c == "r")
+                {
+                    s += "\r";
+                }
+                else if (c == "n")
+                {
+                    s += "\n";
+                }
+                else if (c == "t")
+                {
+                    s += "\t";
+                }
+                else if (c == "f")
+                {
+                    s += "\f";
+                }
+                // Note escaped unicode not handled
+                else
+                {
+                    s += c;
+                }
+            }
+            else
+            {
+                s += c;
+            }
+            m_index++;
+        }
+        m_index++;
+        return s;
+    }
+
+    function parseLiteral(literal, value)
+    {
+        if(literal.length > (m_source.length - m_index))
+        {
+            throw Exception(`Expecting '${literal}'`);
+        }
+        for (var i = 0; i < literal.length; i++)
+        {
+            if(literal[i] != m_source[m_index])
+            {
+                throw Exception(`Expecting '${literal}'`);
+            }
+            m_index++
+        }
+        return value;
+    }
+
+    function parseNumber()
+    {
+        var startIndex = m_index;
+        var c = 0;
+        while(true)
+        {
+            if(nchars.indexOf(m_source[m_index]) == -1)
+            {
+                break;
+            }
+            m_index++;
+        }
+        var str = m_source.substr(startIndex, m_index);
+        println(`parseNumber: str=${JSON.stringify(str)}`);
+        //m_index -= 1;
+        return str.toNumber();
+    }
+
+    function parseValue()
+    {
+        skipWhiteSpace();
+        if(m_index == m_source.length)
+        {
+            return null;
+        }
+        var c = m_source[m_index];
+        if (c == "{")
+        {
+            return parseObject();
+        }
+        else if (c == "[")
+        {
+            return parseArray();
+        }
+        else if (c == "'")
+        {
+            return parseString("'");
+        }
+        else if (c == "\"")
+        {
+            return parseString("\"");
+        }
+        else if (c == "t")
+        {
+            return parseLiteral("true", true);
+        }
+        else if (c == "f")
+        {
+            return parseLiteral("false", false);
+        }
+        else if (c == "n")
+        {
+            return parseLiteral("null", null);
+        }
+        else
+        {
+            var pos = nfirstchars.indexOf(c);
+            if(pos != -1)
+            {
+                println(`c = ${c}, pos=${pos}`)
+                return parseNumber();
+            }
+        }
+        println(`Invalid json (c=<${c}>, index=${m_index}, max=${m_source.length})`);
+    }
+
+    return parseValue();
+}
+
+function parse(str)
+{
+    var r = new parseJson(str)
+    return r
+}
+
+var src = "[1, 2, 3, {\"name\": \"john doe\", \"flags\": [4, 5, 6]}]";
+println("---source=<<<", src, ">>>")
+println(JSON.stringify(parse(src)));
