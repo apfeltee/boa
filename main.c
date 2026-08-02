@@ -9771,7 +9771,10 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 }
                 if(apr->csimode)
                 {
-                    lit_stream_puts(pr, "(");
+                    if(!oex->ignorecallresult)
+                    {
+                        lit_stream_puts(pr, "(");
+                    }
                     lit_astprint_printexpression(apr, oex->excallee);
                     lit_stream_puts(pr, " ");
                     for(i=0; i<count; i++)
@@ -9782,7 +9785,10 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                             lit_stream_puts(pr, " ");
                         }
                     }
-                    lit_stream_puts(pr, ")");
+                    if(!oex->ignorecallresult)
+                    {
+                        lit_stream_puts(pr, ")");
+                    }
                 }
                 else
                 {
@@ -9805,6 +9811,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstIndexSetExpr* oex;
                 oex = (LitAstIndexSetExpr*)expr;
                 lit_astprint_indentprint(apr);
+
                 lit_astprint_printexpression(apr, oex->where);
                 lit_stream_puts(pr, "[\"");
                 lit_stream_putlen(pr, oex->name, oex->length);
@@ -13009,7 +13016,6 @@ void lit_debug_disasinstr(LitStream* pr, LitChunk* chunk, size_t offset, const c
         lit_debug_callbackprintabxinstr,
         lit_debug_callbackprintasbxinstr
     };
-
     uint8_t opcode;
     uint64_t instruction;
     size_t line;
@@ -13020,7 +13026,6 @@ void lit_debug_disasinstr(LitStream* pr, LitChunk* chunk, size_t offset, const c
     char* prevline;
     char* outputline;
     char* currentline;
-
     line = lit_chunk_getline(chunk, offset);
     same = !chunk->haslineinfo || (offset > 0 && line == lit_chunk_getline(chunk, offset - 1));
     if(!same && source != NULL)
@@ -13063,40 +13068,40 @@ void lit_debug_disasinstr(LitStream* pr, LitChunk* chunk, size_t offset, const c
     switch(opcode)
     {
         case LIT_OPCODE_MOVE:
-            lit_debug_printmoveinstr(pr, chunk, opcode, instruction);
+            lit_debug_printmoveinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_MATHADD:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_MATHSUBTRACT:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_MATHMULTIPLY:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_MATHDIVIDE:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_NEGATE:
-            lit_debug_printunaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printunaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_NOT:
-            lit_debug_printunaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printunaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_EQUAL:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_LESSTHAN:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_LESSEQUAL:
-            lit_debug_printbinaryinstr(pr, chunk, opcode, instruction);
+            lit_debug_printbinaryinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_GLOBALSET:
-            lit_debug_printglobalinstr(pr, chunk, opcode, instruction);
+            lit_debug_printglobalinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         case LIT_OPCODE_GLOBALGET:
-            lit_debug_printglobalinstr(pr, chunk, opcode, instruction);
+            lit_debug_printglobalinstr(pr, chunk, (LitOpCode)opcode, instruction);
             break;
         default:
         {

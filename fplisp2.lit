@@ -275,32 +275,37 @@ function do_cons(v) {
 }
 
 
-function fp_apply(f, v)
+function get_builtin(name)
 {
-    var fp_builtins = {
-        "cons": do_cons,
-        "car": do_car,
-        "cdr": do_cdr,
-        "eq": do_eq,
-        "atom": do_atom,
-        "+": do_plus,
-        "-": do_minus,
-        "*": do_mult,
-        "/": do_div,
-        "%": do_mod,
-        "lt": do_lessthan,
-    };
-    if (atom(f))
+    if(name == "cons") return do_cons;
+    if(name == "car") return do_car;
+    if(name == "cdr") return do_cdr;
+    if(name == "eq") return do_eq;
+    if(name == "atom") return do_atom;
+    if(name == "+") return do_plus;
+    if(name == "-") return do_minus;
+    if(name == "*") return do_mult;
+    if(name == "/") return do_div;
+    if(name == "%") return do_mod;
+    if(name == "lt") return do_lessthan;
+    return null;
+}
+
+function fp_apply(fname, v)
+{
+
+    if (atom(fname))
     {
-        return fp_builtins[f](v);
+        fn = get_builtin(fname);
+        return fn(v);
     }
-    var lvars = cadr(f);
-    var lbody = caddr(f);
+    var lvars = cadr(fname);
+    var lbody = caddr(fname);
     var lenvs;
-    if (fp_null(cdr(cdr(cdr(f))))) {
+    if (fp_null(cdr(cdr(cdr(fname))))) {
         lenvs = null;
     } else {
-        lenvs = cadddr(f);
+        lenvs = cadddr(fname);
     }
     if (atom(lvars)) {
         if (fp_null(lvars)) {
