@@ -772,6 +772,8 @@ struct LitStream
 struct LitAstPrinter
 {
     bool csimode;
+    bool nosigil;
+    bool fromcall;
     size_t indentlevel;
     LitStream* printer;
     LitState* pstate;
@@ -1324,7 +1326,6 @@ struct LitAstCallExpr
     LitAstExpression* excallee;
     LitDynListExpr callargs;
     LitAstExpression* init;
-    bool ignorecallresult;
 };
 
 struct LitAstIndexGetExpr
@@ -4878,7 +4879,7 @@ bool lit_stream_resetcolor(LitStream* pr)
     return lit_stream_setcolor(pr, '0');
 }
 
-bool lit_stream_writechar(LitStream* pr, int b)
+bool lit_stream_putc(LitStream* pr, int b)
 {
     char ch;
     if(pr->wrmode == LIT_IOSTRMODE_STRING)
@@ -4894,7 +4895,7 @@ bool lit_stream_writechar(LitStream* pr, int b)
     return true;
 }
 
-bool lit_stream_writeescapedchar(LitStream* pr, int ch)
+bool lit_stream_putescapedchar(LitStream* pr, int ch)
 {
     switch(ch)
     {
@@ -4959,28 +4960,28 @@ bool lit_stream_putquotedstring(LitStream* pr, const char* str, size_t len, bool
     bch = 0;
     if(withquot)
     {
-        lit_stream_writechar(pr, 34);
+        lit_stream_putc(pr, 34);
     }
     for(i = 0; i < len; i++)
     {
         bch = str[i];
         if((bch < 32) || (bch > 127) || (bch == '\"') || (bch == '\\'))
         {
-            lit_stream_writeescapedchar(pr, bch);
+            lit_stream_putescapedchar(pr, bch);
         }
         else
         {
-            lit_stream_writechar(pr, bch);
+            lit_stream_putc(pr, bch);
         }
     }
     if(withquot)
     {
-        lit_stream_writechar(pr, 34);
+        lit_stream_putc(pr, 34);
     }
     return true;
 }
 
-bool lit_stream_vwritefmttostring(LitStream* pr, const char* fmt, va_list va)
+bool lit_stream_vprintftostring(LitStream* pr, const char* fmt, va_list va)
 {
     lit_strbuf_appendformatv(&pr->psbuf, fmt, va);
     return true;
@@ -4990,7 +4991,7 @@ bool lit_stream_printfv(LitStream* pr, const char* fmt, va_list va)
 {
     if(pr->wrmode == LIT_IOSTRMODE_STRING)
     {
-        return lit_stream_vwritefmttostring(pr, fmt, va);
+        return lit_stream_vprintftostring(pr, fmt, va);
     }
     else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
@@ -6789,7 +6790,6 @@ LitAstCallExpr* lit_ast_makecallexpr(size_t scriptsrcline, LitAstExpression* cal
     LitAstCallExpr* expr = (LitAstCallExpr*)lit_ast_allocexpression(scriptsrcline, sizeof(LitAstCallExpr), LIT_ASTEXPRTYP_CALL);
     expr->excallee = callee;
     expr->init = NULL;
-    expr->ignorecallresult = false;
     lit_dynlistexpr_init(&expr->callargs);
     return expr;
 }
@@ -8142,7 +8142,6 @@ LitAstExpression* lit_astparser_ruleparsecall(LitAstParser* prs, LitAstExpressio
     dotstr = lit_string_getdata(prs->pstate->strings.strdots);
     dotlen = lit_string_getlength(prs->pstate->strings.strdots);
     expr = lit_ast_makecallexpr(prs->previous.line, prev);
-    expr->ignorecallresult = !canassign;
     while(!lit_astparser_check(prs, LIT_ASTTOKTYP_RIGHTPAREN))
     {
         e = lit_astparser_parseexpr(prs);
@@ -8470,7 +8469,6 @@ LitAstExpression* lit_astparser_parsevarexprbase(LitAstParser* prs, bool canassi
         {
             lit_astparser_advance(prs);
             call = (LitAstCallExpr*)lit_astparser_ruleparsecall(prs, expr, false);
-            call->ignorecallresult = false;
         }
         if(lit_astparser_match(prs, LIT_ASTTOKTYP_LEFTBRACE))
         {
@@ -9576,6 +9574,8 @@ void lit_astprint_init(LitState* state, LitAstPrinter* apr, LitStream* printer, 
     apr->printer = printer;
     apr->indentlevel = 0;
     apr->csimode = csimode;
+    apr->nosigil = false;
+    apr->fromcall = false;
 }
 
 void lit_astprint_warnv(LitAstPrinter* apr, const char* fmt, va_list va)
@@ -9740,7 +9740,11 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 oex = (LitAstVarGetExpr*)expr;
                 if(apr->csimode)
                 {
-                    lit_stream_printf(pr, "$%.*s", (int)oex->length, oex->name);
+                    if(!apr->nosigil)
+                    {
+                        lit_stream_putc(pr, '$');
+                    }
+                    lit_stream_printf(pr, "%.*s", (int)oex->length, oex->name);
                 }
                 else
                 {
@@ -9753,9 +9757,11 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstAssignExpr* oex;
                 oex = (LitAstAssignExpr*)expr;
                 lit_astprint_indentprint(apr);
+                apr->nosigil = true;
                 lit_astprint_printexpression(apr, oex->to);
                 lit_stream_puts(pr, " = ");
                 lit_astprint_printexpression(apr, oex->value);
+                apr->nosigil = false;
             }
             break;
         case LIT_ASTEXPRTYP_CALL:
@@ -9765,38 +9771,46 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstCallExpr* oex;
                 oex = (LitAstCallExpr*)expr;
                 count = oex->callargs.listcount;
-                if(oex->ignorecallresult == true)
+                if(!apr->fromcall)
                 {
                     lit_astprint_indentprint(apr);
                 }
                 if(apr->csimode)
                 {
-                    if(!oex->ignorecallresult)
+                    if(!apr->fromcall)
                     {
                         lit_stream_puts(pr, "(");
                     }
+                    apr->fromcall = true;
                     lit_astprint_printexpression(apr, oex->excallee);
+                    apr->fromcall = false;
                     lit_stream_puts(pr, " ");
                     for(i=0; i<count; i++)
                     {
+                        apr->fromcall = true;
                         lit_astprint_printexpression(apr, (LitAstExpression*)oex->callargs.listitems[i]);
+                        apr->fromcall = false;
                         if((i+1) != count)
                         {
                             lit_stream_puts(pr, " ");
                         }
                     }
-                    if(!oex->ignorecallresult)
+                    if(!apr->fromcall)
                     {
-                        lit_stream_puts(pr, ")");
+                        lit_stream_puts(pr, ")");
                     }
                 }
                 else
                 {
+                    apr->fromcall = true;
                     lit_astprint_printexpression(apr, oex->excallee);
+                    apr->fromcall = false;
                     lit_stream_puts(pr, "(");
                     for(i=0; i<count; i++)
                     {
+                        apr->fromcall = true;
                         lit_astprint_printexpression(apr, (LitAstExpression*)oex->callargs.listitems[i]);
+                        apr->fromcall = false;
                         if((i+1) != count)
                         {
                             lit_stream_puts(pr, ", ");

@@ -293,7 +293,6 @@ function get_builtin(name)
 
 function fp_apply(fname, v)
 {
-
     if (atom(fname))
     {
         fn = get_builtin(fname);

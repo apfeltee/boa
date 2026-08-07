@@ -416,7 +416,8 @@ class EBNFParser
         return true;
     }
 
-    checkValid(test) {
+    checkValid(test)
+    {
         this.src = test;
         this.sdx = 0;
         let res = this.applies(this.productions[0][2]);
