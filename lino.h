@@ -107,17 +107,14 @@
  *
  */
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <fcntl.h>
+//#include <sys/stat.h>
+//#include <sys/types.h>
+//#include <fcntl.h>
 #include <assert.h>
 
 #if defined(__linux__) || defined(__unix__)
@@ -243,7 +240,7 @@ FILE *lndebug_fp = NULL;
             fflush(lndebug_fp);                                                                                                                             \
         } while(0)
 #else
-    #define lndebug(fmt, ...)
+    #define lndebug(...)
 #endif
 
 

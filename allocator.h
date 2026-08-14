@@ -30,6 +30,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* if no platform can be detected, or for testing; forces MEMPOOL_TARGET_GENERIC, which uses malloc/free */
+#define MEMPOOL_CONFIG_FORCEGENERIC 0
 
 #if (defined(__linux__) || defined(__CYGWIN__)) && !defined(_GNU_SOURCE)
     #define _GNU_SOURCE
@@ -55,17 +57,26 @@
 
 
 /* Select native OS if no target OS defined. */
-#if defined(__linux__)
-    #define MEMPOOL_TARGET_LINUX
-#elif defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER) || defined(__CYGWIN__)
-    #define MEMPOOL_TARGET_WINDOWS
-#elif defined(__MACH__) && defined(__APPLE__)
-    #define MEMPOOL_TARGET_OSX
-#elif(defined(__sun__) && defined(__svr4__))
-    #define MEMPOOL_TARGET_POSIX
+#if defined(MEMPOOL_CONFIG_FORCEGENERIC) && (MEMPOOL_CONFIG_FORCEGENERIC == 1)
+    #define MEMPOOL_TARGET_GENERIC
 #else
-    #define MEMPOOL_TARGET_OTHER
+    #if defined(__linux__)
+        #if defined(__SDCC)
+            #define MEMPOOL_TARGET_GENERIC
+        #else
+            #define MEMPOOL_TARGET_LINUX
+        #endif
+    #elif defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER) || defined(__CYGWIN__)
+        #define MEMPOOL_TARGET_WINDOWS
+    #elif defined(__MACH__) && defined(__APPLE__)
+        #define MEMPOOL_TARGET_OSX
+    #elif(defined(__sun__) && defined(__svr4__))
+        #define MEMPOOL_TARGET_POSIX
+    #else
+        #define MEMPOOL_TARGET_GENERIC
+    #endif
 #endif
+
 
 
 #if defined(MEMPOOL_TARGET_WINDOWS)
@@ -75,8 +86,10 @@
         #include <intrin.h>
     #endif
 #else
-    #include <errno.h>
-    #include <sys/mman.h>
+    #if defined(MEMPOOL_TARGET_LINUX)
+        #include <errno.h>
+        #include <sys/mman.h>
+    #endif
 #endif
 
 #ifdef __CELLOS_LV2__
@@ -616,31 +629,50 @@ MEMPOOL_INLINE size_t mempool_util_mmapalign(size_t sz)
                 errno = olderr;
                 return MEMPOOL_ON_CMFAIL;
             }
+        #elif defined(MEMPOOL_TARGET_GENERIC)
+            MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
+            {
+                return malloc(size);
+            }
         #else
             #warning "NYI: need an equivalent of MAP_32BIT for this 64 bit OS"
         #endif
     #else
         /* 32 bit mode is easy. */
+
         MEMPOOL_INLINE void* mempool_util_callmmap(size_t size)
         {
-            int olderr;
-            void* ptr;
-            olderr = errno;
-            ptr = mmap(NULL, size, MEMPOOL_MMAP_PROT, MEMPOOL_MMAP_FLAGS, -1, 0);
-            errno = olderr;
-            return ptr;
+            #if defined(MEMPOOL_TARGET_GENERIC)
+                return malloc(size);
+            #else
+                int olderr;
+                void* ptr;
+                olderr = errno;
+                ptr = mmap(NULL, size, MEMPOOL_MMAP_PROT, MEMPOOL_MMAP_FLAGS, -1, 0);
+                errno = olderr;
+                return ptr;
+            #endif
         }
     #endif
-    MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
-    {
-        int ret;
-        int olderr;
-        olderr = errno;
-        ret = munmap(ptr, size);
-        errno = olderr;
-        return ret;
-    }
 
+    #if defined(MEMPOOL_TARGET_GENERIC)
+        MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
+        {
+            (void)size;
+            free(ptr);
+            return 0;
+        }
+    #else    
+        MEMPOOL_INLINE int mempool_util_callmunmap(void* ptr, size_t size)
+        {
+            int ret;
+            int olderr;
+            olderr = errno;
+            ret = munmap(ptr, size);
+            errno = olderr;
+            return ret;
+        }
+    #endif
     #if defined(MEMPOOL_TARGET_LINUX)
         /* Need to define _GNU_SOURCE to get the mremap prototype. */
         MEMPOOL_INLINE void* mempool_util_callmremapactual(void* ptr, size_t osz, size_t nsz, int flags)
@@ -1762,6 +1794,7 @@ void* mempool_userrealloc(void* msp, void* ptr, size_t nsize)
     MempoolPlainChunk* oldp;
     MempoolPlainChunk* next;
     MempoolPlainChunk* newp;
+    MempoolPlainChunk* newtop;
     if(ptr == NULL)
     {
         return mempool_usermalloc(msp, nsize);
@@ -1801,7 +1834,7 @@ void* mempool_userrealloc(void* msp, void* ptr, size_t nsize)
             /* Expand into top */
             newsize = oldsize + m->topsize;
             newtopsize = newsize - nb;
-            MempoolPlainChunk* newtop = mempool_util_chunkplusoffset(oldp, nb);
+            newtop = mempool_util_chunkplusoffset(oldp, nb);
             mempool_util_setinuse(m, oldp, nb);
             newtop->head = newtopsize | MEMPOOL_PINUSE_BIT;
             m->top = newtop;
