@@ -1,37 +1,31 @@
+for (var a = 0; a < 5; a = a + 1)
 {
-    for (var a = 0; a < 5; a = a + 1)
+    if (a == 3)
     {
-        if (a == 3)
-        {
-            break;
-        }
-        println(a);
+        break;
     }
+    println(a);
 }
 
 "--end--";
 
-{
-    for (var a = 0; a < 3; a = a + 1) {
-        break;
-        throw Exception("no");
-    }
+for (var a = 0; a < 3; a = a + 1) {
+    break;
+    throw Exception("no");
 }
 
 var a = "no";
-{
-    while (true) {
-        for (var c = 0; c < 3; c = c + 1) {
-            while (true) {
-                a = "yes";
-                break;
-                throw Exception("nope");
-            }
+while (true) {
+    for (var c = 0; c < 3; c = c + 1) {
+        while (true) {
+            a = "yes";
             break;
+            throw Exception("nope");
         }
-        println(a);
         break;
     }
+    println(a);
+    break;
 }
 
 var i

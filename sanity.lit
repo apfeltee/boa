@@ -60,21 +60,17 @@ function testfiber()
     println("fiber is working fine");
 }
 
-{
-    println("testing basic vars")
-    {
-        a = 5
-        check("basic integer assignment", a == 5)
-        s = "foo"
-        check("basic string assignment", s == "foo")
-        m = {bar: "foo"}
-        check("basic inline object assignment", m["bar"] == "foo")
-        a = [1, 2, 3]
-        check("basic array assignment - length", (a.length == 3))
-        //check("basic array assignment - comparison", (a == [1, 2, 3]))
+println("testing basic vars")
+a = 5
+check("basic integer assignment", a == 5)
+s = "foo"
+check("basic string assignment", s == "foo")
+m = {bar: "foo"}
+check("basic inline object assignment", m["bar"] == "foo")
+a = [1, 2, 3]
+check("basic array assignment - length", (a.length == 3))
+//check("basic array assignment - comparison", (a == [1, 2, 3]))
 
-    }
-    testfiber();
-}
+testfiber();
 
 println("all is well!")

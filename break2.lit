@@ -1,3 +1,5 @@
+
+function testsimple()
 {
     var a = 0;
     while(a < 5)
@@ -11,7 +13,8 @@
     }
     println("after simple break\n");
 }
-"---end---";
+
+function testimmediate()
 {
     var a = 0;
     while(a < 3)
@@ -23,8 +26,9 @@
     println("after immediate break: ", a)
 }
 
-var a = "no";
+function testinner()
 {
+    var a = "no";
     while (true)
     {
         var c = 2;
@@ -44,25 +48,33 @@ var a = "no";
     }
 }
 
-var i
-var j
-i = 0;
-while(i<100)
+function testnested()
 {
-    if(i == 56)
+    var i
+    var j
+    i = 0;
+    while(i<100)
     {
-        break
-    }
-    j=0
-    while(j<100)
-    {
-        if(j == 48)
+        if(i == 56)
         {
             break
         }
-        j++;
+        j=0
+        while(j<100)
+        {
+            if(j == 48)
+            {
+                break
+            }
+            j++;
+        }
+        i++;
     }
-    i++;
+    println("i=", i, ", j=", j)
 }
 
-println("i=", i, ", j=", j)
+testsimple();
+testimmediate();
+testinner();
+testnested();
+

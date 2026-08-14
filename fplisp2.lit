@@ -277,17 +277,17 @@ function do_cons(v) {
 
 function get_builtin(name)
 {
-    if(name == "cons") return do_cons;
-    if(name == "car") return do_car;
-    if(name == "cdr") return do_cdr;
-    if(name == "eq") return do_eq;
-    if(name == "atom") return do_atom;
-    if(name == "+") return do_plus;
-    if(name == "-") return do_minus;
-    if(name == "*") return do_mult;
-    if(name == "/") return do_div;
-    if(name == "%") return do_mod;
-    if(name == "lt") return do_lessthan;
+    if(name == "cons") { return do_cons }
+    if(name == "car") { return do_car }
+    if(name == "cdr") { return do_cdr }
+    if(name == "eq") { return do_eq }
+    if(name == "atom") { return do_atom }
+    if(name == "+") { return do_plus }
+    if(name == "-") { return do_minus }
+    if(name == "*") { return do_mult }
+    if(name == "/") { return do_div }
+    if(name == "%") { return do_mod }
+    if(name == "lt") { return do_lessthan }
     return null;
 }
 
