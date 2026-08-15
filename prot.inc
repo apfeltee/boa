@@ -70,6 +70,7 @@ int lit_strbuf_appendformatnoterm(LitStrBuffer *sb, size_t pos, const char *fmt,
 void lit_strbuf_triminplace(LitStrBuffer *sb);
 void lit_strbuf_trimleftinplace(LitStrBuffer *sb, const char *list);
 void lit_strbuf_trimrightinplace(LitStrBuffer *sb, const char *list);
+bool lit_util_strtotrmode(const char *str, LitAstTranspileMode *dest);
 size_t lit_util_grownextcapacity(size_t capacity);
 bool lit_util_charisdigit(char c);
 bool lit_util_charisalpha(char c);
@@ -376,7 +377,7 @@ LitAstRule lit_astparser_makerule(LitParsePrefixFn prefix, LitParseInfixFn infix
 void lit_astparser_setuprules(void);
 const char *lit_astprint_tokname(int t);
 const char *lit_astprint_tokopstring(int t);
-void lit_astprint_init(LitState *state, LitAstPrinter *apr, LitStream *printer, bool csimode);
+void lit_astprint_init(LitState *state, LitAstPrinter *apr, LitStream *printer, LitAstTranspileMode trmode);
 void lit_astprint_warnv(LitAstPrinter *apr, const char *fmt, va_list va);
 void lit_astprint_warn(LitAstPrinter *apr, const char *fmt, ...);
 void lit_astprint_indentpush(LitAstPrinter *apr);
@@ -386,7 +387,7 @@ void lit_astprint_printfuncparams(LitAstPrinter *apr, LitDynListParam *params);
 void lit_astprint_printexpression(LitAstPrinter *apr, LitAstExpression *expr);
 void lit_astprint_printexprlist(LitAstPrinter *apr, LitDynListExpr *elist);
 void lit_astprint_printbeginlist(LitState *state, FILE *ofh, LitDynListExpr *statements);
-void lit_astprint_printbeginone(FILE *ofh, LitAstExpression *expr, bool csimode);
+void lit_astprint_printbeginone(FILE *ofh, LitAstExpression *expr, LitAstTranspileMode trmode);
 void lit_emitter_resolvestmtlist(LitAstEmitter *emt, LitDynListExpr *statements);
 void lit_emitter_init(LitState *state, LitAstEmitter *emt);
 void lit_emitter_reset(LitState *state, LitAstEmitter *emt);

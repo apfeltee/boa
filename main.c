@@ -616,6 +616,13 @@ enum LitStrMode
     LIT_IOSTRMODE_FILE
 };
 
+enum LitAstTranspileMode
+{
+    LIT_TRANSPILE_DEFAULT,
+    LIT_TRANSPILE_TOCSI
+};
+
+typedef enum LitAstTranspileMode LitAstTranspileMode;
 typedef enum LitStrMode LitStrMode;
 typedef enum LitObjType LitObjType;
 typedef enum LitFuncType LitFuncType;
@@ -795,7 +802,7 @@ struct LitStream
 
 struct LitAstPrinter
 {
-    bool csimode;
+    LitAstTranspileMode trmode;
     bool nosigil;
     bool fromcall;
     size_t indentlevel;
@@ -1142,7 +1149,7 @@ struct LitConfig
 {
     /* should the AST be dumped? */
     bool dumpast;
-    bool astcsimode;
+    LitAstTranspileMode transpilemode;
     /* should the interpreter stop after dumping the AST? */
     bool quitafterdump;
     /* should execution be traced? */
@@ -3084,6 +3091,21 @@ void lit_strbuf_trimrightinplace(LitStrBuffer* sb, const char* list)
         sb->length--;
     }
     data[sb->length] = '\0';
+}
+
+bool lit_util_strtotrmode(const char* str, LitAstTranspileMode* dest)
+{
+    if(strcmp(str, "default") == 0)
+    {
+        *dest = LIT_TRANSPILE_DEFAULT;
+        return true;
+    }
+    else if(strcmp(str, "csi") == 0)
+    {
+        *dest = LIT_TRANSPILE_TOCSI;
+        return true;
+    }
+    return false;
 }
 
 size_t lit_util_grownextcapacity(size_t capacity)
@@ -9671,12 +9693,12 @@ const char* lit_astprint_tokopstring(int t)
     return "<unknown>";
 }
 
-void lit_astprint_init(LitState* state, LitAstPrinter* apr, LitStream* printer, bool csimode)
+void lit_astprint_init(LitState* state, LitAstPrinter* apr, LitStream* printer, LitAstTranspileMode trmode)
 {
     apr->pstate = state;
     apr->printer = printer;
     apr->indentlevel = 0;
-    apr->csimode = csimode;
+    apr->trmode = trmode;
     apr->nosigil = false;
     apr->fromcall = false;
 }
@@ -9730,7 +9752,7 @@ void lit_astprint_printfuncparams(LitAstPrinter* apr, LitDynListParam* params)
     LitStream* pr;
     LitAstFuncParamExpr* param;
     pr = apr->printer;
-    if(apr->csimode)
+    if(apr->trmode == LIT_TRANSPILE_TOCSI)
     {
         if(params->listcount > 0)
         {
@@ -9794,7 +9816,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 LitAstBinaryExpr* oex;
                 oex = (LitAstBinaryExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "(");
                     lit_stream_puts(pr, lit_astprint_tokopstring(oex->op));
@@ -9820,7 +9842,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 LitAstUnaryExpr* oex;
                 oex = (LitAstUnaryExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "(");
                     lit_stream_puts(pr, lit_astprint_tokopstring(oex->op));
@@ -9841,7 +9863,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 LitAstVarGetExpr* oex;
                 oex = (LitAstVarGetExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     if(!apr->nosigil)
                     {
@@ -9878,7 +9900,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 {
                     lit_astprint_indentprint(apr);
                 }
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     if(!apr->fromcall)
                     {
@@ -9928,7 +9950,6 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstIndexSetExpr* oex;
                 oex = (LitAstIndexSetExpr*)expr;
                 lit_astprint_indentprint(apr);
-
                 lit_astprint_printexpression(apr, oex->where);
                 lit_stream_puts(pr, "[\"");
                 lit_stream_putlen(pr, oex->name, oex->length);
@@ -9955,7 +9976,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 LitAstSubscriptExpr* oex;
                 oex = (LitAstSubscriptExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "(atindex ");
                     lit_astprint_printexpression(apr, oex->array);
@@ -9978,7 +9999,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstFunctionExpr* oex;
                 oex = (LitAstFunctionExpr*)expr;
                 lit_astprint_warn(apr, "anonymous functions are NOT supported in csi");
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                 }
                 else
@@ -9996,7 +10017,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstLiteralArrayExpr* oex;
                 oex = (LitAstLiteralArrayExpr*)expr;
                 count = oex->exvalues.listcount;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "(array ");
                     for(i=0; i<count; i++)
@@ -10129,7 +10150,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 LitAstBlockExpr* oex;
                 oex = (LitAstBlockExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "[\n");
                     lit_astprint_indentpush(apr);
@@ -10156,7 +10177,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 size_t count;
                 LitAstIfExpr* oex;
                 oex = (LitAstIfExpr*)expr;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_astprint_indentprint(apr);
                     lit_stream_puts(pr, "if ");
@@ -10250,7 +10271,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstWhileExpr* oex;
                 oex = (LitAstWhileExpr*)expr;
                 lit_astprint_indentprint(apr);
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_puts(pr, "while ");
                     lit_astprint_printexpression(apr, oex->condition);
@@ -10323,7 +10344,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstVarDeclExpr* oex;
                 oex = (LitAstVarDeclExpr*)expr;
                 lit_astprint_indentprint(apr);
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_stream_putlen(pr, oex->name, oex->length);
                     if(oex->init != NULL)
@@ -10376,7 +10397,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 LitAstFunctionExpr* oex;
                 oex = (LitAstFunctionExpr*)expr;
                 lit_astprint_indentprint(apr);
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     if(oex->name != NULL)
                     {
@@ -10422,7 +10443,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
             {
                 bool notoper;
                 LitAstMethodExpr* oex;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_astprint_warn(apr, "class methods NOT supported in csi mode");
                 }
@@ -10447,7 +10468,7 @@ void lit_astprint_printexpression(LitAstPrinter* apr, LitAstExpression* expr)
                 size_t i;
                 size_t count;
                 LitAstClassExpr* oex;
-                if(apr->csimode)
+                if(apr->trmode == LIT_TRANSPILE_TOCSI)
                 {
                     lit_astprint_warn(apr, "classes are NOT supported in csi mode");
                 }
@@ -10510,7 +10531,7 @@ void lit_astprint_printbeginlist(LitState* state, FILE* ofh, LitDynListExpr* sta
     {
        printtrailing = false;
     }
-    lit_astprint_init(state, &apr, lit_stream_makeio(ofh, false), state->config.astcsimode);
+    lit_astprint_init(state, &apr, lit_stream_makeio(ofh, false), state->config.transpilemode);
     if(printtrailing)
     {
         lit_stream_puts(apr.printer, "<<<astdump begin>>>\n");
@@ -10523,10 +10544,10 @@ void lit_astprint_printbeginlist(LitState* state, FILE* ofh, LitDynListExpr* sta
     lit_stream_destroy(apr.printer);
 }
 
-void lit_astprint_printbeginone(FILE* ofh, LitAstExpression* expr, bool csimode)
+void lit_astprint_printbeginone(FILE* ofh, LitAstExpression* expr, LitAstTranspileMode trmode)
 {
     LitAstPrinter apr;
-    apr.csimode = csimode;
+    apr.trmode = trmode;
     apr.indentlevel = 0;
     apr.printer = lit_stream_makeio(ofh, false);
     lit_astprint_printexpression(&apr, expr);
@@ -17852,7 +17873,7 @@ LitState* lit_state_make()
     state->rootcapacity = 0;
     state->lastmodule = NULL;
     state->config.dumpast = false;
-    state->config.astcsimode = false;
+    state->config.transpilemode = LIT_TRANSPILE_DEFAULT;
     state->config.traceexecution = false;
     state->config.traceinstsonly = false;
     state->config.isreplmode = false;
@@ -20625,7 +20646,7 @@ static optlongflags_t longopts[] =
     {"help", 'h', OPTPARSE_NONE, "this help"},
     {"dump", 'd', OPTPARSE_NONE, "dump instructions"},
     {"ast", 'a', OPTPARSE_NONE, "dump AST"},
-    {"csimode", 'C', OPTPARSE_NONE, "when dumping ast, emit CSI-compatible code"},
+    {"transpile", 'C', OPTPARSE_REQUIRED, "when dumping ast, transpile to <lang>"},
     {"eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code"},
     {"trace", 't', OPTPARSE_NONE, "trace execution"},
     {"instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values"},
@@ -20659,6 +20680,7 @@ int main(int argc, char* argv[], char** envp)
     LitArray* argarray;
     LitStatusCode result;
     LitModule* module;
+    LitAstTranspileMode trmode;
     longindex = 0;
     result = LIT_STATUS_OK;
     #if defined(LIT_OSPLATFORM_ISWINNT) || defined(_MSC_VER)
@@ -20700,7 +20722,13 @@ int main(int argc, char* argv[], char** envp)
         }
         else if(co == 'C')
         {
-            state->config.astcsimode = true;
+            if(!lit_util_strtotrmode(options.optarg, &trmode))
+            {
+                fprintf(stderr, "cannot find transpile mode '%s'\n", options.optarg);
+                result = LIT_STATUS_RUNTIMEERROR;
+                goto endmain;
+            }
+            state->config.transpilemode = trmode;
         }
         else if(co == 'd')
         {
