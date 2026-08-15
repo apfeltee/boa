@@ -35,7 +35,7 @@
 #endif
 
 /* if no platform can be detected, or for testing; forces MEMPOOL_TARGET_GENERIC, which uses malloc/free */
-#define MEMPOOL_CONFIG_FORCEGENERIC 1
+#define MEMPOOL_CONFIG_FORCEGENERIC 0
 
 #if (defined(__linux__) || defined(__CYGWIN__)) && !defined(_GNU_SOURCE)
     #define _GNU_SOURCE

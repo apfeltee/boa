@@ -736,7 +736,10 @@ LitResult lit_interpret_module(LitState *state, LitModule *module);
 LitResult lit_state_execfiber(LitState *state, LitFiber *fiber);
 int lit_jmpstate_setnativeexit(void);
 void lit_jmpstate_nativeexitjump(void);
-void lit_cli_interupthandler(int signalid);
+void lit_repl_interupthandler(int signalid);
+size_t lit_repl_makeresultname(char *buf, int level);
+const char *lit_repl_setresultvar(LitState *state, int level, LitValue val);
+void lit_repl_runrepl(LitState *state, linocontext_t *lictx);
 int main(int argc, char *argv[], char **envp);
 /* allocator.h */
 void *mempool_createpool(void);

@@ -22,6 +22,9 @@
     #include <io.h>
 #endif
 
+#define LIT_CONFIG_USELINO 1
+#define LIT_CONFIG_USEMEMPOOL 1
+
 #if !defined(LIT_INLINE)
     /* gcc defines __STRICT_ANSI__ in C++, because C++ defaults to strict mode */
     #if defined(__STRICT_ANSI__) && !defined(__cplusplus)
@@ -89,9 +92,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
         #define LIT_OSPLATFORM_ISWINNT 1
     #endif
 #endif
-
-#define LIT_CONFIG_USELINO 0
-#define LIT_CONFIG_USEMEMPOOL 1
 
 #if defined(LIT_OSPLATFORM_ISLINUX)
     #include <unistd.h>
@@ -4854,7 +4854,6 @@ LIT_INLINE uint32_t lit_string_hash(const char* key, size_t length)
     }
     return hash;
 }
-
 
 void lit_stream_initvars(LitStream* pr, LitStrMode mode)
 {
@@ -20648,7 +20647,7 @@ void lit_jmpstate_nativeexitjump()
 
 static LitState* greplstate;
 
-void lit_cli_interupthandler(int signalid)
+void lit_repl_interupthandler(int signalid)
 {
     lit_state_destroy(greplstate);
     fprintf(stderr, "\nExiting (signalid=%d).\n", signalid);
@@ -20656,41 +20655,60 @@ void lit_cli_interupthandler(int signalid)
 }
 
 #if defined(LIT_CONFIG_USELINO) && (LIT_CONFIG_USELINO == 1)
-static char* lit_cli_getinput(linocontext_t* lictx, const char* prompt)
+static char* lit_repl_getinput(linocontext_t* lictx, const char* prompt)
 {
     return lino_context_readline(lictx, prompt);
 }
 
-static void lit_cli_addhistoryline(linocontext_t* lictx, const char* line)
+static void lit_repl_addhistoryline(linocontext_t* lictx, const char* line)
 {
     lino_context_historyadd(lictx, line);
 }
 
-static void lit_cli_freeline(linocontext_t* lictx, char* line)
+static void lit_repl_freeline(linocontext_t* lictx, char* line)
 {
     lino_context_freeline(lictx, line);
 }
 
-void lit_cli_runrepl(LitState* state, linocontext_t* lictx)
+size_t lit_repl_makeresultname(char* buf, int level)
 {
+    return sprintf(buf, "$%d", level);
+}
+
+const char* lit_repl_setresultvar(LitState* state, int level, LitValue val)
+{
+    size_t len;
+    LitString* str;
+    char buf[128];
+    len = lit_repl_makeresultname(buf, level);
+    str = lit_string_copylen(state, buf, len);
+    lit_state_setglobal(state, str, val);
+    return lit_string_getdata(str);
+}
+
+void lit_repl_runrepl(LitState* state, linocontext_t* lictx)
+{
+    int level;
     char* line;
+    const char* vname;
     LitResult result;
     LitValue value;
     LitStream* pr;
+    level = 1;
     pr = state->streamstdout;
     greplstate = state;
-    signal(SIGINT, lit_cli_interupthandler);
+    signal(SIGINT, lit_repl_interupthandler);
 #ifndef _WIN32
-    signal(SIGTSTP, lit_cli_interupthandler);
+    signal(SIGTSTP, lit_repl_interupthandler);
 #endif
     while(true)
     {
-        line = lit_cli_getinput(lictx, "> ");
+        line = lit_repl_getinput(lictx, "> ");
         if(line == NULL)
         {
             break;
         }
-        lit_cli_addhistoryline(lictx, line);
+        lit_repl_addhistoryline(lictx, line);
         result = lit_state_interpretsource(state, "repl", line);
         if(result.type == LIT_STATUS_OK)
         {
@@ -20698,11 +20716,14 @@ void lit_cli_runrepl(LitState* state, linocontext_t* lictx)
             lit_stream_puts(pr, "\n");
             value = result.result;
             value = state->vmstate.frame->slots[1];
+            vname = lit_repl_setresultvar(state, level, value);
+            lit_stream_printf(pr, "%s = ", vname);
             lit_value_printvalue(pr, value, true);
             lit_stream_resetcolor(pr);
             lit_stream_puts(pr, "\n");
+            level++;
         }
-        lit_cli_freeline(lictx, line);
+        lit_repl_freeline(lictx, line);
     }
 }
 #endif
@@ -21024,7 +21045,7 @@ int main(int argc, char* argv[], char** envp)
         state->config.isreplmode = true;
         #if defined(LIT_CONFIG_USELINO) && (LIT_CONFIG_USELINO == 1)
             lino_context_init(&lictx);
-            lit_cli_runrepl(state, &lictx);
+            lit_repl_runrepl(state, &lictx);
         #else
             fprintf(stderr, "no REPL compiled in! nothing to do.\n");
         #endif

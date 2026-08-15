@@ -123,11 +123,26 @@
     #include <unistd.h>
 #endif
 
-#define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
-#define LINENOISE_MAX_LINE 4096
+#define LINO_CONF_DEFAULTHISTORYMAXLEN 100
+#define LINO_CONF_MAXLINELENGTH 4096
+/* Substitute the currently edited line with the next or previous history
+ * entry as specified by 'dir'. */
+#define LINO_HISTSTATE_NEXT 0
+#define LINO_HISTSTATE_PREV 1
 
+/* lino works best on linux and unix-like; windows is a bit of a mess tbh. */
 #if defined(__linux__) || defined(__unix__)
-    #define LINENOISE_ISUNIX
+    #define LINO_PLATFORM_UNIX
+#endif
+
+#if defined(__STRICT_ANSI__)
+    #define LINO_INLINE static
+#else
+    #if defined(__GNUC__) || defined(__TINYC__)
+        #define LINO_INLINE static __attribute__((always_inline)) inline
+    #else
+        #define LINO_INLINE static inline
+    #endif
 #endif
 
 enum
@@ -209,7 +224,7 @@ struct linocontext_t
     linofnnextchlen_t* fnnextcharlen;
     linofnreadcode_t* fnreadcode;
 
-    #if defined(LINENOISE_ISUNIX)
+    #if defined(LINO_PLATFORM_UNIX)
     struct termios origtermios; /* In order to restore at exit.*/
     #endif
     int maskmode; /* Show "***" instead of input. For passwords. */
@@ -219,30 +234,11 @@ struct linocontext_t
     int historymaxlen;
     int historylength;
     char** historybuflines;
+    FILE* debugfp;
 };
 
 static linocontext_t* g_linoconst_gcontext = NULL;
 static const char* g_linoconst_unsupportedterminals[] = { "dumb", "cons25", "emacs", NULL };
-
-/* Debugging macro. */
-#if 0
-FILE *lndebug_fp = NULL;
-    #define lndebug(...)                                                                                                                                    \
-        do                                                                                                                                                  \
-        {                                                                                                                                                   \
-            if(lndebug_fp == NULL)                                                                                                                          \
-            {                                                                                                                                               \
-                lndebug_fp = fopen("/tmp/lndebug.txt", "a");                                                                                                \
-                fprintf(lndebug_fp, "[%d %d %d] p: %d, rows: %d, rpos: %d, max: %d, oldmax: %d\n", (int)edst->currentedlinelen, (int)edst->currentcursorpos, (int)edst->prevrefreshcursorpos, plen, rows, \
-                        rpos, (int)edst->maxrowsused, oldrows);                                                                                                   \
-            }                                                                                                                                               \
-            fprintf(lndebug_fp, ", " __VA_ARGS__);                                                                                                          \
-            fflush(lndebug_fp);                                                                                                                             \
-        } while(0)
-#else
-    #define lndebug(...)
-#endif
-
 
 /* ========================== Encoding functions ============================= */
 
@@ -281,62 +277,91 @@ static const char g_linoconst_strcmpcharmap[] = {
 	'\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
 };
 
-static void lino_context_init(linocontext_t *ctx);
-static int lino_util_strcasecmp(const char *s1, const char *s2);
-static size_t lino_util_defaultprevcharlen(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t *collen);
-static size_t lino_util_defaultnextcharlen(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t *collen);
-static size_t lino_util_defaultreadcode(linocontext_t *ctx, int fd, char *buf, size_t buflen, int *c);
-static void lino_context_setencodingfunctions(linocontext_t *ctx, linofnprevchlen_t *pclfunc, linofnnextchlen_t *nclfunc, linofnreadcode_t *rcfunc);
-static size_t lino_context_columnpos(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos);
-static size_t lino_context_columnposformultiline(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t cols, size_t ini_pos);
-static void lino_context_maskmodeenable(linocontext_t *ctx);
-static void lino_context_maskmodedisable(linocontext_t *ctx);
-static void lino_context_setmultiline(linocontext_t *ctx, int ml);
-static int lino_util_isunsupportedterm(void);
-static int lino_context_enablerawmode(linocontext_t *ctx, int fd);
-static void lino_context_disablerawmode(linocontext_t *ctx, int fd);
-static int lino_util_getcursorposition(int ifd, int ofd);
-static int lino_util_getcolumns(int ifd, int ofd);
-static void lino_clearscreen(void);
-static void lino_util_beep(void);
-static void lino_completions_destroy(linocompletions_t *lc);
-static int lino_completeline(linocontext_t *ctx, linoeditstate_t *ls, char *cbuf, size_t cbuflen, int *c);
-static void lino_setcompletioncallback(linocontext_t *ctx, linofncomp_t *fn);
-static void lino_sethintscallback(linocontext_t *ctx, linofnhint_t *fn);
-static void lino_setfreehintscallback(linocontext_t *ctx, linofnhintfree_t *fn);
-static void lino_addcompletion(linocontext_t *ctx, linocompletions_t *lc, const char *str);
-static void lino_appendbuf_init(linobuffer_t *ab);
-static void lino_appendbuf_append(linobuffer_t *ab, const char *s, int len);
-static void lino_appendbuf_destroy(linobuffer_t *ab);
-static void lino_refreshshowhints(linocontext_t *ctx, linobuffer_t *ab, linoeditstate_t *edst, int pcollen);
-static int lino_util_isansiescape(const char *buf, size_t buflen, size_t *len);
-static size_t lino_util_prompttextcolumnlen(linocontext_t *ctx, const char *prompt, size_t plen);
-static void lino_context_refreshsingleline(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_context_refreshmultiline(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_context_refreshline(linocontext_t *ctx, linoeditstate_t *edst);
-static int lino_edit_insert(linocontext_t *ctx, linoeditstate_t *edst, const char *cbuf, int clen);
-static void lino_edit_moveleft(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_moveright(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_movehome(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_moveend(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_historynext(linocontext_t *ctx, linoeditstate_t *edst, int dir);
-static void lino_edit_delete(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_backspace(linocontext_t *ctx, linoeditstate_t *edst);
-static void lino_edit_delprevword(linocontext_t *ctx, linoeditstate_t *edst);
-static int lino_edit_editline(linocontext_t *ctx, int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt);
-static void lino_debug_printkeycodes(linocontext_t *ctx);
-static int lino_context_getraw(linocontext_t *ctx, char *buf, size_t buflen, const char *prompt);
-static char *lino_context_fallbacknotty(linocontext_t *ctx);
-static char *lino_context_readline(linocontext_t *ctx, const char *prompt);
-static void lino_context_freeline(linocontext_t *ctx, void *ptr);
-static void lino_context_freehistory(linocontext_t *ctx);
-static void lino_context_handleimplicitexit(void);
-static int lino_context_historyadd(linocontext_t *ctx, const char *line);
-static int lino_context_historysetmaxlength(linocontext_t *ctx, int len);
-static int lino_context_historysavetofile(linocontext_t *ctx, const char *filename);
-static int lino_context_historyloadfromfile(linocontext_t *ctx, const char *filename);
+LINO_INLINE void lino_context_init(linocontext_t *ctx);
+LINO_INLINE int lino_util_strcasecmp(const char *s1, const char *s2);
+LINO_INLINE size_t lino_util_defaultprevcharlen(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t *collen);
+LINO_INLINE size_t lino_util_defaultnextcharlen(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t *collen);
+LINO_INLINE size_t lino_util_defaultreadcode(linocontext_t *ctx, int fd, char *buf, size_t buflen, int *c);
+LINO_INLINE void lino_context_setencodingfunctions(linocontext_t *ctx, linofnprevchlen_t *pclfunc, linofnnextchlen_t *nclfunc, linofnreadcode_t *rcfunc);
+LINO_INLINE size_t lino_context_columnpos(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos);
+LINO_INLINE size_t lino_context_columnposformultiline(linocontext_t *ctx, const char *buf, size_t buflen, size_t pos, size_t cols, size_t ini_pos);
+LINO_INLINE void lino_context_maskmodeenable(linocontext_t *ctx);
+LINO_INLINE void lino_context_maskmodedisable(linocontext_t *ctx);
+LINO_INLINE void lino_context_setmultiline(linocontext_t *ctx, int ml);
+LINO_INLINE int lino_util_isunsupportedterm(void);
+LINO_INLINE int lino_context_enablerawmode(linocontext_t *ctx, int fd);
+LINO_INLINE void lino_context_disablerawmode(linocontext_t *ctx, int fd);
+LINO_INLINE int lino_util_getcursorposition(int ifd, int ofd);
+LINO_INLINE int lino_util_getcolumns(int ifd, int ofd);
+LINO_INLINE void lino_clearscreen(void);
+LINO_INLINE void lino_util_beep(void);
+LINO_INLINE void lino_completions_destroy(linocompletions_t *lc);
+LINO_INLINE int lino_completeline(linocontext_t *ctx, linoeditstate_t *ls, char *cbuf, size_t cbuflen, int *c);
+LINO_INLINE void lino_setcompletioncallback(linocontext_t *ctx, linofncomp_t *fn);
+LINO_INLINE void lino_sethintscallback(linocontext_t *ctx, linofnhint_t *fn);
+LINO_INLINE void lino_setfreehintscallback(linocontext_t *ctx, linofnhintfree_t *fn);
+LINO_INLINE void lino_addcompletion(linocontext_t *ctx, linocompletions_t *lc, const char *str);
+LINO_INLINE void lino_appendbuf_init(linobuffer_t *ab);
+LINO_INLINE void lino_appendbuf_append(linobuffer_t *ab, const char *s, int len);
+LINO_INLINE void lino_appendbuf_destroy(linobuffer_t *ab);
+LINO_INLINE void lino_refreshshowhints(linocontext_t *ctx, linobuffer_t *ab, linoeditstate_t *edst, int pcollen);
+LINO_INLINE int lino_util_isansiescape(const char *buf, size_t buflen, size_t *len);
+LINO_INLINE size_t lino_util_prompttextcolumnlen(linocontext_t *ctx, const char *prompt, size_t plen);
+LINO_INLINE void lino_context_refreshsingleline(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_context_refreshmultiline(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_context_refreshline(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE int lino_edit_insert(linocontext_t *ctx, linoeditstate_t *edst, const char *cbuf, int clen);
+LINO_INLINE void lino_edit_moveleft(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_moveright(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_movehome(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_moveend(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_historynext(linocontext_t *ctx, linoeditstate_t *edst, int dir);
+LINO_INLINE void lino_edit_delete(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_backspace(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE void lino_edit_delprevword(linocontext_t *ctx, linoeditstate_t *edst);
+LINO_INLINE int lino_edit_editline(linocontext_t *ctx, int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt);
+LINO_INLINE void lino_debug_printkeycodes(linocontext_t *ctx);
+LINO_INLINE int lino_context_getraw(linocontext_t *ctx, char *buf, size_t buflen, const char *prompt);
+LINO_INLINE char *lino_context_fallbacknotty(linocontext_t *ctx);
+LINO_INLINE char *lino_context_readline(linocontext_t *ctx, const char *prompt);
+LINO_INLINE void lino_context_freeline(linocontext_t *ctx, void *ptr);
+LINO_INLINE void lino_context_freehistory(linocontext_t *ctx);
+LINO_INLINE void lino_context_handleimplicitexit(void);
+LINO_INLINE int lino_context_historyadd(linocontext_t *ctx, const char *line);
+LINO_INLINE int lino_context_historysetmaxlength(linocontext_t *ctx, int len);
+LINO_INLINE int lino_context_historysavetofile(linocontext_t *ctx, const char *filename);
+LINO_INLINE int lino_context_historyloadfromfile(linocontext_t *ctx, const char *filename);
 
-static void lino_context_init(linocontext_t* ctx)
+/* Debugging macro. */
+LINO_INLINE void lino_debugmsg(linocontext_t* ctx, linoeditstate_t* edst, const char* fmt, ...)
+{
+    #if 0
+        int cllen;
+        int ccurpos;
+        int cprevpos;
+        int cmaxrows;
+        if(ctx->debugfp == NULL)
+        {
+            ctx->debugfp = fopen("/tmp/lndebug.txt", "a");
+        }
+        cllen = (int)edst->currentedlinelen;
+        ccurpos = (int)edst->currentcursorpos;
+        cprevpos = (int)edst->prevrefreshcursorpos;
+        cmaxrows = (int)edst->maxrowsused;
+        fprintf(ctx->debugfp, "[%d %d %d] p: %d, rows: %d, rpos: %d, max: %d, oldmax: %d\n", cllen, ccurpos, cprevpos, plen, rows, rpos, cmaxrows, oldrows);
+        fprintf(ctx->debugfp, ", ");
+        va_start(va, fmt);
+        vfprintf(ctx->debugfp, fmt, va);
+        va_end(va);
+        fflush(ctx->debugfp);
+    #else
+        (void)ctx;
+        (void)edst;
+        (void)fmt;
+    #endif
+}
+
+LINO_INLINE void lino_context_init(linocontext_t* ctx)
 {
     memset(ctx, 0, sizeof(linocontext_t));
     ctx->completioncallback = NULL;
@@ -346,9 +371,10 @@ static void lino_context_init(linocontext_t* ctx)
     ctx->israwmode = 0; /* For atexit() function to check if restore is needed*/
     ctx->ismultilinemode = 0; /* Multi line mode. Default is single line. */
     ctx->atexitregistered = 0; /* Register atexit just 1 time. */
-    ctx->historymaxlen = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
+    ctx->historymaxlen = LINO_CONF_DEFAULTHISTORYMAXLEN;
     ctx->historylength = 0;
     ctx->historybuflines = NULL;
+    ctx->debugfp = NULL;
     /* Set default encoding functions */
     ctx->fnprevcharlen = lino_util_defaultprevcharlen;
     ctx->fnnextcharlen = lino_util_defaultnextcharlen;
@@ -356,7 +382,7 @@ static void lino_context_init(linocontext_t* ctx)
     g_linoconst_gcontext = ctx;
 }
 
-static int lino_util_strcasecmp(const char* s1, const char* s2)
+LINO_INLINE int lino_util_strcasecmp(const char* s1, const char* s2)
 {
     const char *cm;
     cm = g_linoconst_strcmpcharmap;
@@ -371,7 +397,7 @@ static int lino_util_strcasecmp(const char* s1, const char* s2)
 }
 
 /* Get byte length and column length of the previous character */
-static size_t lino_util_defaultprevcharlen(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t* collen)
+LINO_INLINE size_t lino_util_defaultprevcharlen(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t* collen)
 {
     (void)ctx;
     (void)buf;
@@ -385,7 +411,7 @@ static size_t lino_util_defaultprevcharlen(linocontext_t* ctx, const char* buf, 
 }
 
 /* Get byte length and column length of the next character */
-static size_t lino_util_defaultnextcharlen(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t* collen)
+LINO_INLINE size_t lino_util_defaultnextcharlen(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t* collen)
 {
     (void)ctx;
     (void)buf;
@@ -399,7 +425,7 @@ static size_t lino_util_defaultnextcharlen(linocontext_t* ctx, const char* buf, 
 }
 
 /* Read bytes of the next character */
-static size_t lino_util_defaultreadcode(linocontext_t* ctx, int fd, char* buf, size_t buflen, int* c)
+LINO_INLINE size_t lino_util_defaultreadcode(linocontext_t* ctx, int fd, char* buf, size_t buflen, int* c)
 {
     int nread;
     (void)ctx;
@@ -416,7 +442,7 @@ static size_t lino_util_defaultreadcode(linocontext_t* ctx, int fd, char* buf, s
 }
 
 /* Set used defined encoding functions */
-static void lino_context_setencodingfunctions(linocontext_t* ctx, linofnprevchlen_t* pclfunc, linofnnextchlen_t* nclfunc, linofnreadcode_t* rcfunc)
+LINO_INLINE void lino_context_setencodingfunctions(linocontext_t* ctx, linofnprevchlen_t* pclfunc, linofnnextchlen_t* nclfunc, linofnreadcode_t* rcfunc)
 {
     ctx->fnprevcharlen = pclfunc;
     ctx->fnnextcharlen = nclfunc;
@@ -424,7 +450,7 @@ static void lino_context_setencodingfunctions(linocontext_t* ctx, linofnprevchle
 }
 
 /* Get column length from begining of buffer to current byte position */
-static size_t lino_context_columnpos(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos)
+LINO_INLINE size_t lino_context_columnpos(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos)
 {
     size_t ret;
     size_t off;
@@ -442,7 +468,7 @@ static size_t lino_context_columnpos(linocontext_t* ctx, const char* buf, size_t
 }
 
 /* Get column length from begining of buffer to current byte position for multiline mode*/
-static size_t lino_context_columnposformultiline(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t cols, size_t ini_pos)
+LINO_INLINE size_t lino_context_columnposformultiline(linocontext_t* ctx, const char* buf, size_t buflen, size_t pos, size_t cols, size_t ini_pos)
 {
     int dif;
     size_t off;
@@ -486,30 +512,30 @@ static size_t lino_context_columnposformultiline(linocontext_t* ctx, const char*
  * the user is typing, the terminal will just display a corresponding
  * number of asterisks, like "****". This is useful for passwords and other
  * secrets that should not be displayed. */
-static void lino_context_maskmodeenable(linocontext_t* ctx)
+LINO_INLINE void lino_context_maskmodeenable(linocontext_t* ctx)
 {
     ctx->maskmode = 1;
 }
 
 /* Disable mask mode. */
-static void lino_context_maskmodedisable(linocontext_t* ctx)
+LINO_INLINE void lino_context_maskmodedisable(linocontext_t* ctx)
 {
     ctx->maskmode = 0;
 }
 
 /* Set if to use or not the multi line mode. */
-static void lino_context_setmultiline(linocontext_t* ctx, int ml)
+LINO_INLINE void lino_context_setmultiline(linocontext_t* ctx, int ml)
 {
     ctx->ismultilinemode = ml;
 }
 
 /* Return true if the terminal name is in the list of terminals we know are
  * not able to understand basic escape sequences. */
-static int lino_util_isunsupportedterm(void)
+LINO_INLINE int lino_util_isunsupportedterm(void)
 {
     int j;
     char* term;
-    #if !defined(LINENOISE_ISUNIX)
+    #if !defined(LINO_PLATFORM_UNIX)
         return 1;
     #endif
     term = getenv("TERM");
@@ -528,54 +554,54 @@ static int lino_util_isunsupportedterm(void)
 }
 
 /* Raw mode: 1960 magic shit. */
-static int lino_context_enablerawmode(linocontext_t* ctx, int fd)
+LINO_INLINE int lino_context_enablerawmode(linocontext_t* ctx, int fd)
 {
-    #if defined(LINENOISE_ISUNIX)
-    struct termios raw;
-    if(!isatty(fileno(stdin)))
-    {
-        goto fatal;
-    }
-    if(!ctx->atexitregistered)
-    {
-        atexit(lino_context_handleimplicitexit);
-        ctx->atexitregistered = 1;
-    }
-    if(tcgetattr(fd, &ctx->origtermios) == -1)
-    {
-        goto fatal;
-    }
-    raw = ctx->origtermios; /* modify the original mode */
-    /* input modes: no break, no CR to NL, no parity check, no strip char,
-   * no start/stop output control. */
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    /* output modes - disable post processing */
-    raw.c_oflag &= ~(OPOST);
-    /* control modes - set 8 bit chars */
-    raw.c_cflag |= (CS8);
-    /* local modes - choing off, canonical off, no extended functions,
-   * no signal chars (^Z,^C) */
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-    /* control chars - set return condition: min number of bytes and timer.
-   * We want read to return every single byte, without timeout. */
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
-    /* put terminal in raw mode after flushing */
-    if(tcsetattr(fd, TCSADRAIN, &raw) < 0)
-    {
-        goto fatal;
-    }
-    ctx->israwmode = 1;
-    return 0;
-fatal:
-    errno = ENOTTY;
+    #if defined(LINO_PLATFORM_UNIX)
+        struct termios raw;
+        if(!isatty(fileno(stdin)))
+        {
+            goto fatal;
+        }
+        if(!ctx->atexitregistered)
+        {
+            atexit(lino_context_handleimplicitexit);
+            ctx->atexitregistered = 1;
+        }
+        if(tcgetattr(fd, &ctx->origtermios) == -1)
+        {
+            goto fatal;
+        }
+        raw = ctx->origtermios; /* modify the original mode */
+        /* input modes: no break, no CR to NL, no parity check, no strip char,
+       * no start/stop output control. */
+        raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        /* output modes - disable post processing */
+        raw.c_oflag &= ~(OPOST);
+        /* control modes - set 8 bit chars */
+        raw.c_cflag |= (CS8);
+        /* local modes - choing off, canonical off, no extended functions,
+       * no signal chars (^Z,^C) */
+        raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        /* control chars - set return condition: min number of bytes and timer.
+       * We want read to return every single byte, without timeout. */
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
+        /* put terminal in raw mode after flushing */
+        if(tcsetattr(fd, TCSADRAIN, &raw) < 0)
+        {
+            goto fatal;
+        }
+        ctx->israwmode = 1;
+        return 0;
+    fatal:
+        errno = ENOTTY;
     #endif
     return -1;
 }
 
-static void lino_context_disablerawmode(linocontext_t* ctx, int fd)
+LINO_INLINE void lino_context_disablerawmode(linocontext_t* ctx, int fd)
 {
-    #if defined(LINENOISE_ISUNIX)
+    #if defined(LINO_PLATFORM_UNIX)
     /* Don't even check the return value as it's too late. */
     if(ctx->israwmode && tcsetattr(fd, TCSADRAIN, &ctx->origtermios) != -1)
     {
@@ -587,7 +613,7 @@ static void lino_context_disablerawmode(linocontext_t* ctx, int fd)
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor. */
-static int lino_util_getcursorposition(int ifd, int ofd)
+LINO_INLINE int lino_util_getcursorposition(int ifd, int ofd)
 {
     char buf[32];
     int cols;
@@ -627,9 +653,9 @@ static int lino_util_getcursorposition(int ifd, int ofd)
 
 /* Try to get the number of columns in the current terminal, or assume 80
  * if it fails. */
-static int lino_util_getcolumns(int ifd, int ofd)
+LINO_INLINE int lino_util_getcolumns(int ifd, int ofd)
 {
-    #if defined(LINENOISE_ISUNIX)
+    #if defined(LINO_PLATFORM_UNIX)
     int start;
     int cols;
     char seq[32];
@@ -674,7 +700,7 @@ failed:
 }
 
 /* Clear the screen. Used to handle ctrl+l */
-static void lino_clearscreen(void)
+LINO_INLINE void lino_clearscreen(void)
 {
     if(write(fileno(stdout), "\x1b[H\x1b[2J", 7) <= 0)
     {
@@ -684,7 +710,7 @@ static void lino_clearscreen(void)
 
 /* Beep, used for completion when there is nothing to complete or when all
  * the choices were already shown. */
-static void lino_util_beep(void)
+LINO_INLINE void lino_util_beep(void)
 {
     fprintf(stderr, "\x7");
     fflush(stderr);
@@ -693,7 +719,7 @@ static void lino_util_beep(void)
 /* ============================== Completion ================================ */
 
 /* Free a list of completion option populated by lino_addcompletion(). */
-static void lino_completions_destroy(linocompletions_t* lc)
+LINO_INLINE void lino_completions_destroy(linocompletions_t* lc)
 {
     size_t i;
     for(i = 0; i < lc->count; i++)
@@ -712,7 +738,7 @@ static void lino_completions_destroy(linocompletions_t* lc)
  *
  * The state of the editing is encapsulated into the pointed linoeditstate_t
  * structure as described in the structure definition. */
-static int lino_completeline(linocontext_t* ctx, linoeditstate_t* ls, char* cbuf, size_t cbuflen, int* c)
+LINO_INLINE int lino_completeline(linocontext_t* ctx, linoeditstate_t* ls, char* cbuf, size_t cbuflen, int* c)
 {
     int nread;
     int nwritten;
@@ -795,21 +821,21 @@ static int lino_completeline(linocontext_t* ctx, linoeditstate_t* ls, char* cbuf
 }
 
 /* Register a callback function to be called for tab-completion. */
-static void lino_setcompletioncallback(linocontext_t* ctx, linofncomp_t* fn)
+LINO_INLINE void lino_setcompletioncallback(linocontext_t* ctx, linofncomp_t* fn)
 {
     ctx->completioncallback = fn;
 }
 
 /* Register a hits function to be called to show hits to the user at the
  * right of the prompt. */
-static void lino_sethintscallback(linocontext_t* ctx, linofnhint_t* fn)
+LINO_INLINE void lino_sethintscallback(linocontext_t* ctx, linofnhint_t* fn)
 {
     ctx->hintscallback = fn;
 }
 
 /* Register a function to free the hints returned by the hints callback
  * registered with lino_sethintscallback(). */
-static void lino_setfreehintscallback(linocontext_t* ctx, linofnhintfree_t* fn)
+LINO_INLINE void lino_setfreehintscallback(linocontext_t* ctx, linofnhintfree_t* fn)
 {
     ctx->freehintscallback = fn;
 }
@@ -818,7 +844,7 @@ static void lino_setfreehintscallback(linocontext_t* ctx, linofnhintfree_t* fn)
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
-static void lino_addcompletion(linocontext_t* ctx, linocompletions_t* lc, const char* str)
+LINO_INLINE void lino_addcompletion(linocontext_t* ctx, linocompletions_t* lc, const char* str)
 {
     size_t len;
     char *copy;
@@ -848,13 +874,13 @@ static void lino_addcompletion(linocontext_t* ctx, linocompletions_t* lc, const 
  * write all the escape sequences in a buffer and flush them to the standard
  * output in a single call, to avoid flickering effects. */
 
-static void lino_appendbuf_init(linobuffer_t* ab)
+LINO_INLINE void lino_appendbuf_init(linobuffer_t* ab)
 {
     ab->bufdata = NULL;
     ab->buflen = 0;
 }
 
-static void lino_appendbuf_append(linobuffer_t* ab, const char* s, int len)
+LINO_INLINE void lino_appendbuf_append(linobuffer_t* ab, const char* s, int len)
 {
     char* newbuf;
     newbuf = (char*)realloc(ab->bufdata, ab->buflen + len);
@@ -867,14 +893,14 @@ static void lino_appendbuf_append(linobuffer_t* ab, const char* s, int len)
     ab->buflen += len;
 }
 
-static void lino_appendbuf_destroy(linobuffer_t* ab)
+LINO_INLINE void lino_appendbuf_destroy(linobuffer_t* ab)
 {
     free(ab->bufdata);
 }
 
 /* Helper of lino_context_refreshsingleline() and lino_context_refreshmultiline() to show hints
  * to the right of the prompt. */
-static void lino_refreshshowhints(linocontext_t* ctx, linobuffer_t* ab, linoeditstate_t* edst, int pcollen)
+LINO_INLINE void lino_refreshshowhints(linocontext_t* ctx, linobuffer_t* ab, linoeditstate_t* edst, int pcollen)
 {
     int bold;
     int color;
@@ -926,7 +952,7 @@ static void lino_refreshshowhints(linocontext_t* ctx, linobuffer_t* ab, linoedit
 
 /* Check if text is an ANSI escape sequence
  */
-static int lino_util_isansiescape(const char* buf, size_t buflen, size_t* len)
+LINO_INLINE int lino_util_isansiescape(const char* buf, size_t buflen, size_t* len)
 {
     size_t off;
     if(buflen > 2 && !memcmp("\033[", buf, 2))
@@ -963,12 +989,12 @@ static int lino_util_isansiescape(const char* buf, size_t buflen, size_t* len)
 
 /* Get column length of prompt text
  */
-static size_t lino_util_prompttextcolumnlen(linocontext_t* ctx, const char* prompt, size_t plen)
+LINO_INLINE size_t lino_util_prompttextcolumnlen(linocontext_t* ctx, const char* prompt, size_t plen)
 {
     size_t off;
     size_t len;
     size_t buflen;
-    char buf[LINENOISE_MAX_LINE];
+    char buf[LINO_CONF_MAXLINELENGTH];
     buflen = 0;
     off = 0;
     while(off < plen)
@@ -987,7 +1013,7 @@ static size_t lino_util_prompttextcolumnlen(linocontext_t* ctx, const char* prom
  *
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
-static void lino_context_refreshsingleline(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_context_refreshsingleline(linocontext_t* ctx, linoeditstate_t* edst)
 {
     int fd;
     int chlen;
@@ -1048,7 +1074,7 @@ static void lino_context_refreshsingleline(linocontext_t* ctx, linoeditstate_t* 
  *
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
-static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* edst)
 {
     int j;
     int fd;
@@ -1079,19 +1105,19 @@ static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* e
     lino_appendbuf_init(&ab);
     if(oldrows - rpos > 0)
     {
-        lndebug("go down %d", oldrows - rpos);
+        lino_debugmsg(ctx, edst, "go down %d", oldrows - rpos);
         snprintf(seq, 64, "\x1b[%dB", oldrows - rpos);
         lino_appendbuf_append(&ab, seq, strlen(seq));
     }
     /* Now for every row clear it, go up. */
     for(j = 0; j < oldrows - 1; j++)
     {
-        lndebug("clear+up");
+        lino_debugmsg(ctx, edst, "clear+up");
         snprintf(seq, 64, "\r\x1b[0K\x1b[1A");
         lino_appendbuf_append(&ab, seq, strlen(seq));
     }
     /* Clean the top line. */
-    lndebug("clear");
+    lino_debugmsg(ctx, edst, "clear");
     snprintf(seq, 64, "\r\x1b[0K");
     lino_appendbuf_append(&ab, seq, strlen(seq));
     /* Write the prompt and the current buffer content */
@@ -1115,7 +1141,7 @@ static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* e
    * emit a newline and move the prompt to the first column. */
     if(edst->currentcursorpos && edst->currentcursorpos == edst->currentedlinelen && (colpos2 + pcollen) % edst->terminalcolumns == 0)
     {
-        lndebug("<newline>");
+        lino_debugmsg(ctx, edst, "<newline>");
         lino_appendbuf_append(&ab, "\n", 1);
         snprintf(seq, 64, "\r");
         lino_appendbuf_append(&ab, seq, strlen(seq));
@@ -1127,17 +1153,17 @@ static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* e
     }
     /* Move cursor to right position. */
     rpos2 = (pcollen + colpos2 + edst->terminalcolumns) / edst->terminalcolumns; /* current cursor relative row. */
-    lndebug("rpos2 %d", rpos2);
+    lino_debugmsg(ctx, edst, "rpos2 %d", rpos2);
     /* Go up till we reach the expected positon. */
     if(rows - rpos2 > 0)
     {
-        lndebug("go-up %d", rows - rpos2);
+        lino_debugmsg(ctx, edst, "go-up %d", rows - rpos2);
         snprintf(seq, 64, "\x1b[%dA", rows - rpos2);
         lino_appendbuf_append(&ab, seq, strlen(seq));
     }
     /* Set column. */
     col = (pcollen + colpos2) % edst->terminalcolumns;
-    lndebug("set col %d", 1 + col);
+    lino_debugmsg(ctx, edst, "set col %d", 1 + col);
     if(col)
     {
         snprintf(seq, 64, "\r\x1b[%dC", col);
@@ -1147,7 +1173,7 @@ static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* e
         snprintf(seq, 64, "\r");
     }
     lino_appendbuf_append(&ab, seq, strlen(seq));
-    lndebug("\n");
+    lino_debugmsg(ctx, edst, "\n");
     edst->prevrefreshcursorpos = colpos2;
     if(write(fd, ab.bufdata, ab.buflen) == -1)
     {
@@ -1157,7 +1183,7 @@ static void lino_context_refreshmultiline(linocontext_t* ctx, linoeditstate_t* e
 
 /* Calls the two low level functions lino_context_refreshsingleline() or
  * lino_context_refreshmultiline() according to the selected mode. */
-static void lino_context_refreshline(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_context_refreshline(linocontext_t* ctx, linoeditstate_t* edst)
 {
     if(ctx->ismultilinemode)
     {
@@ -1172,7 +1198,7 @@ static void lino_context_refreshline(linocontext_t* ctx, linoeditstate_t* edst)
 /* Insert the character 'c' at cursor current position.
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
-static int lino_edit_insert(linocontext_t* ctx, linoeditstate_t* edst, const char* cbuf, int clen)
+LINO_INLINE int lino_edit_insert(linocontext_t* ctx, linoeditstate_t* edst, const char* cbuf, int clen)
 {
     if(edst->currentedlinelen + clen <= edst->edlinelen)
     {
@@ -1220,7 +1246,7 @@ static int lino_edit_insert(linocontext_t* ctx, linoeditstate_t* edst, const cha
 }
 
 /* Move cursor on the left. */
-static void lino_edit_moveleft(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_moveleft(linocontext_t* ctx, linoeditstate_t* edst)
 {
     if(edst->currentcursorpos > 0)
     {
@@ -1230,7 +1256,7 @@ static void lino_edit_moveleft(linocontext_t* ctx, linoeditstate_t* edst)
 }
 
 /* Move cursor on the right. */
-static void lino_edit_moveright(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_moveright(linocontext_t* ctx, linoeditstate_t* edst)
 {
     if(edst->currentcursorpos != edst->currentedlinelen)
     {
@@ -1240,7 +1266,7 @@ static void lino_edit_moveright(linocontext_t* ctx, linoeditstate_t* edst)
 }
 
 /* Move cursor to the start of the line. */
-static void lino_edit_movehome(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_movehome(linocontext_t* ctx, linoeditstate_t* edst)
 {
     if(edst->currentcursorpos != 0)
     {
@@ -1250,7 +1276,7 @@ static void lino_edit_movehome(linocontext_t* ctx, linoeditstate_t* edst)
 }
 
 /* Move cursor to the end of the line. */
-static void lino_edit_moveend(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_moveend(linocontext_t* ctx, linoeditstate_t* edst)
 {
     if(edst->currentcursorpos != edst->currentedlinelen)
     {
@@ -1259,12 +1285,7 @@ static void lino_edit_moveend(linocontext_t* ctx, linoeditstate_t* edst)
     }
 }
 
-/* Substitute the currently edited line with the next or previous history
- * entry as specified by 'dir'. */
-#define LINENOISE_HISTORY_NEXT 0
-#define LINENOISE_HISTORY_PREV 1
-
-static void lino_edit_historynext(linocontext_t* ctx, linoeditstate_t* edst, int dir)
+LINO_INLINE void lino_edit_historynext(linocontext_t* ctx, linoeditstate_t* edst, int dir)
 {
     int ipos;
     if(ctx->historylength > 1)
@@ -1274,7 +1295,7 @@ static void lino_edit_historynext(linocontext_t* ctx, linoeditstate_t* edst, int
         free(ctx->historybuflines[ipos]);
         ctx->historybuflines[ipos] = strdup(edst->edlinebuf);
         /* Show the new entry */
-        edst->historyindex += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
+        edst->historyindex += (dir == LINO_HISTSTATE_PREV) ? 1 : -1;
         if(edst->historyindex < 0)
         {
             edst->historyindex = 0;
@@ -1294,7 +1315,7 @@ static void lino_edit_historynext(linocontext_t* ctx, linoeditstate_t* edst, int
 
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
-static void lino_edit_delete(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_delete(linocontext_t* ctx, linoeditstate_t* edst)
 {
     int chlen;
     if(edst->currentedlinelen > 0 && edst->currentcursorpos < edst->currentedlinelen)
@@ -1308,7 +1329,7 @@ static void lino_edit_delete(linocontext_t* ctx, linoeditstate_t* edst)
 }
 
 /* Backspace implementation. */
-static void lino_edit_backspace(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_backspace(linocontext_t* ctx, linoeditstate_t* edst)
 {
     int chlen;
     if(edst->currentcursorpos > 0 && edst->currentedlinelen > 0)
@@ -1324,7 +1345,7 @@ static void lino_edit_backspace(linocontext_t* ctx, linoeditstate_t* edst)
 
 /* Delete the previosu word, maintaining the cursor at the start of the
  * current word. */
-static void lino_edit_delprevword(linocontext_t* ctx, linoeditstate_t* edst)
+LINO_INLINE void lino_edit_delprevword(linocontext_t* ctx, linoeditstate_t* edst)
 {
     size_t diff;
     size_t oldpos;
@@ -1351,7 +1372,7 @@ static void lino_edit_delprevword(linocontext_t* ctx, linoeditstate_t* edst)
  * when ctrl+d is typed.
  *
  * The function returns the length of the current buffer. */
-static int lino_edit_editline(linocontext_t* ctx, int stdin_fd, int stdout_fd, char* buf, size_t buflen, const char* prompt)
+LINO_INLINE int lino_edit_editline(linocontext_t* ctx, int stdin_fd, int stdout_fd, char* buf, size_t buflen, const char* prompt)
 {
     int c;
     int aux;
@@ -1479,12 +1500,12 @@ static int lino_edit_editline(linocontext_t* ctx, int stdin_fd, int stdout_fd, c
                 break;
             case LINO_KEY_CTRLP: /* ctrl-p */
                 {
-                    lino_edit_historynext(ctx, &edst, LINENOISE_HISTORY_PREV);
+                    lino_edit_historynext(ctx, &edst, LINO_HISTSTATE_PREV);
                 }
                 break;
             case LINO_KEY_CTRLN: /* ctrl-n */
                 {
-                    lino_edit_historynext(ctx, &edst, LINENOISE_HISTORY_NEXT);
+                    lino_edit_historynext(ctx, &edst, LINO_HISTSTATE_NEXT);
                 }
                 break;
             case LINO_KEY_ESC: /* escape sequence */
@@ -1530,12 +1551,12 @@ static int lino_edit_editline(linocontext_t* ctx, int stdin_fd, int stdout_fd, c
                             {
                                 case 'A': /* Up */
                                     {
-                                        lino_edit_historynext(ctx, &edst, LINENOISE_HISTORY_PREV);
+                                        lino_edit_historynext(ctx, &edst, LINO_HISTSTATE_PREV);
                                     }
                                     break;
                                 case 'B': /* Down */
                                     {
-                                        lino_edit_historynext(ctx, &edst, LINENOISE_HISTORY_NEXT);
+                                        lino_edit_historynext(ctx, &edst, LINO_HISTSTATE_NEXT);
                                     }
                                     break;
                                 case 'C': /* Right */
@@ -1631,7 +1652,7 @@ static int lino_edit_editline(linocontext_t* ctx, int stdin_fd, int stdout_fd, c
 /* This special mode is used by linenoise in order to print scan codes
  * on screen for debugging / development purposes. It is implemented
  * by the linenoise_example program using the --keycodes option. */
-static void lino_debug_printkeycodes(linocontext_t* ctx)
+LINO_INLINE void lino_debug_printkeycodes(linocontext_t* ctx)
 {
     int nread;
     char c;
@@ -1668,7 +1689,7 @@ static void lino_debug_printkeycodes(linocontext_t* ctx)
 
 /* This function calls the line editing function lino_edit_editline() using
  * the STDIN file descriptor set in raw mode. */
-static int lino_context_getraw(linocontext_t* ctx, char* buf, size_t buflen, const char* prompt)
+LINO_INLINE int lino_context_getraw(linocontext_t* ctx, char* buf, size_t buflen, const char* prompt)
 {
     int count;
     if(buflen == 0)
@@ -1676,7 +1697,7 @@ static int lino_context_getraw(linocontext_t* ctx, char* buf, size_t buflen, con
         errno = EINVAL;
         return -1;
     }
-    #if defined(LINENOISE_ISUNIX)
+    #if defined(LINO_PLATFORM_UNIX)
     if(lino_context_enablerawmode(ctx, fileno(stdin)) == -1)
     {
         return -1;
@@ -1693,7 +1714,7 @@ static int lino_context_getraw(linocontext_t* ctx, char* buf, size_t buflen, con
  * program using linenoise is called in pipe or with a file redirected
  * to its standard input. In this case, we want to be able to return the
  * line regardless of its length (by default we are limited to 4k). */
-static char* lino_context_fallbacknotty(linocontext_t* ctx)
+LINO_INLINE char* lino_context_fallbacknotty(linocontext_t* ctx)
 {
     int ch;
     size_t len;
@@ -1752,14 +1773,14 @@ static char* lino_context_fallbacknotty(linocontext_t* ctx)
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
-static char* lino_context_readline(linocontext_t* ctx, const char* prompt)
+LINO_INLINE char* lino_context_readline(linocontext_t* ctx, const char* prompt)
 {
     size_t len;
     int count;
-    char buf[LINENOISE_MAX_LINE];
+    char buf[LINO_CONF_MAXLINELENGTH];
     if(!isatty(fileno(stdin)))
     {
-        #if defined(LINENOISE_ISUNIX)
+        #if defined(LINO_PLATFORM_UNIX)
         /*
         * Not a tty: read from file / pipe. In this mode we don't want any
         * limit to the line size, so we call a function to handle that.
@@ -1771,7 +1792,7 @@ static char* lino_context_readline(linocontext_t* ctx, const char* prompt)
     {
         printf("%s", prompt);
         fflush(stdout);
-        if(fgets(buf, LINENOISE_MAX_LINE, stdin) == NULL)
+        if(fgets(buf, LINO_CONF_MAXLINELENGTH, stdin) == NULL)
         {
             return NULL;
         }
@@ -1783,7 +1804,7 @@ static char* lino_context_readline(linocontext_t* ctx, const char* prompt)
         }
         return strdup(buf);
     }
-    count = lino_context_getraw(ctx, buf, LINENOISE_MAX_LINE, prompt);
+    count = lino_context_getraw(ctx, buf, LINO_CONF_MAXLINELENGTH, prompt);
     if(count == -1)
     {
         return NULL;
@@ -1795,7 +1816,7 @@ static char* lino_context_readline(linocontext_t* ctx, const char* prompt)
  * the linenoise returned buffer is freed with the same allocator it was
  * created with. Useful when the main program is using an alternative
  * allocator. */
-static void lino_context_freeline(linocontext_t* ctx, void* ptr)
+LINO_INLINE void lino_context_freeline(linocontext_t* ctx, void* ptr)
 {
     (void)ctx;
     free(ptr);
@@ -1805,7 +1826,7 @@ static void lino_context_freeline(linocontext_t* ctx, void* ptr)
 
 /* Free the history, but does not reset it. Only used when we have to
  * exit() to avoid memory leaks are reported by valgrind & co. */
-static void lino_context_freehistory(linocontext_t* ctx)
+LINO_INLINE void lino_context_freehistory(linocontext_t* ctx)
 {
     int j;
     if(ctx->historybuflines != NULL)
@@ -1824,7 +1845,7 @@ static void lino_context_freehistory(linocontext_t* ctx)
 }
 
 /* At exit we'll try to fix the terminal to the initial conditions. */
-static void lino_context_handleimplicitexit()
+LINO_INLINE void lino_context_handleimplicitexit()
 {
     lino_context_disablerawmode(g_linoconst_gcontext, fileno(stdin));
     lino_context_freehistory(g_linoconst_gcontext);
@@ -1837,7 +1858,7 @@ static void lino_context_handleimplicitexit()
  * histories, but will work well for a few hundred of entries.
  *
  * Using a circular buffer is smarter, but a bit more complex to handle. */
-static int lino_context_historyadd(linocontext_t* ctx, const char* line)
+LINO_INLINE int lino_context_historyadd(linocontext_t* ctx, const char* line)
 {
     char* linecopy;
     if(ctx->historymaxlen == 0)
@@ -1884,7 +1905,7 @@ static int lino_context_historyadd(linocontext_t* ctx, const char* line)
  * if there is already some history, the function will make sure to retain
  * just the latest 'len' elements if the new history length value is smaller
  * than the amount of items already inside the history. */
-static int lino_context_historysetmaxlength(linocontext_t* ctx, int len)
+LINO_INLINE int lino_context_historysetmaxlength(linocontext_t* ctx, int len)
 {
     int j;
     int tocopy;
@@ -1926,9 +1947,9 @@ static int lino_context_historysetmaxlength(linocontext_t* ctx, int len)
 
 /* Save the history in the specified file. On success 0 is returned
  * otherwise -1 is returned. */
-static int lino_context_historysavetofile(linocontext_t* ctx, const char* filename)
+LINO_INLINE int lino_context_historysavetofile(linocontext_t* ctx, const char* filename)
 {
-    #if defined(LINENOISE_ISUNIX)
+    #if defined(LINO_PLATFORM_UNIX)
     int j;
     mode_t old_umask;
     FILE* fp;
@@ -1954,17 +1975,17 @@ static int lino_context_historysavetofile(linocontext_t* ctx, const char* filena
  *
  * If the file exists and the operation succeeded 0 is returned, otherwise
  * on error -1 is returned. */
-static int lino_context_historyloadfromfile(linocontext_t* ctx, const char* filename)
+LINO_INLINE int lino_context_historyloadfromfile(linocontext_t* ctx, const char* filename)
 {
     FILE* fp;
     char* p;
-    char buf[LINENOISE_MAX_LINE];
+    char buf[LINO_CONF_MAXLINELENGTH];
     fp = fopen(filename, "r");
     if(fp == NULL)
     {
         return -1;
     }
-    while(fgets(buf, LINENOISE_MAX_LINE, fp) != NULL)
+    while(fgets(buf, LINO_CONF_MAXLINELENGTH, fp) != NULL)
     {
         p = strchr(buf, '\r');
         if(!p)
