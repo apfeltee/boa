@@ -91,7 +91,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #endif
 
 #define LIT_CONFIG_USELINO 0
-#define LIT_CONFIG_USEMEMPOOL 0
+#define LIT_CONFIG_USEMEMPOOL 1
 
 #if defined(LIT_OSPLATFORM_ISLINUX)
     #include <unistd.h>
@@ -257,11 +257,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #define LIT_BIT_SETBIT(number, n) number |= (1UL << (n))
 #define LIT_BIT_ISSET(number, n) ((((number) >> (n)) & 1U) != 0)
 
-#if defined(__cplusplus)
-    #define lit_util_cppcast(type) (type)
-#else
-    #define lit_util_cppcast(type)
-#endif
 
 #define lit_vmexec_pushgc(state, allow) \
     { \
@@ -704,6 +699,7 @@ typedef struct LitDynListVal LitDynListVal;
 typedef struct LitChunk LitChunk;
 typedef struct LitTabEntry LitTabEntry;
 typedef struct LitTable LitTable;
+typedef struct LitStringTable LitStringTable;
 typedef struct LitFuncScript LitFuncScript;
 typedef struct LitFuncClosure LitFuncClosure;
 typedef struct LitClsPrototype LitClsPrototype;
@@ -797,7 +793,7 @@ struct LitStream
     /* the mode that determines what writer actually does */
     LitStrMode wrmode;
     LitStrBuffer desthndstring;
-    void* desthndfile;
+    FILE* desthndfile;
 };
 
 struct LitAstPrinter
@@ -902,6 +898,22 @@ struct LitTable
     int htcapacity;
     LitState* pstate;
     LitTabEntry* htentries;
+};
+
+/* tombstone marker used for deleted slots in LitStringTable (address 1 can
+ * never be a real allocation) */
+#define LIT_STRINGTABLE_TOMBSTONE ((LitString*)(intptr_t)1)
+
+/*
+ * dedicated open-addressed hash set used only for interned strings.
+ * unlike LitTable, entries are plain LitString* pointers, so lookups can
+ * reject candidates by comparing the 32-bit hash before touching the data.
+ */
+struct LitStringTable
+{
+    int count;
+    int capacity;
+    LitString** entries;
 };
 
 struct LitObject
@@ -1089,7 +1101,7 @@ struct LitReference
 struct LitVMState
 {
     LitObject* objects;
-    LitTable strings;
+    LitStringTable storedstrings;
     LitMap* modules;
     LitMap* globals;
     LitFiber* fiber;
@@ -1575,7 +1587,7 @@ struct LitAstThrowExpr
 struct LitFileData
 {
     char* path;
-    void* fdhandle;
+    FILE* fdhandle;
 };
 
 #include "prot.inc"
@@ -3312,7 +3324,7 @@ static int lit_util_findfirstpos(const char* str, size_t len, int ch)
     return -1;
 }
 
-char* lit_util_readhandle(void* hnd, size_t* dlen)
+char* lit_util_readhandle(FILE* hnd, size_t* dlen)
 {
     long rawtold;
     /*
@@ -3324,16 +3336,16 @@ char* lit_util_readhandle(void* hnd, size_t* dlen)
     size_t toldlen;
     size_t actuallen;
     char* buf;
-    if(fseek(lit_util_cppcast(FILE*)hnd, 0, SEEK_END) == -1)
+    if(fseek(hnd, 0, SEEK_END) == -1)
     {
         return NULL;
     }
-    if((rawtold = ftell(lit_util_cppcast(FILE*)hnd)) == -1)
+    if((rawtold = ftell(hnd)) == -1)
     {
         return NULL;
     }
     toldlen = rawtold;
-    if(fseek(lit_util_cppcast(FILE*)hnd, 0, SEEK_SET) == -1)
+    if(fseek(hnd, 0, SEEK_SET) == -1)
     {
         return NULL;
     }
@@ -4484,6 +4496,150 @@ LitString* lit_table_findstring(LitTable* table, const char* chars, size_t lengt
     }
 }
 
+void lit_stringtable_init(LitStringTable* table)
+{
+    table->count = 0;
+    table->capacity = -1;
+    table->entries = NULL;
+}
+
+void lit_stringtable_free(LitStringTable* table)
+{
+    if(table->capacity > 0)
+    {
+        lit_sysmem_free(table->entries);
+    }
+    lit_stringtable_init(table);
+}
+
+/*
+ * probes for a free slot. hash must already be applied to the caller's string.
+ * returns the first NULL (empty) or tombstone slot in the probe chain.
+ */
+LitString** lit_stringtable_findslot(LitStringTable* table, const char* chars, size_t length, uint32_t hash)
+{
+    uint32_t index;
+    LitString** slot;
+    LitString* string;
+    index = hash % table->capacity;
+    while(true)
+    {
+        slot = &table->entries[index];
+        string = *slot;
+        if(string == NULL || string == LIT_STRINGTABLE_TOMBSTONE)
+        {
+            return slot;
+        }
+        if(string->strhash == hash
+            && lit_string_getlength(string) == length
+            && (length == 0 || memcmp(lit_string_getdata(string), chars, length) == 0))
+        {
+            return slot;
+        }
+        index = (index + 1) % table->capacity;
+    }
+}
+
+LitString* lit_stringtable_find(LitStringTable* table, const char* chars, size_t length, uint32_t hash)
+{
+    uint32_t index;
+    LitString* string;
+    if(table->count == 0)
+    {
+        return NULL;
+    }
+    index = hash % table->capacity;
+    while(true)
+    {
+        string = table->entries[index];
+        if(string == NULL)
+        {
+            return NULL;
+        }
+        if(string != LIT_STRINGTABLE_TOMBSTONE
+            && string->strhash == hash
+            && lit_string_getlength(string) == length
+            && (length == 0 || memcmp(lit_string_getdata(string), chars, length) == 0))
+        {
+            return string;
+        }
+        index = (index + 1) % table->capacity;
+    }
+}
+
+void lit_stringtable_adjustcapacity(LitStringTable* table, int capacity)
+{
+    int i;
+    LitString** entries;
+    LitString* string;
+    entries = (LitString**)lit_sysmem_malloc((capacity + 1) * sizeof(LitString*));
+    for(i = 0; i <= capacity; i++)
+    {
+        entries[i] = NULL;
+    }
+    table->count = 0;
+    for(i = 0; i <= table->capacity; i++)
+    {
+        string = table->entries[i];
+        if(string == NULL || string == LIT_STRINGTABLE_TOMBSTONE)
+        {
+            continue;
+        }
+        {
+            uint32_t index;
+            index = string->strhash % capacity;
+            while(entries[index] != NULL)
+            {
+                index = (index + 1) % capacity;
+            }
+            entries[index] = string;
+        }
+        table->count++;
+    }
+    lit_sysmem_free(table->entries);
+    table->capacity = capacity;
+    table->entries = entries;
+}
+
+bool lit_stringtable_set(LitStringTable* table, LitString* string)
+{
+    int capacity;
+    LitString** slot;
+    bool isnew;
+    if(table->count + 1 > (table->capacity + 1) * LIT_CONFIG_TABLEMAXLOAD)
+    {
+        capacity = lit_util_grownextcapacity(table->capacity + 1) - 1;
+        lit_stringtable_adjustcapacity(table, capacity);
+    }
+    slot = lit_stringtable_findslot(table, lit_string_getdata(string), lit_string_getlength(string), string->strhash);
+    isnew = (*slot == NULL);
+    if(isnew)
+    {
+        table->count++;
+    }
+    *slot = string;
+    return isnew;
+}
+
+void lit_stringtable_removewhite(LitStringTable* table)
+{
+    int i;
+    LitObject* obj;
+    for(i = 0; i <= table->capacity; i++)
+    {
+        if(table->entries[i] == NULL || table->entries[i] == LIT_STRINGTABLE_TOMBSTONE)
+        {
+            continue;
+        }
+        obj = (LitObject*)table->entries[i];
+        if(!obj->marked)
+        {
+            table->entries[i] = LIT_STRINGTABLE_TOMBSTONE;
+            table->count--;
+        }
+    }
+}
+
 void lit_table_addall(LitTable* from, LitTable* to)
 {
     int i;
@@ -4720,7 +4876,7 @@ bool lit_stream_makestackio(LitStream* pr, FILE* fh, bool shouldclose)
 {
     lit_stream_initvars(pr, LIT_IOSTRMODE_FILE);
     pr->fromstack = true;
-    pr->desthndfile = (void*)fh;
+    pr->desthndfile = fh;
     pr->shouldclose = shouldclose;
     return true;
 }
@@ -4822,7 +4978,7 @@ void lit_stream_destroy(LitStream* pr)
         if(pr->shouldclose)
         {
 #if 0
-            fclose(lit_util_cppcast(FILE*)pr->desthndfile);
+            fclose(pr->desthndfile);
 #endif
         }
     }
@@ -4844,7 +5000,7 @@ bool lit_stream_istty(LitStream* pr)
     {
         if(pr->desthndfile != NULL)
         {
-            fd = fileno(lit_util_cppcast(FILE*)pr->desthndfile);
+            fd = fileno(pr->desthndfile);
             if(fd > 0)
             {
                 pr->cachedistty = isatty(fd);
@@ -4860,7 +5016,7 @@ void lit_stream_flush(LitStream* pr)
 {
     if(pr->shouldflush)
     {
-        fflush(lit_util_cppcast(FILE*)pr->desthndfile);
+        fflush(pr->desthndfile);
     }
 }
 
@@ -4872,7 +5028,7 @@ bool lit_stream_putlen(LitStream* pr, const char* estr, size_t elen)
     {
         if(pr->wrmode == LIT_IOSTRMODE_FILE)
         {
-            fwrite(estr, chlen, elen, lit_util_cppcast(FILE*)pr->desthndfile);
+            fwrite(estr, chlen, elen, pr->desthndfile);
             lit_stream_flush(pr);
         }
         else if(pr->wrmode == LIT_IOSTRMODE_STRING)
@@ -4950,7 +5106,7 @@ bool lit_stream_putc(LitStream* pr, int b)
     }
     else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
-        fputc(b, lit_util_cppcast(FILE*)pr->desthndfile);
+        fputc(b, pr->desthndfile);
         lit_stream_flush(pr);
     }
     return true;
@@ -5056,7 +5212,7 @@ bool lit_stream_printfv(LitStream* pr, const char* fmt, va_list va)
     }
     else if(pr->wrmode == LIT_IOSTRMODE_FILE)
     {
-        vfprintf(lit_util_cppcast(FILE*)pr->desthndfile, fmt, va);
+        vfprintf(pr->desthndfile, fmt, va);
         lit_stream_flush(pr);
     }
     return true;
@@ -5080,7 +5236,7 @@ LitString* lit_stream_takestring(LitState* state, LitStream* pr)
     uint32_t hash;
     LitString* interned;
     hash = lit_string_hash(pr->desthndstring.data, pr->desthndstring.length);
-    interned = lit_table_findstring(&state->vmstate.strings, pr->desthndstring.data, pr->desthndstring.length, hash);
+    interned = lit_stringtable_find(&state->vmstate.storedstrings, pr->desthndstring.data, pr->desthndstring.length, hash);
     if(interned != NULL)
     {
         lit_strbuf_destroyfromstack(&pr->desthndstring);
@@ -5088,7 +5244,6 @@ LitString* lit_stream_takestring(LitState* state, LitStream* pr)
         return interned;
     }
     os = lit_string_makewithstrbuf(state, NULL, pr->desthndstring, false);
-    os->strhash = hash;
     lit_string_register(state, os);
     pr->stringtaken = true;
     return os;
@@ -5616,7 +5771,7 @@ uint64_t lit_collect_garbage(LitState* state)
 #endif
     lit_gcmem_markroots(state);
     lit_gcmem_tracereferences(state);
-    lit_table_removewhite(&state->vmstate.strings);
+    lit_stringtable_removewhite(&state->vmstate.storedstrings);
     lit_gcmem_sweep(state);
     state->gcnextgc = state->bytesallocated * LIT_CONFIG_GCHEAPGROWFACTOR;
     state->gcallowgc = true;
@@ -5630,6 +5785,8 @@ uint64_t lit_collect_garbage(LitState* state)
 LitString* lit_string_makewithstrbuf(LitState* state, LitString* target, LitStrBuffer sb, bool interned)
 {
     LitString* sobj;
+    uint32_t hash;
+    hash = lit_string_hash(sb.data, sb.length);
     if((target != NULL) && interned)
     {
         sobj = target;
@@ -5640,11 +5797,15 @@ LitString* lit_string_makewithstrbuf(LitState* state, LitString* target, LitStrB
     {
         sobj = (LitString*)lit_object_allocobject(state, sizeof(LitString), LIT_OBJTYPE_STRING);
     }
-    sobj->strhash = 0;
+    sobj->strhash = hash;
     sobj->strbuf = sb;
     if (sobj->strbuf.isshort)
     {
         sobj->strbuf.data = sobj->strbuf.sso;
+    }
+    if(interned)
+    {
+        lit_string_register(state, sobj);
     }
     return sobj;
 }
@@ -5663,8 +5824,23 @@ LitString* lit_string_makeemptystring(LitState* state, size_t length, bool preal
 
 void lit_string_register(LitState* state, LitString* sobj)
 {
+    LitString* tmp;
+    const char* sdata;
+    size_t slen;
+    if(sobj->strhash == 0)
+    {
+        sobj->strhash = lit_string_hash(lit_string_getdata(sobj), lit_string_getlength(sobj));
+    }
+    sdata = lit_string_getdata(sobj);
+    slen = lit_string_getlength(sobj);
+    tmp = lit_stringtable_find(&state->vmstate.storedstrings, sdata, slen, sobj->strhash);
+    if(tmp != NULL)
+    {
+        return;
+    }
+
     lit_state_pushroot(state, (LitObject*)sobj);
-    lit_table_set(&state->vmstate.strings, sobj, lit_value_makenull());
+    lit_stringtable_set(&state->vmstate.storedstrings, sobj);
     lit_state_poproot(state);
 }
 
@@ -5696,7 +5872,7 @@ LitString* lit_string_take(LitState* state, char* chars, size_t length)
     uint32_t hash;
     LitString* interned;
     hash = lit_string_hash(chars, length);
-    interned = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
+    interned = lit_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(interned != NULL)
     {
         lit_sysmem_free(chars);
@@ -5711,7 +5887,7 @@ LitString* lit_string_copylen(LitState* state, const char* chars, size_t length)
     char* heapchars;
     LitString* res;
     hash = lit_string_hash(chars, length);
-    res = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
+    res = lit_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(res != NULL)
     {
         return res;
@@ -5736,7 +5912,7 @@ LitString* lit_string_internlen(LitState* state, LitString* stacktarget, const c
     LitString* res;
     LitStrBuffer sb;
     hash = lit_string_hash(chars, length);
-    res = lit_table_findstring(&state->vmstate.strings, chars, length, hash);
+    res = lit_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(res != NULL)
     {
         return res;
@@ -16314,7 +16490,7 @@ void lit_callback_onfilecleanup(LitState* state, LitUserdata* data, bool mark)
     filedata = ((LitFileData*)data->data);
     if(filedata->fdhandle != NULL)
     {
-        fclose(lit_util_cppcast(FILE*)filedata->fdhandle);
+        fclose(filedata->fdhandle);
         filedata->fdhandle = NULL;
     }
 }
@@ -16349,7 +16525,7 @@ LitValue lit_objfnfile_close(LitState* state, LitValue instance, size_t argc, Li
     (void)argc;
     (void)args;
     data = (LitFileData*)lit_userdata_extractdata(instance);
-    fclose(lit_util_cppcast(FILE*)data->fdhandle);
+    fclose(data->fdhandle);
     data->fdhandle = NULL;
     return lit_value_makenull();
 }
@@ -16393,7 +16569,7 @@ LitValue lit_objfnfile_writevalvalue(LitState* state, LitValue instance, size_t 
     LitFileData* lfd;
     (void)state;
     lfd = (LitFileData*)lit_userdata_extractdata(instance);
-    lit_stream_makestackio(&pr, lit_util_cppcast(FILE*)lfd->fdhandle, false);
+    lit_stream_makestackio(&pr, lfd->fdhandle, false);
     for(i = 0; i < argc; i++)
     {
         lit_value_printvalue(&pr, args[i], false);
@@ -16419,7 +16595,7 @@ LitValue lit_objfnfile_writevalstring(LitState* state, LitValue instance, size_t
         maxlen = LIT_ARGS_GETNUMBER(1);
     }
     data = (LitFileData*)lit_userdata_extractdata(instance);
-    wr = fwrite(lit_string_getdata(string), sizeof(char), maxlen, lit_util_cppcast(FILE*)data->fdhandle);
+    wr = fwrite(lit_string_getdata(string), sizeof(char), maxlen, data->fdhandle);
     return lit_value_makenumber(wr);
 }
 
@@ -16469,7 +16645,7 @@ LitValue lit_objfnfile_readallinstance(LitState* state, LitValue instance, size_
         havesizeparam = true;
     }
     data = (LitFileData*)lit_userdata_extractdata(instance);
-    result = lit_util_readhandletostring(state, lit_util_cppcast(FILE*)data->fdhandle, havesizeparam, howmuch);
+    result = lit_util_readhandletostring(state, data->fdhandle, havesizeparam, howmuch);
     return lit_value_fromobject(result);
 }
 
@@ -16513,7 +16689,7 @@ LitValue lit_objfnfile_readline(LitState* state, LitValue instance, size_t argc,
     res = lit_string_makeemptystring(state, 64, false);
     while(true)
     {
-        ch = fgetc(lit_util_cppcast(FILE*)data->fdhandle);
+        ch = fgetc(data->fdhandle);
         if(ch == EOF)
         {
             break;
@@ -18285,7 +18461,7 @@ void lit_vmexec_resetvm(LitState* state)
     state->vmstate.gcgraystack = NULL;
     state->vmstate.gcgraycount = 0;
     state->vmstate.gcgraycapacity = 0;
-    lit_table_init(state, &state->vmstate.strings);
+    lit_stringtable_init(&state->vmstate.storedstrings);
     state->vmstate.globals = NULL;
     state->vmstate.modules = NULL;
 }
@@ -18299,7 +18475,7 @@ void lit_init_vm(LitState* state)
 
 void lit_free_vm(LitState* state)
 {
-    lit_free_table(&state->vmstate.strings);
+    lit_stringtable_free(&state->vmstate.storedstrings);
     lit_gcmem_freeobjlist(state, state->vmstate.objects);
     lit_vmexec_resetvm(state);
 }
@@ -20855,6 +21031,7 @@ int main(int argc, char* argv[], char** envp)
     }
     endmain:
     lit_state_destroy(state);
+    lit_sysmem_pooldestroy();
     if(result != LIT_STATUS_OK)
     {
         return 1;
