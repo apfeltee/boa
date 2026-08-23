@@ -1,48 +1,63 @@
-for (var a = 0; a < 5; a = a + 1)
+
+function testbreak_simple()
 {
-    if (a == 3)
+    for (var a = 0; a < 5; a = a + 1)
     {
-        break;
-    }
-    println(a);
-}
-
-"--end--";
-
-for (var a = 0; a < 3; a = a + 1) {
-    break;
-    throw Exception("no");
-}
-
-var a = "no";
-while (true) {
-    for (var c = 0; c < 3; c = c + 1) {
-        while (true) {
-            a = "yes";
+        if (a == 3)
+        {
             break;
-            throw Exception("nope");
         }
-        break;
+        println(a);
     }
-    println(a);
-    break;
 }
 
-var i
-var j
-for(i=0; i<100; i++)
+function testbreak_direct()
 {
-    if(i == 56)
-    {
-        break
+    for (var a = 0; a < 3; a = a + 1) {
+        break;
+        throw Exception("no");
     }
-    for(j=0; j<100; j++)
+}
+
+function testbreak_nested()
+{
+    var a = "no";
+    while (true) {
+        for (var c = 0; c < 3; c = c + 1) {
+            while (true) {
+                a = "yes";
+                break;
+                throw Exception("nope");
+            }
+            break;
+        }
+        println(a);
+        break;
+    }
+}
+
+function testbreak_inner()
+{
+    var i
+    var j
+    for(i=0; i<100; i++)
     {
-        if(j == 48)
+        if(i == 56)
         {
             break
         }
+        for(j=0; j<100; j++)
+        {
+            if(j == 48)
+            {
+                break
+            }
+        }
     }
+    println("i=", i, ", j=", j)
 }
 
-println("i=", i, ", j=", j)
+testbreak_simple();
+testbreak_direct();
+testbreak_nested();
+testbreak_inner();

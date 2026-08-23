@@ -61,25 +61,55 @@ typedef struct optcontext_t optcontext_t;
 typedef struct optlongflags_t optlongflags_t;
 typedef enum optargtype_t optargtype_t;
 
+typedef bool(*optcallback_t)(optcontext_t* ox, optlongflags_t*, void* userptr);
+
+
+struct optlongflags_t
+{
+    const char* longname;
+    int shortname;
+    optcallback_t callback;
+    optargtype_t argtype;
+    const char* helptext;
+};
+
+
+
 struct optcontext_t
 {
     char** argv;
     int argc;
+    void* userptr;
     int permute;
     int optind;
     int optopt;
     char* optarg;
     char errmsg[64];
     int subopt;
+    int restargc;
+    int knowncount;
+    char* restargv[1024];
+    optlongflags_t knownflags[1024];
 };
 
-struct optlongflags_t
+/**
+ * Initializes the parser state.
+ */
+static void optprs_init(optcontext_t* ox, int argc, char** argv, void* userptr)
 {
-    const char* longname;
-    int shortname;
-    optargtype_t argtype;
-    const char* helptext;
-};
+    memset(ox, 0, sizeof(optcontext_t));
+    ox->userptr = userptr; 
+    ox->argv = argv;
+    ox->argc = argc;
+    ox->permute = 1;
+    ox->optind = argv[0] != 0;
+    ox->subopt = 0;
+    ox->optarg = 0;
+    ox->errmsg[0] = '\0';
+    ox->restargc = 0;
+    ox->knowncount = 0;
+    
+}
 
 static int optprs_nextshortflag(optcontext_t* ox, const char* optstring);
 
@@ -264,19 +294,6 @@ static int optbits_longfallback(optcontext_t* ox, const optlongflags_t* longopts
     return result;
 }
 
-/**
- * Initializes the parser state.
- */
-static void optprs_init(optcontext_t* ox, int argc, char** argv)
-{
-    ox->argv = argv;
-    ox->argc = argc;
-    ox->permute = 1;
-    ox->optind = argv[0] != 0;
-    ox->subopt = 0;
-    ox->optarg = 0;
-    ox->errmsg[0] = '\0';
-}
 
 /**
  * Read the next option in the argv array.
@@ -501,5 +518,49 @@ static char* optprs_nextpositional(optcontext_t* ox)
     }
     return option;
 }
+
+//optprs_add(&options, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
+static bool optprs_add(optcontext_t* ox, optcallback_t callback, const char* longname, int shortname, optargtype_t argtype, const char* helptext)
+{
+    optlongflags_t flag;
+    flag.shortname = shortname;
+    flag.longname = longname;
+    flag.callback = callback;
+    flag.argtype = argtype;
+    flag.helptext = helptext,
+    ox->knownflags[ox->knowncount] = flag;
+    ox->knowncount++;
+    return true;
+}
+
+static bool optprs_run(optcontext_t* ox)
+{
+    int opt;
+    int longindex;
+    char* arg;
+    optlongflags_t* flag;
+    while ((opt = optprs_nextlongflag(ox, ox->knownflags, &longindex)) != -1)
+    {
+        flag = &ox->knownflags[longindex];
+        //typedef bool(*optcallback_t)(optcontext_t* ox, optlongflags_t*, void* userptr);
+
+            if(!flag->callback(ox, flag, ox->userptr))
+            {
+                break;
+            }
+    }
+    while(true)
+    {
+        arg = optprs_nextpositional(ox);
+        if(arg == NULL)
+        {
+            break;
+        }
+        ox->restargv[ox->restargc] = arg;
+        ox->restargc++;
+    }
+    return true;
+}
+
 
 #endif

@@ -34,14 +34,11 @@
     #include <malloc.h>
 #endif
 
-/* if no platform can be detected, or for testing; forces MEMPOOL_TARGET_GENERIC, which uses malloc/free */
-#define MEMPOOL_CONFIG_FORCEGENERIC 0
-
 #if (defined(__linux__) || defined(__CYGWIN__)) && !defined(_GNU_SOURCE)
     #define _GNU_SOURCE
 #endif
 
-#if defined(__STRICT_ANSI__)
+#if defined(__STRICT_ANSI__) || defined(__PCC__)
     #define MEMPOOL_INLINE static
 #else
     #if defined(__GNUC__) || defined(__TINYC__)
@@ -81,7 +78,15 @@
     #endif
 #endif
 
+/* if no platform can be detected, or for testing; forces MEMPOOL_TARGET_GENERIC, which uses malloc/free */
+#define MEMPOOL_CONFIG_FORCEGENERIC 0
 
+/*
+#if defined(MEMPOOL_TARGET_WINDOWS)
+    #undef MEMPOOL_TARGET_WINDOWS
+    #define MEMPOOL_TARGET_GENERIC
+#endif
+*/
 
 #if defined(MEMPOOL_TARGET_WINDOWS)
     #define WIN32_LEAN_AND_MEAN

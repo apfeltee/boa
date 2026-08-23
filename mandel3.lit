@@ -30,12 +30,9 @@ while (cy <= ymax)
             y2 = ((y * y) >> 12)
             iter +=1
         }
-        //line += (32 + iter).chr
-        print((32 + iter).chr)
+        printf("%c", (32 + iter))
         cx += dx
     }
-    //print(line, "\n")
-    //line = ""
     print("\n")
     cy += dy
 }

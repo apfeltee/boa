@@ -1,4 +1,5 @@
 
+println("ARGV=", ARGV);
 arg = ARGV[1]
 switch(arg)
 {
