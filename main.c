@@ -1602,6 +1602,7 @@ LIT_INLINE void lit_string_setlength(LitString* string, size_t ns);
 LIT_INLINE char* lit_string_getdata(LitString* string);
 LIT_INLINE char lit_string_getat(LitString* string, size_t pos);
 bool lit_vm_raisefatalerror(LitState *state, const char *format, ...) LIT_ATTRIB((format(printf, 2, 3)));
+bool lit_vm_raiseexception(LitState *state, LitException *exclass, const char *format, ...);
 
 jmp_buf g_vmglobaljumpbuf = {};
 
@@ -3862,6 +3863,11 @@ LIT_INLINE LitReference* lit_value_asreference(LitValue value)
     return ((LitReference*)lit_value_asobject(value));
 }
 
+LIT_INLINE LitException* lit_value_asexception(LitValue value)
+{
+    return ((LitException*)lit_value_asobject(value));
+}
+
 LIT_INLINE LitValue lit_value_makenull()
 {
     LitValue rt;
@@ -5713,6 +5719,14 @@ void lit_gcmem_blackenobject(LitState* state, LitObject* object)
                 lit_gcmem_markvalue(state, *(optr->slot));
             }
             break;
+        case LIT_OBJTYPE_EXCEPTION:
+            {
+                LitException* exception;
+                exception = (LitException*)object;
+                lit_gcmem_markobject(state, (LitObject*)exception->baseclass);
+                lit_gcmem_markvalue(state, exception->message);
+            }
+            break;
         default:
             {
                 lit_vm_raisefatalerror(state, "unknown object with type %i", object->type);
@@ -6436,6 +6450,18 @@ void lit_value_printobject(LitStream* pr, LitValue value, bool reprmode)
                 lit_stream_puts(pr, ">");
             }
             break;
+        case LIT_OBJTYPE_EXCEPTION:
+            {
+                LitException* exception;
+                exception = lit_value_asexception(value);
+                if(exception->baseclass != NULL && exception->baseclass->name != NULL)
+                {
+                    lit_stream_puts(pr, lit_string_getdata(exception->baseclass->name));
+                    lit_stream_puts(pr, ": ");
+                }
+                lit_value_printvalue(pr, exception->message, false);
+            }
+            break;
         default:
             {
                 lit_stream_printf(pr, "[unknown object %p %i]", (void*)&value, lit_value_objtype(value));
@@ -6605,6 +6631,14 @@ LitValue lit_instance_getthis(LitInstance* selfinst)
 bool lit_instance_setfield(LitInstance* selfinst, LitString* key, LitValue val)
 {
     return lit_table_set(&selfinst->fields, key, val);
+}
+
+LitValue lit_objfnexception_constructor(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    LitException* exception;
+    exception = lit_object_makeexception(state, lit_value_asinstance(instance)->klass);
+    exception->message = (argc > 0) ? args[0] : lit_value_makenull();
+    return lit_value_fromobject(exception);
 }
 
 void lit_api_init(LitState* state)
@@ -15721,6 +15755,11 @@ LitValue lit_cfn_typeof(LitState* state, LitValue instance, size_t argc, LitValu
     LitString* r;
     (void)argc;
     (void)instance;
+    if(lit_value_isexception(args[0]))
+    {
+        r = lit_value_asexception(args[0])->baseclass->name;
+        return lit_value_fromobject(r);
+    }
     r = lit_string_copy(state, lit_value_valtypename(args[0]));
     return lit_value_fromobject(r);
 }
@@ -15963,6 +16002,7 @@ void lit_state_opencorelibrary(LitState* state)
     {
         {
             klass = lit_class_make(state, "Exception", state->stdobjectclass);
+            lit_class_bindconstructor(klass, lit_objfnexception_constructor);
             state->stdexception = lit_object_makeexception(state, klass);
         }
         {
@@ -16492,7 +16532,8 @@ LitValue lit_objfnfile_constructor(LitState* state, LitValue instance, size_t ar
     fhnd = fopen(strpath, strmode);
     if(fhnd == NULL)
     {
-        lit_vm_raisefatalerror(state, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
+        lit_vm_raiseexception(state, state->stdioerror, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
+        return lit_value_makenull();
     }
     data = (LitFileData*)lit_userdata_insertdata(state, instance, sizeof(LitFileData), lit_callback_onfilecleanup);
     data->path = (char*)strpath;
@@ -16536,7 +16577,8 @@ LitValue lit_objfnfile_create(LitState* state, LitValue instance, size_t argc, L
     fhnd = fopen(strpath, "w");
     if(fhnd == NULL)
     {
-        lit_vm_raisefatalerror(state, "failed to create file %s", strpath);
+        lit_vm_raiseexception(state, state->stdioerror, "failed to create file %s", strpath);
+        return lit_value_makenull();
     }
     fclose(fhnd);
     return lit_value_makenull();
@@ -16656,7 +16698,7 @@ LitValue lit_objfnfile_readallstatic(LitState* state, LitValue instance, size_t 
     hnd = fopen(filename, "rb");
     if(!hnd)
     {
-        lit_vm_raisefatalerror(state, "cannot open '%s' for reading", filename);
+        lit_vm_raiseexception(state, state->stdioerror, "cannot open '%s' for reading", filename);
         return lit_value_makenull();
     }
     result = lit_util_readhandletostring(state, hnd, havesizeparam, howmuch);
@@ -17437,6 +17479,9 @@ LitString* lit_value_tostrinvoketostring(LitState* state, LitValue object, size_
 LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentation)
 {
     LitValue* slot;
+    LitStream pr;
+    LitException* exception;
+    LitString* message;
     if(lit_value_isstring(object))
     {
         return lit_value_asstring(object);
@@ -17471,6 +17516,18 @@ LitString* lit_value_tostring(LitState* state, LitValue object, size_t indentati
             return state->strings.strnull;
         }
         return lit_value_tostring(state, *slot, 0);
+    }
+    else if(lit_value_isexception(object))
+    {
+        exception = lit_value_asexception(object);
+        message = lit_value_tostring(state, exception->message, 0);
+        if(exception->baseclass == NULL || exception->baseclass->name == NULL)
+        {
+            return message;
+        }
+        lit_stream_makestackstring(&pr);
+        lit_stream_printf(&pr, "%s: %s", lit_string_getdata(exception->baseclass->name), lit_string_getdata(message));
+        return lit_stream_takestring(state, &pr);
     }
     return lit_value_tostrinvoketostring(state, object, indentation, true);
 }
@@ -18261,6 +18318,11 @@ LitClass* lit_state_getclassfor(LitState* state, LitValue value)
                     return state->stdobjectclass;
                 }
                 break;
+            case LIT_OBJTYPE_EXCEPTION:
+                {
+                    return lit_value_asexception(value)->baseclass;
+                }
+                break;
         }
     }
     else if(lit_value_isnumber(value))
@@ -18508,6 +18570,7 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
     const char* name;
     const char* message;
     size_t line;
+    LitException* exception;
     pr = state->streamstderr;
     errstrval = errorvalue;
     fiber = state->vmstate.fiber;
@@ -18553,9 +18616,19 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
         fiber->parent->muststop = true;
     }
     count = (int)fiber->framecount - 1;
-    message = lit_string_getdata(lit_value_tostring(state, errorvalue, 0));
     lit_stream_setcolor(pr, 'r');
-    lit_stream_printf(pr, "unhandled error in vm:\n");
+    if(lit_value_isexception(errstrval))
+    {
+        exception = lit_value_asexception(errstrval);
+        name = (exception->baseclass != NULL && exception->baseclass->name != NULL) ? lit_string_getdata(exception->baseclass->name) : "unknown";
+        lit_stream_printf(pr, "unhandled %s in vm:\n", name);
+        message = lit_string_getdata(lit_value_tostring(state, exception->message, 0));
+    }
+    else
+    {
+        lit_stream_printf(pr, "unhandled error in vm:\n");
+        message = lit_string_getdata(lit_value_tostring(state, errorvalue, 0));
+    }
     lit_stream_printf(pr, "%s\n", message);
     for(i = count; i >= 0; i--)
     {
@@ -18582,10 +18655,19 @@ bool lit_vm_raiseerrorva(LitState* state, LitException* exclass, const char* for
 {
     LitStream pr;
     LitString* str;
+    LitException* exception;
     lit_stream_makestackstring(&pr);
     lit_stream_printfv(&pr, format, args);
     str = lit_stream_takestring(state, &pr);
-    return lit_vm_handleerror(state, /* exclass, */ lit_value_fromobject(str));
+    if(exclass == NULL)
+    {
+        exclass = state->stdexception;
+    }
+    lit_state_pushroot(state, (LitObject*)str);
+    exception = lit_object_makeexception(state, exclass->baseclass);
+    lit_state_poproot(state);
+    exception->message = lit_value_fromobject(str);
+    return lit_vm_handleerror(state, lit_value_fromobject(exception));
 }
 
 bool lit_vm_raiseerror(LitState* state, const char* format, ...)
@@ -18594,6 +18676,16 @@ bool lit_vm_raiseerror(LitState* state, const char* format, ...)
     bool result;
     va_start(args, format);
     result = lit_vm_raiseerrorva(state, state->stdexception, format, args);
+    va_end(args);
+    return result;
+}
+
+bool lit_vm_raiseexception(LitState* state, LitException* exclass, const char* format, ...)
+{
+    va_list args;
+    bool result;
+    va_start(args, format);
+    result = lit_vm_raiseerrorva(state, exclass, format, args);
     va_end(args);
     return result;
 }
@@ -18687,7 +18779,10 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
     LitInstance* instance;
     LitValue mth;
     LitFuncBound* boundmethod;
-    frame = &state->vmstate.fiber->framevals[state->vmstate.fiber->framecount - 1];
+    uint32_t entryframecount;
+    uint64_t* savedip;
+    fiber = state->vmstate.fiber;
+    frame = &fiber->framevals[fiber->framecount - 1];
     if(lit_value_isnull(alternatecallee))
     {
         callee = frame->slots[calleeregister];
@@ -18719,8 +18814,16 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                 break;
             case LIT_OBJTYPE_FUNCNATIVE:
                 {
+                    entryframecount = fiber->framecount;
+                    savedip = frame->ip;
                     value = lit_value_asfuncnative(callee)->natfuncptr(state, lit_value_makenull(), argc, frame->slots + calleeregister + 1);
-                    frame->slots[calleeregister] = value;
+                    /* if the native raised a handled error, the vm already
+                     * unwound to the catch handler (rewriting frame->ip);
+                     * writing the result would clobber handler registers */
+                    if(state->vmstate.fiber == fiber && fiber->framecount == entryframecount && frame->ip == savedip)
+                    {
+                        frame->slots[calleeregister] = value;
+                    }
                     return !state->vmstate.fiber->muststop;
                 }
                 break;
@@ -18729,8 +18832,13 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                     lit_vmexec_pushgc(state, false);
                     method = lit_value_asfuncmethod(callee);
                     fiber = state->vmstate.fiber;
+                    entryframecount = fiber->framecount;
+                    savedip = frame->ip;
                     value = method->natfuncptr(state, *(frame->slots + calleeregister), argc, frame->slots + calleeregister + 1);
-                    frame->slots[calleeregister] = value;
+                    if(state->vmstate.fiber == fiber && fiber->framecount == entryframecount && frame->ip == savedip)
+                    {
+                        frame->slots[calleeregister] = value;
+                    }
                     lit_vmexec_popgc(state);
                     return !fiber->muststop;
                 }
@@ -18754,8 +18862,13 @@ bool lit_vmexec_actualcallvalue(LitState* state, size_t calleeregister, size_t a
                     if(lit_value_isfuncmethod(mth))
                     {
                         lit_vmexec_pushgc(state, false);
+                        entryframecount = fiber->framecount;
+                        savedip = frame->ip;
                         value = lit_value_asfuncmethod(mth)->natfuncptr(state, boundmethod->receiver, argc, frame->slots + calleeregister + 1);
-                        frame->slots[calleeregister] = value;
+                        if(state->vmstate.fiber == fiber && fiber->framecount == entryframecount && frame->ip == savedip)
+                        {
+                            frame->slots[calleeregister] = value;
+                        }
                         lit_vmexec_popgc(state);
                         return !state->vmstate.fiber->muststop;
                     }

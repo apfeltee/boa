@@ -242,6 +242,7 @@ void lit_class_setstaticfield(LitClass *selfclass, const char *name, LitValue va
 void lit_class_bindgetsetter(LitClass *selfclass, const char *name, LitNativeFunctionFn fnget, LitNativeFunctionFn fnset);
 LitValue lit_instance_getthis(LitInstance *selfinst);
 bool lit_instance_setfield(LitInstance *selfinst, LitString *key, LitValue val);
+LitValue lit_objfnexception_constructor(LitState *state, LitValue instance, size_t argc, LitValue *args);
 void lit_api_init(LitState *state);
 void lit_api_destroy(LitState *state);
 bool lit_state_getglobaltovalue(LitState *state, LitString *name, LitValue *dest);
@@ -723,6 +724,7 @@ void lit_free_vm(LitState *state);
 bool lit_vm_handleerror(LitState *state, LitValue errorvalue);
 bool lit_vm_raiseerrorva(LitState *state, LitException *exclass, const char *format, va_list args);
 bool lit_vm_raiseerror(LitState *state, const char *format, ...);
+bool lit_vm_raiseexception(LitState *state, LitException *exclass, const char *format, ...);
 bool lit_vm_raisefatalerror(LitState *state, const char *format, ...);
 bool lit_vmexec_callcallable(LitState *state, LitFuncScript *function, LitFuncClosure *closure, size_t argc, size_t calleeregister);
 bool lit_vmexec_actualcallvalue(LitState *state, size_t calleeregister, size_t argc, LitValue alternatecallee, const char *fname);
