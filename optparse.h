@@ -58,13 +58,13 @@ enum optargtype_t
 };
 
 typedef struct optcontext_t optcontext_t;
-typedef struct optlongflags_t optlongflags_t;
+typedef struct optflag_t optflag_t;
 typedef enum optargtype_t optargtype_t;
 
-typedef bool(*optcallback_t)(optcontext_t* ox, optlongflags_t*, void* userptr);
+typedef bool(*optcallback_t)(optcontext_t* ox, optflag_t*, void* userptr);
 
 
-struct optlongflags_t
+struct optflag_t
 {
     const char* longname;
     int shortname;
@@ -89,7 +89,7 @@ struct optcontext_t
     int restargc;
     int knowncount;
     char* restargv[1024];
-    optlongflags_t knownflags[1024];
+    optflag_t knownflags[1024];
 };
 
 /**
@@ -206,7 +206,7 @@ static int optbits_getargtype(const char* optstring, char c)
     return count;
 }
 
-static bool optbits_islongoptsend(const optlongflags_t* longopts, int i)
+static bool optbits_islongoptsend(const optflag_t* longopts, int i)
 {
     if(!longopts[i].longname && !longopts[i].shortname)
     {
@@ -215,7 +215,7 @@ static bool optbits_islongoptsend(const optlongflags_t* longopts, int i)
     return false;
 }
 
-static void optbits_fromlong(const optlongflags_t* longopts, char* optstring)
+static void optbits_fromlong(const optflag_t* longopts, char* optstring)
 {
     int i;
     int a;
@@ -269,7 +269,7 @@ static char* optbits_getlongoptsarg(char* option)
     return NULL;
 }
 
-static int optbits_longfallback(optcontext_t* ox, const optlongflags_t* longopts, int* longindex)
+static int optbits_longfallback(optcontext_t* ox, const optflag_t* longopts, int* longindex)
 {
     int i;
     int result;
@@ -417,7 +417,7 @@ static int optprs_nextshortflag(optcontext_t* ox, const char* optstring)
  * longopts must be all zeros, marking the end of the array. The
  * longindex argument may be NULL.
  */
-static int optprs_nextlongflag(optcontext_t* ox, const optlongflags_t* longopts, int* longindex)
+static int optprs_nextlongflag(optcontext_t* ox, const optflag_t* longopts, int* longindex)
 {
     int i;
     int r;
@@ -522,7 +522,7 @@ static char* optprs_nextpositional(optcontext_t* ox)
 //optprs_add(&options, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
 static bool optprs_add(optcontext_t* ox, optcallback_t callback, const char* longname, int shortname, optargtype_t argtype, const char* helptext)
 {
-    optlongflags_t flag;
+    optflag_t flag;
     flag.shortname = shortname;
     flag.longname = longname;
     flag.callback = callback;
@@ -538,11 +538,11 @@ static bool optprs_run(optcontext_t* ox)
     int opt;
     int longindex;
     char* arg;
-    optlongflags_t* flag;
+    optflag_t* flag;
     while ((opt = optprs_nextlongflag(ox, ox->knownflags, &longindex)) != -1)
     {
         flag = &ox->knownflags[longindex];
-        //typedef bool(*optcallback_t)(optcontext_t* ox, optlongflags_t*, void* userptr);
+        //typedef bool(*optcallback_t)(optcontext_t* ox, optflag_t*, void* userptr);
 
             if(!flag->callback(ox, flag, ox->userptr))
             {

@@ -697,6 +697,7 @@ void *lit_userdata_extractdata(LitValue instance);
 LitRange *lit_object_makerange(LitState *state, LitNumber from, LitNumber to);
 LitField *lit_object_makefield(LitState *state, LitObject *getter, LitObject *setter);
 LitReference *lit_object_makereference(LitState *state, LitValue *slot);
+LitException *lit_object_makeexception(LitState *state, LitClass *baseclass);
 void lit_state_defaultprinterrmsgerror(LitState *state, const char *message, bool iswarning);
 LitState *lit_state_make(void);
 int64_t lit_state_destroy(LitState *state);
@@ -719,8 +720,8 @@ void lit_debug_traceprintvalue(LitStream *pr, const char *prefix, size_t frameco
 void lit_vmexec_resetvm(LitState *state);
 void lit_init_vm(LitState *state);
 void lit_free_vm(LitState *state);
-bool lit_vm_handleerror(LitState *state, LitString *errorstring);
-bool lit_vm_raiseerrorva(LitState *state, const char *format, va_list args);
+bool lit_vm_handleerror(LitState *state, LitValue errorvalue);
+bool lit_vm_raiseerrorva(LitState *state, LitException *exclass, const char *format, va_list args);
 bool lit_vm_raiseerror(LitState *state, const char *format, ...);
 bool lit_vm_raisefatalerror(LitState *state, const char *format, ...);
 bool lit_vmexec_callcallable(LitState *state, LitFuncScript *function, LitFuncClosure *closure, size_t argc, size_t calleeregister);
@@ -735,7 +736,7 @@ void lit_repl_interupthandler(int signalid);
 size_t lit_repl_makeresultname(char *buf, int level);
 const char *lit_repl_setresultvar(LitState *state, int level, LitValue val);
 void lit_repl_runrepl(LitState *state, linocontext_t *lictx);
-bool on_flag(optcontext_t *ox, optlongflags_t *flag, void *userptr);
+bool on_flag(optcontext_t *ox, optflag_t *flag, void *userptr);
 int main(int argc, char *argv[], char **envp);
 /* allocator.h */
 void *mempool_createpool(void);

@@ -330,7 +330,8 @@ enum LitObjType
     LIT_OBJTYPE_USERDATA,
     LIT_OBJTYPE_RANGE,
     LIT_OBJTYPE_FIELD,
-    LIT_OBJTYPE_REFERENCE
+    LIT_OBJTYPE_REFERENCE,
+    LIT_OBJTYPE_EXCEPTION,
 };
 
 enum LitValType
@@ -707,6 +708,7 @@ typedef struct LitConfig LitConfig;
 typedef struct LitFSStat LitFSStat;
 typedef struct LitFSDirReader LitFSDirReader;
 typedef struct LitFSDirItem LitFSDirItem;
+typedef struct LitException LitException;
 
 typedef void (*LitErrorFn)(LitState* state, const char* message, bool);
 typedef LitAstExpression* (*LitParsePrefixFn)(LitAstParser*, bool);
@@ -1086,6 +1088,13 @@ struct LitReference
     LitValue* slot;
 };
 
+struct LitException
+{
+    LitObject innerobject;
+    LitClass* baseclass;
+    LitValue message;
+};
+
 struct LitVMState
 {
     LitObject* objects;
@@ -1200,6 +1209,8 @@ struct LitState
     LitClass* stdclassarray;
     LitClass* stdclassmap;
     LitClass* stdclassrange;
+    LitException* stdexception;
+    LitException* stdioerror;
     LitModule* lastmodule;
     LitConstStrings strings;
 };
@@ -3734,6 +3745,10 @@ LIT_INLINE bool lit_value_isreference(LitValue value)
     return lit_value_isobjtype(value, LIT_OBJTYPE_REFERENCE);
 }
 
+LIT_INLINE bool lit_value_isexception(LitValue value)
+{
+    return lit_value_isobjtype(value, LIT_OBJTYPE_EXCEPTION);
+}
 
 LIT_INLINE bool lit_value_iscallablefunction(LitValue value)
 {
@@ -5435,7 +5450,13 @@ void lit_gcmem_freeobject(LitState* state, LitObject* object)
                 lit_gcmem_deallocobject(state, sizeof(LitReference), optr);
             }
             break;
-
+        case LIT_OBJTYPE_EXCEPTION:
+            {
+                LitException* optr;
+                optr = (LitException*)object;
+                lit_gcmem_deallocobject(state, sizeof(LitException), optr);                
+            }
+            break;
         default:
             {
                 LIT_UTIL_UNREACHABLE();
@@ -5507,6 +5528,8 @@ void lit_gcmem_markroots(LitState* state)
     lit_gcmem_markobject(state, (LitObject*)state->stdclassarray);
     lit_gcmem_markobject(state, (LitObject*)state->stdclassmap);
     lit_gcmem_markobject(state, (LitObject*)state->stdclassrange);
+    lit_gcmem_markobject(state, (LitObject*)state->stdexception);
+    lit_gcmem_markobject(state, (LitObject*)state->stdioerror);
     lit_gcmem_markobject(state, (LitObject*)state->apiname);
     lit_gcmem_markobject(state, (LitObject*)state->apifunction);
     lit_table_markentries(&state->vmstate.modules->innertable);
@@ -14612,7 +14635,7 @@ LitValue lit_objfnfiber_yield(LitState* state, LitValue instance, size_t argc, L
     (void)instance;
     if(state->vmstate.fiber->parent == NULL)
     {
-        lit_vm_handleerror(state, argc == 0 ? lit_string_copy(state, "Fiber was yielded") : lit_value_tostring(state, args[0], 0));
+        lit_vm_handleerror(state, argc == 0 ? lit_value_fromobject(lit_string_copy(state, "Fiber was yielded")) : args[0]);
         return lit_value_makenull();
     }
     state->vmstate.fiber = state->vmstate.fiber->parent;
@@ -14625,7 +14648,7 @@ LitValue lit_objfnfiber_yeet(LitState* state, LitValue instance, size_t argc, Li
     (void)instance;
     if(state->vmstate.fiber->parent == NULL)
     {
-        lit_vm_handleerror(state, argc == 0 ? lit_string_copy(state, "Fiber was yeeted") : lit_value_tostring(state, args[0], 0));
+        lit_vm_handleerror(state, argc == 0 ? lit_value_fromobject(lit_string_copy(state, "Fiber was yeeted")) : args[0]);
         return lit_value_makenull();
     }
     state->vmstate.fiber = state->vmstate.fiber->parent;
@@ -14635,13 +14658,13 @@ LitValue lit_objfnfiber_yeet(LitState* state, LitValue instance, size_t argc, Li
 
 LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
-    LitString* value;
+    LitValue value;
     (void)instance;
-    value = argc == 0 ? lit_string_copy(state, "Fiber was aborted") : lit_value_tostring(state, args[0], 0);
+    value = argc == 0 ? lit_value_fromobject(lit_string_copy(state, "Fiber was aborted")) : args[0];
     lit_vm_handleerror(state, value);
     if(state->vmstate.fiber->returnaddress != NULL)
     {
-        *state->vmstate.fiber->returnaddress = lit_value_fromobject(value);
+        *state->vmstate.fiber->returnaddress = value;
     }
     return lit_value_makenull();
 }
@@ -15936,6 +15959,16 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindstaticmethod(klass, "exit", lit_objfnprocess_exit);
         lit_class_bindstaticmethod(klass, "abort", lit_objfnprocess_abort);
 
+    }
+    {
+        {
+            klass = lit_class_make(state, "Exception", state->stdobjectclass);
+            state->stdexception = lit_object_makeexception(state, klass);
+        }
+        {
+            klass = lit_class_make(state, "IOError", state->stdexception->baseclass);
+            state->stdioerror = lit_object_makeexception(state, klass);
+        }
     }
     lit_state_defnative(state, "srand", lit_cfn_srand);
     lit_state_defnative(state, "random", lit_cfn_random);
@@ -17967,6 +18000,15 @@ LitReference* lit_object_makereference(LitState* state, LitValue* slot)
     return reference;
 }
 
+LitException* lit_object_makeexception(LitState* state, LitClass* baseclass)
+{
+    LitException* ex;
+    ex = (LitException*)lit_object_allocobject(state, sizeof(LitException), LIT_OBJTYPE_EXCEPTION);
+    ex->baseclass = baseclass;
+    ex->message = lit_value_makenull();
+    return ex;
+}
+
 void lit_state_defaultprinterrmsgerror(LitState* state, const char* message, bool iswarning)
 {
     LitStream* pr;
@@ -18451,12 +18493,12 @@ void lit_free_vm(LitState* state)
     lit_vmexec_resetvm(state);
 }
 
-bool lit_vm_handleerror(LitState* state, LitString* errorstring)
+bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
 {
     int i;
     int count;
     LitStream* pr;
-    LitValue error;
+    LitValue errstrval;
     LitFiber* fiber;
     LitHandler* handler;
     LitFiber* caller;
@@ -18464,13 +18506,14 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     LitFuncScript* function;
     LitChunk* chunk;
     const char* name;
+    const char* message;
     size_t line;
     pr = state->streamstderr;
-    error = lit_value_fromobject(errorstring);
+    errstrval = errorvalue;
     fiber = state->vmstate.fiber;
     while(fiber != NULL)
     {
-        fiber->error = error;
+        fiber->error = errstrval;
         if(fiber->handlercount > 0)
         {
             handler = &fiber->handleritems[--fiber->handlercount];
@@ -18481,7 +18524,7 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
             state->vmstate.ip = handler->handlerip;
             state->vmstate.frame->ip = handler->handlerip;
             state->vmstate.vmregisteritems = fiber->registeritems + handler->registercount;
-            state->vmstate.vmregisteritems[handler->errorreg] = error;
+            state->vmstate.vmregisteritems[handler->errorreg] = errorvalue;
             return true;
         }
         if(fiber->catcher)
@@ -18494,7 +18537,7 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
             state->vmstate.fiber = fiber->parent;
             if(state->vmstate.fiber->returnaddress != NULL)
             {
-                *state->vmstate.fiber->returnaddress = error;
+                *state->vmstate.fiber->returnaddress = errstrval;
             }
             return true;
         }
@@ -18504,15 +18547,16 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     }
     fiber = state->vmstate.fiber;
     fiber->muststop = true;
-    fiber->error = error;
+    fiber->error = errstrval;
     if(fiber->parent != NULL)
     {
         fiber->parent->muststop = true;
     }
     count = (int)fiber->framecount - 1;
+    message = lit_string_getdata(lit_value_tostring(state, errorvalue, 0));
     lit_stream_setcolor(pr, 'r');
     lit_stream_printf(pr, "unhandled error in vm:\n");
-    lit_stream_printf(pr, "%s\n", lit_string_getdata(errorstring));
+    lit_stream_printf(pr, "%s\n", message);
     for(i = count; i >= 0; i--)
     {
         frame = &fiber->framevals[i];
@@ -18534,14 +18578,14 @@ bool lit_vm_handleerror(LitState* state, LitString* errorstring)
     return false;
 }
 
-bool lit_vm_raiseerrorva(LitState* state, const char* format, va_list args)
+bool lit_vm_raiseerrorva(LitState* state, LitException* exclass, const char* format, va_list args)
 {
     LitStream pr;
     LitString* str;
     lit_stream_makestackstring(&pr);
     lit_stream_printfv(&pr, format, args);
     str = lit_stream_takestring(state, &pr);
-    return lit_vm_handleerror(state, str);
+    return lit_vm_handleerror(state, /* exclass, */ lit_value_fromobject(str));
 }
 
 bool lit_vm_raiseerror(LitState* state, const char* format, ...)
@@ -18549,7 +18593,7 @@ bool lit_vm_raiseerror(LitState* state, const char* format, ...)
     va_list args;
     bool result;
     va_start(args, format);
-    result = lit_vm_raiseerrorva(state, format, args);
+    result = lit_vm_raiseerrorva(state, state->stdexception, format, args);
     va_end(args);
     return result;
 }
@@ -18559,7 +18603,7 @@ bool lit_vm_raisefatalerror(LitState* state, const char* format, ...)
     va_list args;
     bool result;
     va_start(args, format);
-    result = lit_vm_raiseerrorva(state, format, args);
+    result = lit_vm_raiseerrorva(state, state->stdexception, format, args);
     va_end(args);
     lit_jmpstate_nativeexitjump();
     return result;
@@ -20578,7 +20622,7 @@ dispatch:
         {
             uint64_t ra;
             ra = lit_vmutil_geta(state->vmstate.instruction);
-            if(!lit_vm_handleerror(state, lit_value_tostring(state, state->vmstate.vmregisteritems[ra], 0)))
+            if(!lit_vm_handleerror(state, state->vmstate.vmregisteritems[ra]))
             {
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
             }
@@ -20587,7 +20631,7 @@ dispatch:
         }
         CASE_CODE(LIT_OPCODE_RETHROW)
         {
-            if(!lit_vm_handleerror(state, lit_value_asstring(fiber->error)))
+            if(!lit_vm_handleerror(state, fiber->error))
             {
                 return lit_result_make(LIT_STATUS_RUNTIMEERROR, fiber->error);
             }
@@ -20765,7 +20809,7 @@ static void optprs_fprintusage(FILE* out, optcontext_t* ox)
     bool needval;
     bool maybeval;
     bool hadshort;
-    optlongflags_t* flag;
+    optflag_t* flag;
     for(i=0; i<ox->knowncount; i++)
     {
         flag = &ox->knownflags[i];
@@ -20820,7 +20864,7 @@ struct LitCliOptions
     LitStatusCode result;
 };
 
-bool on_flag(optcontext_t* ox, optlongflags_t* flag, void* userptr)
+bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
 {
     int co;
     FILE* tmpfh;
