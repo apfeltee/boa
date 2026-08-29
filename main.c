@@ -23,7 +23,7 @@
 #endif
 
 #define LIT_CONFIG_USELINO 1
-#define LIT_CONFIG_USEMEMPOOL 1
+#define LIT_CONFIG_USEMEMPOOL 0
 
 #if !defined(LIT_INLINE)
     #if defined(__muccdebug__)
@@ -709,6 +709,8 @@ typedef struct LitFSStat LitFSStat;
 typedef struct LitFSDirReader LitFSDirReader;
 typedef struct LitFSDirItem LitFSDirItem;
 typedef struct LitException LitException;
+typedef struct utf8iterator_t utf8iterator_t;
+
 
 typedef void (*LitErrorFn)(LitState* state, const char* message, bool);
 typedef LitAstExpression* (*LitParsePrefixFn)(LitAstParser*, bool);
@@ -1588,6 +1590,31 @@ struct LitFileData
     char* path;
     FILE* fdhandle;
 };
+
+struct utf8iterator_t
+{
+    /*input string pointer */
+    const char* plainstr;
+
+    /* input string length */
+    uint32_t plainlen;
+
+    /* the codepoint, or char */
+    uint32_t codepoint;
+
+    /* character size in bytes */
+    uint8_t charsize;
+
+    /* current character position */
+    uint32_t currpos;
+
+    /* next character position */
+    uint32_t nextpos;
+
+    /* number of counter characters currently */
+    uint32_t currcount;
+};
+
 
 #include "prot.inc"
 
@@ -3152,6 +3179,154 @@ int lit_util_closestpoweroftwo(int n)
     return n;
 }
 
+/* allows you to set a custom length. */
+void lit_utf8iter_init(utf8iterator_t* iter, const char* ptr, uint32_t length)
+{
+    iter->plainstr = ptr;
+    iter->plainlen = length;
+    iter->codepoint = 0;
+    iter->currpos = 0;
+    iter->nextpos = 0;
+    iter->currcount = 0;
+}
+
+/* calculate the number of bytes a UTF8 character occupies in a string. */
+uint8_t lit_utf8iter_charsize(const char* character)
+{
+    if(character == NULL)
+    {
+        return 0;
+    }
+    if(character[0] == 0)
+    {
+        return 0;
+    }
+    if((character[0] & 0x80) == 0)
+    {
+        return 1;
+    }
+    else if((character[0] & 0xE0) == 0xC0)
+    {
+        return 2;
+    }
+    else if((character[0] & 0xF0) == 0xE0)
+    {
+        return 3;
+    }
+    else if((character[0] & 0xF8) == 0xF0)
+    {
+        return 4;
+    }
+    else if((character[0] & 0xFC) == 0xF8)
+    {
+        return 5;
+    }
+    else if((character[0] & 0xFE) == 0xFC)
+    {
+        return 6;
+    }
+    return 0;
+}
+
+uint32_t lit_utf8iter_converter(const char* character, uint8_t size)
+{
+    uint8_t i;
+    static uint32_t codepoint = 0;
+    static const uint8_t g_utf8iter_table_unicode[] = { 0, 0, 0x1F, 0xF, 0x7, 0x3, 0x1 };
+    if(size == 0)
+    {
+        return 0;
+    }
+    if(character == NULL)
+    {
+        return 0;
+    }
+    if(character[0] == 0)
+    {
+        return 0;
+    }
+    if(size == 1)
+    {
+        return character[0];
+    }
+    codepoint = g_utf8iter_table_unicode[size] & character[0];
+    for(i = 1; i < size; i++)
+    {
+        codepoint = codepoint << 6;
+        codepoint = codepoint | (character[i] & 0x3F);
+    }
+    return codepoint;
+}
+
+/* returns 1 if there is a character in the next position. If there is not, return 0. */
+uint8_t lit_utf8iter_next(utf8iterator_t* iter)
+{
+    const char* pointer;
+    if(iter == NULL)
+    {
+        return 0;
+    }
+    if(iter->plainstr == NULL)
+    {
+        return 0;
+    }
+    if(iter->nextpos < iter->plainlen)
+    {
+        iter->currpos = iter->nextpos;
+        /* Set Current Pointer */
+        pointer = iter->plainstr + iter->nextpos;
+        iter->charsize = lit_utf8iter_charsize(pointer);
+        if(iter->charsize == 0)
+        {
+            return 0;
+        }
+        iter->nextpos = iter->nextpos + iter->charsize;
+        iter->codepoint = lit_utf8iter_converter(pointer, iter->charsize);
+        if(iter->codepoint == 0)
+        {
+            return 0;
+        }
+        iter->currcount++;
+        return 1;
+    }
+    iter->currpos = iter->nextpos;
+    return 0;
+}
+
+/* return current character in UFT8 - no same that iter.codepoint (not codepoint/unicode) */
+const char* lit_utf8iter_getchar(utf8iterator_t* iter)
+{
+    uint8_t i;
+    const char* pointer;
+    static char str[10];
+    str[0] = '\0';
+    if(iter == NULL)
+    {
+        return str;
+    }
+    if(iter->plainstr == NULL)
+    {
+        return str;
+    }
+    if(iter->charsize == 0)
+    {
+        return str;
+    }
+    if(iter->charsize == 1)
+    {
+        str[0] = iter->plainstr[iter->currpos];
+        str[1] = '\0';
+        return str;
+    }
+    pointer = iter->plainstr + iter->currpos;
+    for(i = 0; i < iter->charsize; i++)
+    {
+        str[i] = pointer[i];
+    }
+    str[iter->charsize] = '\0';
+    return str;
+}
+
 int lit_util_stringutfgetcountdecode(uint8_t byte)
 {
     if((byte & 0xc0) == 0x80)
@@ -3194,38 +3369,38 @@ int lit_util_stringutfgetcountencode(int value)
     return 0;
 }
 
-int lit_util_stringutfencode(int value, uint8_t* bytes)
+int lit_util_utf8numbytes(int value, uint8_t* destbytes)
 {
     if(value <= 0x7f)
     {
-        *bytes = value & 0x7f;
+        *destbytes = value & 0x7f;
         return 1;
     }
     else if(value <= 0x7ff)
     {
-        *bytes = 0xc0 | ((value & 0x7c0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
+        *destbytes = 0xc0 | ((value & 0x7c0) >> 6);
+        destbytes++;
+        *destbytes = 0x80 | (value & 0x3f);
         return 2;
     }
     else if(value <= 0xffff)
     {
-        *bytes = 0xe0 | ((value & 0xf000) >> 12);
-        bytes++;
-        *bytes = 0x80 | ((value & 0xfc0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
+        *destbytes = 0xe0 | ((value & 0xf000) >> 12);
+        destbytes++;
+        *destbytes = 0x80 | ((value & 0xfc0) >> 6);
+        destbytes++;
+        *destbytes = 0x80 | (value & 0x3f);
         return 3;
     }
     else if(value <= 0x10ffff)
     {
-        *bytes = 0xf0 | ((value & 0x1c0000) >> 18);
-        bytes++;
-        *bytes = 0x80 | ((value & 0x3f000) >> 12);
-        bytes++;
-        *bytes = 0x80 | ((value & 0xfc0) >> 6);
-        bytes++;
-        *bytes = 0x80 | (value & 0x3f);
+        *destbytes = 0xf0 | ((value & 0x1c0000) >> 18);
+        destbytes++;
+        *destbytes = 0x80 | ((value & 0x3f000) >> 12);
+        destbytes++;
+        *destbytes = 0x80 | ((value & 0xfc0) >> 6);
+        destbytes++;
+        *destbytes = 0x80 | (value & 0x3f);
         return 4;
     }
     LIT_UTIL_UNREACHABLE();
@@ -3300,6 +3475,89 @@ int lit_util_stringutfucharoffset(const char* str, int index)
         index--;
     }
     return offset;
+}
+
+/* returns the number of bytes contained in a unicode character */
+int lit_util_utf8bytelength(int value)
+{
+    if(value < 0)
+    {
+        return -1;
+    }
+    if(value <= 0x7f)
+    {
+        return 1;
+    }
+    if(value <= 0x7ff)
+    {
+        return 2;
+    }
+    if(value <= 0xffff)
+    {
+        return 3;
+    }
+    if(value <= 0x10ffff)
+    {
+        return 4;
+    }
+    return 0;
+}
+
+char* lit_util_utf8encode(unsigned int code, size_t* dlen)
+{
+    int count;
+    char* chars;
+    *dlen = 0;
+    count = lit_util_utf8bytelength((int)code);
+    if(LIT_LIKELY(count > 0))
+    {
+        *dlen = count;
+        chars = (char*)lit_sysmem_malloc(sizeof(char) * ((size_t)count + 1));
+        if(chars != NULL)
+        {
+            if(code <= 0x7F)
+            {
+                chars[0] = (char)(code & 0x7F);
+                chars[1] = '\0';
+            }
+            else if(code <= 0x7FF)
+            {
+                /* one continuation byte */
+                chars[1] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[0] = (char)(0xC0 | (code & 0x1F));
+            }
+            else if(code <= 0xFFFF)
+            {
+                /* two continuation bytes */
+                chars[2] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[1] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[0] = (char)(0xE0 | (code & 0xF));
+            }
+            else if(code <= 0x10FFFF)
+            {
+                /* three continuation bytes */
+                chars[3] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[2] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[1] = (char)(0x80 | (code & 0x3F));
+                code = (code >> 6);
+                chars[0] = (char)(0xF0 | (code & 0x7));
+            }
+            else
+            {
+                /* unicode replacement character */
+                chars[2] = (char)0xEF;
+                chars[1] = (char)0xBF;
+                chars[0] = (char)0xBD;
+            }
+            return chars;
+        }
+    }
+    return NULL;
 }
 
 void lit_util_stringchangecase(char* instr, size_t inlen, int (*func)(int))
@@ -6043,11 +6301,11 @@ LitString* lit_string_codepointstringat(LitState* state, LitString* string, uint
 
 LitString* lit_string_fromcodepoint(LitState* state, int value)
 {
-    int length;
+    uint8_t length;
     LitString* res;
     length = lit_util_stringutfgetcountencode(value);
     res = lit_string_makeemptystring(state, length, false);
-    lit_util_stringutfencode(value, (uint8_t*)lit_string_getdata(res));
+    lit_util_utf8numbytes(value, (uint8_t*)lit_string_getdata(res));
     lit_string_setlength(res, length);
     return res;
 }
@@ -6075,7 +6333,7 @@ LitString* lit_string_fromrange(LitState* state, LitString* source, int start, u
         codepoint = lit_util_stringutfdecode(from + index, lit_string_getlength(source) - index);
         if(codepoint != -1)
         {
-            to += lit_util_stringutfencode(codepoint, to);
+            to += lit_util_utf8numbytes(codepoint, to);
         }
     }
     lit_string_setlength(res, length);
@@ -6639,6 +6897,19 @@ LitValue lit_objfnexception_constructor(LitState* state, LitValue instance, size
     exception = lit_object_makeexception(state, lit_value_asinstance(instance)->klass);
     exception->message = (argc > 0) ? args[0] : lit_value_makenull();
     return lit_value_fromobject(exception);
+}
+
+LitValue lit_objfnexception_messageget(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    LitException* ex;
+    (void)argc;
+    (void)args;
+    if(!lit_value_isexception(instance))
+    {
+        lit_state_raiseerror(state, "cannot invoke 'message' of a non-exception");
+    }
+    ex = lit_value_asexception(instance);
+    return ex->message;
 }
 
 void lit_api_init(LitState* state)
@@ -13484,7 +13755,7 @@ LitValue lit_objfndefault_invalidconstructor(LitState* state, LitValue instance,
     {
         cname = lit_string_getdata(name);
     }
-    lit_vm_raisefatalerror(state, "class %s has no constructor", cname);
+    lit_vm_raiseexception(state, state->stdexception, "class %s has no constructor", cname);
     return lit_value_makenull();
 }
 
@@ -13571,7 +13842,7 @@ LitValue lit_objfnclass_itervalue(LitState* state, LitValue instance, size_t arg
     return lit_coreutil_tableiterkey(fields ? &klass->staticstable : &klass->mthtable, fields ? index - methodscapacity : index);
 }
 
-LitValue lit_objfnclass_super(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnclass_superget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitClass* super;
     (void)state;
@@ -13603,14 +13874,16 @@ LitValue lit_objfnclass_subscript(LitState* state, LitValue instance, size_t arg
     {
         if(!lit_value_isstring(args[0]))
         {
-            lit_vm_raisefatalerror(state, "class index must be a string");
+            lit_vm_raiseexception(state, state->stdexception, "class index must be a string");
+            return lit_value_makenull();
         }
         lit_table_set(&klass->staticstable, lit_value_asstring(args[0]), args[1]);
         return args[1];
     }
     if(!lit_value_isstring(args[0]))
     {
-        lit_vm_raisefatalerror(state, "class index must be a string");
+        lit_vm_raiseexception(state, state->stdexception, "class index must be a string");
+        return lit_value_makenull();
     }
     if(lit_table_getentry(&klass->staticstable, lit_value_asstring(args[0]), &value))
     {
@@ -13623,7 +13896,7 @@ LitValue lit_objfnclass_subscript(LitState* state, LitValue instance, size_t arg
     return lit_value_makenull();
 }
 
-LitValue lit_objfnclass_name(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnclass_nameget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
@@ -13664,7 +13937,8 @@ LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, Li
     (void)thisval;
     if(argc == 0)
     {
-        lit_vm_raisefatalerror(state, "keys() requires an argument");
+        lit_vm_raiseexception(state, state->stdexception, "keys() requires an argument");
+        return lit_value_makenull();
     }
     val = args[0];
     arr = lit_array_make(state);
@@ -13681,7 +13955,7 @@ LitValue lit_objfnobject_keys(LitState* state, LitValue thisval, size_t argc, Li
     return lit_value_fromobject(arr);
 }
 
-LitValue lit_objfnobject_class(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnobject_classget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
@@ -13738,12 +14012,14 @@ LitValue lit_objfnobject_subscript(LitState* state, LitValue instance, size_t ar
     LitValue value;
     if(!lit_value_isinstance(instance))
     {
-        lit_vm_raisefatalerror(state, "cannot modify built-in type '%s'", lit_value_valtypename(instance));
+        lit_vm_raiseexception(state, state->stdexception, "cannot modify built-in type '%s'", lit_value_valtypename(instance));
+        return lit_value_makenull();
     }
     inst = lit_value_asinstance(instance);
     if(!lit_value_isstring(args[0]))
     {
-        lit_vm_raisefatalerror(state, "object index must be a string, but got %s instead", lit_value_valtypename(args[0]));
+        lit_vm_raiseexception(state, state->stdexception, "object index must be a string, but got %s instead", lit_value_valtypename(args[0]));
+        return lit_value_makenull();
     }
     tgname = lit_value_asstring(args[0]);
     if(argc == 2)
@@ -13775,7 +14051,7 @@ LitValue lit_objfnobject_iterator(LitState* state, LitValue instance, size_t arg
     (void)argc;
     if(!lit_value_isinstance(instance))
     {
-        lit_vm_raisefatalerror(state, "cannot iterate non-instance type %s", lit_value_valtypename(args[0]));
+        lit_vm_raiseexception(state, state->stdexception, "cannot iterate non-instance type %s", lit_value_valtypename(args[0]));
         return lit_value_makenull();
     }
     self = lit_value_asinstance(instance);
@@ -13834,13 +14110,12 @@ LitValue lit_objfnnumber_constructor_actual(LitState* state, LitValue instance, 
             }
             else
             {
-                lit_vm_raisefatalerror(state, "Number() failed to parse '%s': %s", cstr, tok.start);
-                return lit_value_makenull();
+                lit_vm_raiseexception(state, state->stdexception, "Number() failed to parse '%s': %s", cstr, tok.start);
             }
         }
         else
         {
-            lit_vm_raisefatalerror(state, "Number() expects either a number or a string");
+            lit_vm_raiseexception(state, state->stdexception, "Number() expects either a number or a string");
         }
     }
     return lit_value_makenumber(0);
@@ -13858,7 +14133,7 @@ LitValue lit_objfnnumber_tostring(LitState* state, LitValue instance, size_t arg
     return lit_string_numbertostring(state, lit_value_asnumber(instance));
 }
 
-LitValue lit_objfnnumber_chr(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnnumber_chrget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     char c;
     LitNumber dn;
@@ -13902,6 +14177,78 @@ LitValue lit_objfnstring_chr(LitState* state, LitValue instance, size_t argc, Li
     }
     return lit_value_fromobject(res);
 }
+
+LitValue lit_objfnstring_utf8encode(LitState* state, LitValue instance, size_t argc, LitValue* argv)
+{
+    int incode;
+    size_t len;
+    LitString* res;
+    char* buf;
+    (void)instance;
+    (void)argc;
+    incode = lit_value_asnumber(argv[0]);
+    buf = lit_util_utf8encode(incode, &len);
+    res = lit_string_take(state, buf, len);
+    return lit_value_fromobject(res);
+}
+
+static LitValue lit_util_stringutf8chars(LitState* state, LitValue thisval, size_t argc, LitValue* argv, bool onlycodepoint)
+{
+    int cp;
+    bool havemax;
+    size_t counter;
+    size_t maxamount;
+    const char* cstr;
+    LitArray* res;
+    LitString* os;
+    LitString* instr;
+    utf8iterator_t iter;
+    havemax = false;
+    instr = lit_value_asstring(thisval);
+    if(argc > 0)
+    {
+        havemax = true;
+        maxamount = lit_value_asnumber(argv[0]);
+    }
+    res = lit_array_make(state);
+    lit_utf8iter_init(&iter, lit_string_getdata(instr), lit_string_getlength (instr));
+    counter = 0;
+    while(lit_utf8iter_next(&iter))
+    {
+        cp = iter.codepoint;
+        cstr = lit_utf8iter_getchar(&iter);
+        counter++;
+        if(havemax)
+        {
+            if(counter == maxamount)
+            {
+                goto finalize;
+            }
+        }
+        if(onlycodepoint)
+        {
+            lit_array_push(res, lit_value_makenumber(cp));
+        }
+        else
+        {
+            os = lit_string_copylen(state, cstr, iter.charsize);
+            lit_array_push(res, lit_value_fromobject(os));
+        }
+    }
+    finalize:
+    return lit_value_fromobject(res);
+}
+
+static LitValue lit_objfnstring_utf8chars(LitState* state, LitValue thisval, size_t argc, LitValue* argv)
+{
+    return lit_util_stringutf8chars(state, thisval, argc, argv, false);
+}
+
+static LitValue lit_objfnstring_utf8codepoints(LitState* state, LitValue thisval, size_t argc, LitValue* argv)
+{
+    return lit_util_stringutf8chars(state, thisval, argc, argv, true);
+}
+
 
 LitValue lit_objfnstring_plus(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
@@ -14176,7 +14523,8 @@ LitValue lit_objfnstring_replace(LitState* state, LitValue instance, size_t argc
     (void)argc;
     if(!lit_value_isstring(args[0]) || !lit_value_isstring(args[1]))
     {
-        lit_vm_raisefatalerror(state, "expected 2 string arguments");
+        lit_vm_raiseexception(state, state->stdexception, "expected 2 string arguments");
+        return lit_value_makenull();
     }
     selfstr = lit_value_asstring(instance);
     what = lit_value_asstring(args[0]);
@@ -14202,7 +14550,8 @@ LitValue lit_objfnstring_splice(LitState* state, LitString* string, int64_t from
     to = fmin(to, length - 1);
     if(from > to)
     {
-        lit_vm_raisefatalerror(state, "String.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
+        lit_vm_raiseexception(state, state->stdexception, "String.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
+        return lit_value_makenull();
     }
     from = lit_util_stringutfucharoffset(lit_string_getdata(string), from);
     to = lit_util_stringutfucharoffset(lit_string_getdata(string), to);
@@ -14310,7 +14659,8 @@ LitValue lit_objfnstring_charcodeat(LitState* state, LitValue thisval, size_t ar
     index = lit_value_asnumber(args[0]);
     if(argc != 1)
     {
-        lit_vm_raisefatalerror(state, "cannot modify strings with the subscript op");
+        lit_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
+        return lit_value_makenull();
     }
     if(index < 0)
     {
@@ -14338,7 +14688,8 @@ LitValue lit_objfnstring_charat(LitState* state, LitValue thisval, size_t argc, 
     index = lit_value_asnumber(args[0]);
     if(argc != 1)
     {
-        lit_vm_raisefatalerror(state, "cannot modify strings with the subscript op");
+        lit_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
+        return lit_value_makenull();
     }
     if(index < 0)
     {
@@ -14370,7 +14721,8 @@ LitValue lit_objfnstring_subscript(LitState* state, LitValue thisval, size_t arg
     index = lit_value_asnumber(args[0]);
     if(argc != 1)
     {
-        lit_vm_raisefatalerror(state, "cannot modify strings with the subscript op");
+        lit_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
+        return lit_value_makenull();
     }
     if(index < 0)
     {
@@ -14449,7 +14801,7 @@ LitValue lit_objfnstring_split(LitState* state, LitValue thisval, size_t argc, L
     return lit_value_fromobject(list);
 }
 
-LitValue lit_objfnstring_length(LitState* state, LitValue thisval, size_t argc, LitValue* args)
+LitValue lit_objfnstring_lengthget(LitState* state, LitValue thisval, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -14513,7 +14865,7 @@ LitValue lit_objfnfunction_tostring(LitState* state, LitValue instance, size_t a
     return lit_function_getname(state, instance);
 }
 
-LitValue lit_objfnfunction_name(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnfunction_nameget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
@@ -14530,13 +14882,10 @@ LitValue lit_objfnfiber_constructor(LitState* state, LitValue instance, size_t a
     LitValue arg;
     LitModule* module;
     (void)instance;
-    printf("Fiber.constructor:argc=%ld\n", argc);
     if((argc == 0) || (!lit_value_iscallablefunction(args[0])))
     {
-        fprintf(stderr, "args[0]=");
-        lit_value_printvalue(state->streamstderr, args[0], true);
-        fprintf(stderr, "\n");
-        lit_vm_raisefatalerror(state, "Fiber constructor expects a function as its argument");
+        lit_vm_raiseexception(state, state->stdexception, "Fiber constructor expects a function as its argument");
+        return lit_value_makenull();
     }
     arg = args[0];
     module = state->vmstate.fiber->module;
@@ -14557,7 +14906,7 @@ bool lit_coreutil_isfiberdone(LitFiber* fiber)
     return fiber->framecount == 0 || fiber->muststop;
 }
 
-LitValue lit_objfnfiber_done(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnfiber_doneget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -14565,7 +14914,7 @@ LitValue lit_objfnfiber_done(LitState* state, LitValue instance, size_t argc, Li
     return lit_value_makebool(lit_coreutil_isfiberdone(lit_value_asfiber(instance)));
 }
 
-LitValue lit_objfnfiber_error(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnfiber_errorget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -14573,7 +14922,7 @@ LitValue lit_objfnfiber_error(LitState* state, LitValue instance, size_t argc, L
     return lit_value_asfiber(instance)->error;
 }
 
-LitValue lit_objfnfiber_current(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnfiber_currentget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
     (void)argc;
@@ -14677,19 +15026,6 @@ LitValue lit_objfnfiber_yield(LitState* state, LitValue instance, size_t argc, L
     return lit_value_makenull();
 }
 
-LitValue lit_objfnfiber_yeet(LitState* state, LitValue instance, size_t argc, LitValue* args)
-{
-    (void)instance;
-    if(state->vmstate.fiber->parent == NULL)
-    {
-        lit_vm_handleerror(state, argc == 0 ? lit_value_fromobject(lit_string_copy(state, "Fiber was yeeted")) : args[0]);
-        return lit_value_makenull();
-    }
-    state->vmstate.fiber = state->vmstate.fiber->parent;
-    *state->vmstate.fiber->returnaddress = argc == 0 ? lit_value_makenull() : lit_value_fromobject(lit_value_tostring(state, args[0], 0));
-    return lit_value_makenull();
-}
-
 LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitValue value;
@@ -14703,7 +15039,7 @@ LitValue lit_objfnfiber_abort(LitState* state, LitValue instance, size_t argc, L
     return lit_value_makenull();
 }
 
-LitValue lit_objfnmodule_privates(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnmodule_privatesget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitModule* module;
     LitMap* map;
@@ -14714,7 +15050,7 @@ LitValue lit_objfnmodule_privates(LitState* state, LitValue instance, size_t arg
     return lit_value_fromobject(map);
 }
 
-LitValue lit_objfnmodule_current(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnmodule_currentget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)instance;
     (void)argc;
@@ -14722,14 +15058,14 @@ LitValue lit_objfnmodule_current(LitState* state, LitValue instance, size_t argc
     return lit_value_fromobject(state->vmstate.fiber->module);
 }
 
-LitValue lit_objfnmodule_toString(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnmodule_tostring(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
     return lit_string_valformat(state, "Module @", lit_value_fromobject(lit_value_asmodule(instance)->name));
 }
 
-LitValue lit_objfnmodule_name(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnmodule_nameget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
@@ -14780,7 +15116,8 @@ LitValue lit_objfnarray_splice(LitState* state, LitArray* array, int64_t from, i
     #if 0
     if(from > to)
     {
-        lit_vm_raisefatalerror(state, "Array.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
+        lit_vm_raiseexception(state, state->stdexception, "Array.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
+        return lit_value_makenull();
     }
     #endif
     from = fmax(from, 0);
@@ -14819,13 +15156,15 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
     LitArray* arr;
     if(!lit_value_isarray(instance))
     {
-        lit_vm_raisefatalerror(state, "expected array, got a %s instead", lit_value_valtypename(args[0]));
+        lit_vm_raiseexception(state, state->stdexception, "expected array, got a %s instead", lit_value_valtypename(args[0]));
+        return lit_value_makenull();
     }
     if(argc == 2)
     {
         if(!lit_value_isnumber(args[0]))
         {
-            lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
+            lit_vm_raiseexception(state, state->stdexception, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
+            return lit_value_makenull();
         }
         arr = lit_value_asarray(instance);
         index = lit_value_asnumber(args[0]);
@@ -14843,10 +15182,9 @@ LitValue lit_objfnarray_subscript(LitState* state, LitValue instance, size_t arg
             range = lit_value_asrange(args[0]);
             return lit_objfnarray_splice(state, lit_value_asarray(instance), (int)range->from, (int)range->to);
         }
-        lit_vm_raisefatalerror(state, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
+        lit_vm_raiseexception(state, state->stdexception, "array index must be a number, got a %s instead", lit_value_valtypename(args[0]));
         return lit_value_makenull();
     }
-
     arr = lit_value_asarray(instance);
     asz = lit_array_size(arr);
     actualidx = lit_value_asnumber(args[0]);
@@ -14913,7 +15251,8 @@ LitValue lit_objfnarray_addall(LitState* state, LitValue instance, size_t argc, 
     (void)argc;
     if(!lit_value_isarray(args[0]))
     {
-        lit_vm_raisefatalerror(state, "expected array as the argument");
+        lit_vm_raiseexception(state, state->stdexception, "expected array as the argument");
+        return lit_value_makenull();
     }
     array = lit_value_asarray(instance);
     toadd = lit_value_asarray(args[0]);
@@ -15082,7 +15421,8 @@ LitValue lit_objfnarray_foreach(LitState* state, LitValue instance, size_t argc,
     callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
-        lit_vm_raisefatalerror(state, "expected a function as the callback");
+        lit_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        return lit_value_makenull();
     }
     list = &lit_value_asarray(instance)->innerlist;
     for(i = 0; i < list->listcount; i++)
@@ -15105,7 +15445,8 @@ LitValue lit_objfnarray_map(LitState* state, LitValue instance, size_t argc, Lit
     callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
-        lit_vm_raisefatalerror(state, "expected a function as the callback");
+        lit_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        return lit_value_makenull();
     }
     selfarr = lit_value_asarray(instance);
     asz = lit_array_size(selfarr);
@@ -15306,7 +15647,7 @@ LitValue lit_objfnarray_tostring(LitState* state, LitValue instance, size_t argc
     return lit_value_fromobject(dest);
 }
 
-LitValue lit_objfnarray_length(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnarray_lengthget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)argc;
     (void)args;
@@ -15344,7 +15685,8 @@ LitValue lit_objfnmap_subscript(LitState* state, LitValue instance, size_t argc,
     LitString* index;
     if(!lit_value_isstring(args[0]))
     {
-        lit_vm_raisefatalerror(state, "map index must be a string");
+        lit_vm_raiseexception(state, state->stdexception, "map index must be a string");
+        return lit_value_makenull();
     }
     map = lit_value_asmap(instance);
     index = lit_value_asstring(args[0]);
@@ -15366,7 +15708,8 @@ LitValue lit_objfnmap_addall(LitState* state, LitValue instance, size_t argc, Li
     (void)argc;
     if(!lit_value_ismap(args[0]))
     {
-        lit_vm_raisefatalerror(state, "expected map as the argument");
+        lit_vm_raiseexception(state, state->stdexception, "expected map as the argument");
+        return lit_value_makenull();
     }
     lit_map_addall(lit_value_asmap(args[0]), lit_value_asmap(instance));
     return lit_value_makenull();
@@ -15414,7 +15757,8 @@ LitValue lit_objfnmap_foreach(LitState* state, LitValue instance, size_t argc, L
     callback = args[0];
     if(!lit_value_iscallablefunction(callback))
     {
-        lit_vm_raisefatalerror(state, "expected a function as the callback");
+        lit_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        return lit_value_makenull();
     }
     tab = &lit_value_asmap(instance)->innertable;
     for(i = 0; i < tab->htcapacity; i++)
@@ -15454,7 +15798,7 @@ LitValue lit_objfnmap_tostring(LitState* state, LitValue instance, size_t argc, 
     return lit_value_fromobject(dest);
 }
 
-LitValue lit_objfnmap_length(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnmap_lengthget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -15503,7 +15847,7 @@ LitValue lit_objfnrange_tostring(LitState* state, LitValue instance, size_t argc
     return lit_string_valformat(state, "Range(#, #)", range->from, range->to);
 }
 
-LitValue lit_objfnrange_from(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnrange_fromget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -15511,7 +15855,7 @@ LitValue lit_objfnrange_from(LitState* state, LitValue instance, size_t argc, Li
     return lit_value_makenumber(lit_value_asrange(instance)->from);
 }
 
-LitValue lit_objfnrange_setfrom(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnrange_fromset(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -15519,7 +15863,7 @@ LitValue lit_objfnrange_setfrom(LitState* state, LitValue instance, size_t argc,
     return args[0];
 }
 
-LitValue lit_objfnrange_to(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnrange_toget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -15527,7 +15871,7 @@ LitValue lit_objfnrange_to(LitState* state, LitValue instance, size_t argc, LitV
     return lit_value_makenumber(lit_value_asrange(instance)->to);
 }
 
-LitValue lit_objfnrange_setto(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnrange_toset(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     (void)state;
     (void)argc;
@@ -15535,7 +15879,7 @@ LitValue lit_objfnrange_setto(LitState* state, LitValue instance, size_t argc, L
     return args[0];
 }
 
-LitValue lit_objfnrange_length(LitState* state, LitValue instance, size_t argc, LitValue* args)
+LitValue lit_objfnrange_lengthget(LitState* state, LitValue instance, size_t argc, LitValue* args)
 {
     LitRange* range;
     (void)state;
@@ -15570,6 +15914,15 @@ LitValue lit_objfnprocess_abort(LitState* state, LitValue instance, size_t argc,
     (void)args;
     abort();
     return lit_value_makenull();
+}
+
+LitValue lit_objfnscriptvm_globalsget(LitState* state, LitValue instance, size_t argc, LitValue* args)
+{
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    return lit_value_fromobject(state->vmstate.globals);
 }
 
 LitValue lit_cfn_srand(LitState* state, LitValue instance, size_t argc, LitValue* args)
@@ -15778,7 +16131,7 @@ LitValue lit_cfn_openlibrary(LitState* state, LitValue instance, size_t argc, Li
     else
     */
     {
-        lit_vm_raisefatalerror(state, "unknown built-in library %s", lit_string_getdata(name));
+        lit_vm_raiseexception(state, state->stdexception, "unknown built-in library %s", lit_string_getdata(name));
     }
     return lit_value_makenull();
 }
@@ -15833,9 +16186,9 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindstaticmethod(klass, "toString", lit_objfnclass_tostring);
         lit_class_bindstaticmethod(klass, "iterator", lit_objfnclass_iterator);
         lit_class_bindstaticmethod(klass, "iteratorValue", lit_objfnclass_itervalue);
-        lit_class_bindgetsetter(klass, "super", lit_objfnclass_super, NULL);
-        lit_class_bindstaticgetter(klass, "super", lit_objfnclass_super);
-        lit_class_bindstaticgetter(klass, "name", lit_objfnclass_name);
+        lit_class_bindgetsetter(klass, "super", lit_objfnclass_superget, NULL);
+        lit_class_bindstaticgetter(klass, "super", lit_objfnclass_superget);
+        lit_class_bindstaticgetter(klass, "name", lit_objfnclass_nameget);
         state->stdclassclass = klass;
         lit_state_setglobal(state, klass->name, lit_value_fromobject(klass));
     }
@@ -15849,7 +16202,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "[]", lit_objfnobject_subscript);
         lit_class_bindmethod(klass, "iterator", lit_objfnobject_iterator);
         lit_class_bindmethod(klass, "iteratorValue", lit_objfnobject_itervalue);
-        lit_class_bindgetsetter(klass, "class", lit_objfnobject_class, NULL);
+        lit_class_bindgetsetter(klass, "class", lit_objfnobject_classget, NULL);
         state->stdobjectclass = klass;
         state->stdobjectclass->super = state->stdclassclass;
     }
@@ -15860,7 +16213,7 @@ void lit_state_opencorelibrary(LitState* state)
     {
         klass = lit_class_make(state, "Number", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfnnumber_constructor);
-        lit_class_bindgetsetter(klass, "chr", lit_objfnnumber_chr, NULL);
+        lit_class_bindgetsetter(klass, "chr", lit_objfnnumber_chrget, NULL);
         lit_class_bindmethod(klass, "toString", lit_objfnnumber_tostring);
         state->stdclassnumber = klass;
     }
@@ -15869,6 +16222,8 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindstaticmethod(klass, "chr", lit_objfnstring_chr);
         lit_class_bindstaticmethod(klass, "fromCharCode", lit_objfnstring_chr);
+        lit_class_bindstaticmethod(klass, "utf8Encode", lit_objfnstring_utf8encode);
+
         #if 0
         lit_class_bindmethod(klass, "-", lit_objfnstring_minus);
         #endif
@@ -15877,6 +16232,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, ">", lit_objfnstring_greaterthan);
         lit_class_bindmethod(klass, ">=", lit_objfnstring_greaterequal);
         lit_class_bindmethod(klass, "<=", lit_objfnstring_lessequal);
+        lit_class_bindmethod(klass, "utf8Codepoints", lit_objfnstring_utf8codepoints);
         lit_class_bindmethod(klass, "toString", lit_objfnstring_tostring);
         lit_class_bindmethod(klass, "toNumber", lit_objfnstring_tonumber);
         lit_class_bindmethod(klass, "toUpperCase", lit_objfnstring_touppercase);
@@ -15893,9 +16249,9 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "[]", lit_objfnstring_subscript);
         lit_class_bindmethod(klass, "charAt", lit_objfnstring_charat);
         lit_class_bindmethod(klass, "charCodeAt", lit_objfnstring_charcodeat);
-        lit_class_bindmethod(klass, "size", lit_objfnstring_length);
+        lit_class_bindmethod(klass, "size", lit_objfnstring_lengthget);
         lit_class_bindmethod(klass, "split", lit_objfnstring_split);
-        lit_class_bindgetsetter(klass, "length", lit_objfnstring_length, NULL);
+        lit_class_bindgetsetter(klass, "length", lit_objfnstring_lengthget, NULL);
         state->stdclassstring = klass;
     }
     {
@@ -15908,7 +16264,7 @@ void lit_state_opencorelibrary(LitState* state)
         klass = lit_class_make(state, "Function", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_bindmethod(klass, "toString", lit_objfnfunction_tostring);
-        lit_class_bindgetsetter(klass, "name", lit_objfnfunction_name, NULL);
+        lit_class_bindgetsetter(klass, "name", lit_objfnfunction_nameget, NULL);
         state->stdclassfunction = klass;
     }
     {
@@ -15916,23 +16272,22 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindconstructor(klass, lit_objfnfiber_constructor);
         lit_class_bindmethod(klass, "run", lit_objfnfiber_run);
         lit_class_bindmethod(klass, "try", lit_objfnfiber_try);
-        lit_class_bindgetsetter(klass, "done", lit_objfnfiber_done, NULL);
-        lit_class_bindgetsetter(klass, "error", lit_objfnfiber_error, NULL);
+        lit_class_bindgetsetter(klass, "done", lit_objfnfiber_doneget, NULL);
+        lit_class_bindgetsetter(klass, "error", lit_objfnfiber_errorget, NULL);
         lit_class_bindstaticmethod(klass, "yield", lit_objfnfiber_yield);
-        lit_class_bindstaticmethod(klass, "yeet", lit_objfnfiber_yeet);
         lit_class_bindstaticmethod(klass, "abort", lit_objfnfiber_abort);
-        lit_class_bindstaticgetter(klass, "current", lit_objfnfiber_current);
+        lit_class_bindstaticgetter(klass, "current", lit_objfnfiber_currentget);
         state->stdclassfiber = klass;
     }
     {
         klass = lit_class_make(state, "Module", state->stdobjectclass);
         lit_class_bindconstructor(klass, lit_objfndefault_invalidconstructor);
         lit_class_setstaticfield(klass, "loaded", lit_value_fromobject(state->vmstate.modules));
-        lit_class_bindstaticgetter(klass, "privates", lit_objfnmodule_privates);
-        lit_class_bindstaticgetter(klass, "current", lit_objfnmodule_current);
-        lit_class_bindmethod(klass, "toString", lit_objfnmodule_toString);
-        lit_class_bindgetsetter(klass, "name", lit_objfnmodule_name, NULL);
-        lit_class_bindgetsetter(klass, "privates", lit_objfnmodule_privates, NULL);
+        lit_class_bindstaticgetter(klass, "privates", lit_objfnmodule_privatesget);
+        lit_class_bindstaticgetter(klass, "current", lit_objfnmodule_currentget);
+        lit_class_bindmethod(klass, "toString", lit_objfnmodule_tostring);
+        lit_class_bindgetsetter(klass, "name", lit_objfnmodule_nameget, NULL);
+        lit_class_bindgetsetter(klass, "privates", lit_objfnmodule_privatesget, NULL);
         state->stdclassmodule = klass;
     }
     {
@@ -15959,7 +16314,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "sort", lit_objfnarray_sort);
         lit_class_bindmethod(klass, "clone", lit_objfnarray_clone);
         lit_class_bindmethod(klass, "toString", lit_objfnarray_tostring);
-        lit_class_bindgetsetter(klass, "length", lit_objfnarray_length, NULL);
+        lit_class_bindgetsetter(klass, "length", lit_objfnarray_lengthget, NULL);
         state->stdclassarray = klass;
     }
     {
@@ -15973,7 +16328,7 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "forEach", lit_objfnmap_foreach);
         lit_class_bindmethod(klass, "clone", lit_objfnmap_clone);
         lit_class_bindmethod(klass, "toString", lit_objfnmap_tostring);
-        lit_class_bindgetsetter(klass, "length", lit_objfnmap_length, NULL);
+        lit_class_bindgetsetter(klass, "length", lit_objfnmap_lengthget, NULL);
         state->stdclassmap = klass;
     }
     {
@@ -15982,9 +16337,9 @@ void lit_state_opencorelibrary(LitState* state)
         lit_class_bindmethod(klass, "iterator", lit_objfnrange_iterator);
         lit_class_bindmethod(klass, "iteratorValue", lit_objfnrange_itervalue);
         lit_class_bindmethod(klass, "toString", lit_objfnrange_tostring);
-        lit_class_bindgetsetter(klass, "from", lit_objfnrange_from, lit_objfnrange_setfrom);
-        lit_class_bindgetsetter(klass, "to", lit_objfnrange_to, lit_objfnrange_setto);
-        lit_class_bindgetsetter(klass, "length", lit_objfnrange_length, NULL);
+        lit_class_bindgetsetter(klass, "from", lit_objfnrange_fromget, lit_objfnrange_fromset);
+        lit_class_bindgetsetter(klass, "to", lit_objfnrange_toget, lit_objfnrange_toset);
+        lit_class_bindgetsetter(klass, "length", lit_objfnrange_lengthget, NULL);
         state->stdclassrange = klass;
     }
     {
@@ -16000,9 +16355,14 @@ void lit_state_opencorelibrary(LitState* state)
 
     }
     {
+        klass = lit_class_make(state, "ScriptVM", state->stdobjectclass);
+        lit_class_bindstaticgetter(klass, "globals", lit_objfnscriptvm_globalsget);
+    }
+    {
         {
             klass = lit_class_make(state, "Exception", state->stdobjectclass);
             lit_class_bindconstructor(klass, lit_objfnexception_constructor);
+            lit_class_bindgetsetter(klass, "message", lit_objfnexception_messageget, NULL);
             state->stdexception = lit_object_makeexception(state, klass);
         }
         {
@@ -16023,7 +16383,7 @@ void lit_state_opencorelibrary(LitState* state)
     lit_state_defnative(state, "typeof", lit_cfn_typeof);
     lit_state_defnative(state, "openLibrary", lit_cfn_openlibrary);
     lit_state_defnative(state, "eval", lit_cfn_eval);
-    lit_state_setglobal(state, lit_string_copy(state, "GLOBALS"), lit_value_fromobject(state->vmstate.globals));
+
 }
 
 void lit_bcemu_initfile(LitEmulatedFile* emu, const char* source)
@@ -17125,7 +17485,7 @@ LitCallFrame* lit_state_setupcallonframe(LitState* state, LitFuncScript* callee,
     fiber = state->vmstate.fiber;
     if(callee == NULL)
     {
-        lit_vm_raisefatalerror(state, "cannot setup a call for a null value");
+        lit_vm_raiseexception(state, state->stdexception, "cannot setup a call for a null value");
         return NULL;
     }
     if(lit_fiber_ensureframes(state, fiber))
@@ -17330,11 +17690,11 @@ LitResult lit_state_callmethod(LitState* state, LitString* name, LitValue instan
     }
     if(lit_value_isnull(callee))
     {
-        lit_vm_raisefatalerror(state, "cannot call null value method '%s'", lit_string_getdata(name));
+        lit_vm_raiseexception(state, state->stdexception, "cannot call null value method '%s'", lit_string_getdata(name));
     }
     else
     {
-        lit_vm_raisefatalerror(state, "can only call functions and classes");
+        lit_vm_raiseexception(state, state->stdexception, "can only call functions and classes");
     }
     return lit_result_make(LIT_STATUS_RUNTIMEERROR, lit_value_makenull());
 }
@@ -17538,7 +17898,7 @@ LitValue lit_state_callnew(LitState* state, LitString* cname, LitValue* args, si
     LitClass* klass;
     if(!lit_map_getvalue(state->vmstate.globals, cname, &value))
     {
-        lit_vm_raisefatalerror(state, "failed to create instance of class %s: class not found", lit_string_getdata(cname));
+        lit_vm_raiseexception(state, state->stdexception, "failed to create instance of class %s: class not found", lit_string_getdata(cname));
         return lit_value_makenull();
     }
     klass = lit_value_asclass(value);
@@ -18568,7 +18928,6 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
     LitFuncScript* function;
     LitChunk* chunk;
     const char* name;
-    const char* message;
     size_t line;
     LitException* exception;
     pr = state->streamstderr;
@@ -18588,6 +18947,7 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
             state->vmstate.frame->ip = handler->handlerip;
             state->vmstate.vmregisteritems = fiber->registeritems + handler->registercount;
             state->vmstate.vmregisteritems[handler->errorreg] = errorvalue;
+            /* exception has been caught, time to move on */
             return true;
         }
         if(fiber->catcher)
@@ -18602,12 +18962,14 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
             {
                 *state->vmstate.fiber->returnaddress = errstrval;
             }
+            /* exception caught via Fiber, time to move on */
             return true;
         }
         caller = fiber->parent;
         fiber->parent = NULL;
         fiber = caller;
     }
+    /* at this point, the exception has not been caught, so print info about it */
     fiber = state->vmstate.fiber;
     fiber->muststop = true;
     fiber->error = errstrval;
@@ -18621,21 +18983,25 @@ bool lit_vm_handleerror(LitState* state, LitValue errorvalue)
     {
         exception = lit_value_asexception(errstrval);
         name = (exception->baseclass != NULL && exception->baseclass->name != NULL) ? lit_string_getdata(exception->baseclass->name) : "unknown";
-        lit_stream_printf(pr, "unhandled %s in vm:\n", name);
-        message = lit_string_getdata(lit_value_tostring(state, exception->message, 0));
+        lit_stream_printf(pr, "uncaught %s in vm:\n", name);
+        lit_value_printvalue(pr, exception->message, true);
     }
     else
     {
         lit_stream_printf(pr, "unhandled error in vm:\n");
-        message = lit_string_getdata(lit_value_tostring(state, errorvalue, 0));
+        lit_value_printvalue(pr, errorvalue, true);
     }
-    lit_stream_printf(pr, "%s\n", message);
+    lit_stream_printf(pr, "\n");
     for(i = count; i >= 0; i--)
     {
         frame = &fiber->framevals[i];
         function = frame->function;
         chunk = &function->chunk;
-        name = function->name == NULL ? "unknown" : lit_string_getdata(function->name);
+        name = NULL;
+        if(function->name != NULL)
+        {
+            name = lit_string_getdata(function->name);
+        }
         if(chunk->haslineinfo)
         {
             line = lit_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1);
@@ -19110,7 +19476,7 @@ LIT_INLINE LitResult lit_vmmac_invokeoperatormethoddefault(LitState* state, LitF
         {
             if(!lit_vmmac_recoverstate(state, fiber, &tmpres))
             {
-                return tmpres;
+                //return tmpres;
             }
             return lit_result_make(LIT_STATUS_INVALID, lit_value_makenull());
         }

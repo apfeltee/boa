@@ -178,38 +178,49 @@
     MEMPOOL_CPP_ENDEXTERN()
 #endif
 
-typedef size_t MempoolBindex;               /* Described below */
-typedef unsigned int MempoolBinMap;         /* Described below */
+/* Described below */
+typedef size_t MempoolBindex;
+
+/* Described below */
+typedef unsigned int MempoolBinMap;
 
 typedef struct MempoolPlainChunk MempoolPlainChunk;
 typedef struct MempoolSegment MempoolSegment;
 typedef struct MempoolTreeChunk MempoolTreeChunk;
 typedef struct MempoolState MempoolState;
 
-struct MempoolPlainChunk {
-  size_t prev_foot;  /* Size of previous chunk (if free).  */
-  size_t head;       /* Size and inuse bits. */
-  MempoolPlainChunk *fd;         /* double links -- used only if free. */
-  MempoolPlainChunk *bk;
+struct MempoolPlainChunk
+{
+    /* Size of previous chunk (if free).  */
+    size_t prev_foot;
+    /* Size and inuse bits. */
+    size_t head;
+    /* double links -- used only if free. */
+    MempoolPlainChunk *fd;
+    MempoolPlainChunk *bk;
 };
 
 
-struct MempoolTreeChunk {
-  /* The first four fields must be compatible with MempoolPlainChunk */
-  size_t prev_foot;
-  size_t head;
-  MempoolTreeChunk *fd;
-  MempoolTreeChunk *bk;
+struct MempoolTreeChunk
+{
+    /* The first four fields must be compatible with MempoolPlainChunk */
+    size_t prev_foot;
+    size_t head;
+    MempoolTreeChunk *fd;
+    MempoolTreeChunk *bk;
 
-  MempoolTreeChunk *child[2];
-  MempoolTreeChunk *parent;
-  MempoolBindex index;
+    MempoolTreeChunk *child[2];
+    MempoolTreeChunk *parent;
+    MempoolBindex index;
 };
 
-struct MempoolSegment {
-  char *base;             /* base address */
-  size_t size;             /* allocated size */
-  MempoolSegment *next;   /* ptr to next segment */
+struct MempoolSegment
+{
+    /* base address */
+    char *base;
+    /* allocated size */
+    size_t size;
+    MempoolSegment *next;
 };
 
 struct MempoolState
@@ -402,14 +413,18 @@ MEMPOOL_INLINE size_t mempool_util_request2size(size_t req)
 
 
 /* Set cinuse and pinuse of this chunk and pinuse of next chunk */
-#define mempool_util_setinuseandpinuse(mst, p, s)           \
-    ((p)->head = (s | MEMPOOL_PINUSE_BIT | MEMPOOL_CINUSE_BIT), \
-     ((MempoolPlainChunk*)(((char*)(p)) + (s)))->head |= MEMPOOL_PINUSE_BIT)
+#define mempool_util_setinuseandpinuse(p, s) \
+    { \
+        (p)->head = (s | MEMPOOL_PINUSE_BIT | MEMPOOL_CINUSE_BIT); \
+        ((MempoolPlainChunk*)(((char*)(p)) + (s)))->head |= MEMPOOL_PINUSE_BIT; \
+    }
 
 
 /* Set size, cinuse and pinuse bit of this chunk */
-#define mempool_util_setsizeandpinuseofinusechunk(mst, p, s) \
-    ((p)->head = (s | MEMPOOL_PINUSE_BIT | MEMPOOL_CINUSE_BIT))
+#define mempool_util_setsizeandpinuseofinusechunk(p, s) \
+    { \
+        (p)->head = ((s) | MEMPOOL_PINUSE_BIT | MEMPOOL_CINUSE_BIT); \
+    }
 
 
 /* Ptr to next or previous physical MempoolPlainChunk. */
@@ -684,18 +699,18 @@ MEMPOOL_INLINE size_t mempool_util_virtalign(size_t sz)
 ** would. Nudge the host allocator to actually release the free memory. */
 #if defined(MEMPOOL_TARGET_GENERIC)
     #if defined(__GLIBC__) || defined(__MUSL__)
-        MEMPOOL_INLINE void mempool_util_releasetoos(void)
+        MEMPOOL_INLINE void mempool_util_releasetoos()
         {
             malloc_trim(0);
         }
     #else
-        MEMPOOL_INLINE void mempool_util_releasetoos(void)
+        MEMPOOL_INLINE void mempool_util_releasetoos()
         {
             (void)0;
         }
     #endif
 #else
-    MEMPOOL_INLINE void mempool_util_releasetoos(void)
+    MEMPOOL_INLINE void mempool_util_releasetoos()
     {
         (void)0;
     }
@@ -772,7 +787,7 @@ MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSegment* 
   that may be needed to place segment records and fenceposts when new
   noncontiguous segments are added.
 */
-MEMPOOL_INLINE size_t mempool_util_topfootsize(void)
+MEMPOOL_INLINE size_t mempool_util_topfootsize()
 {
     return (mempool_util_alignoffset(mempool_util_chunk2mem(0)) + mempool_util_padrequest(sizeof(MempoolSegment)) + MEMPOOL_MINCHUNKSIZE);
 }
@@ -883,11 +898,10 @@ MEMPOOL_INLINE MempoolBinMap mempool_util_leftbits(MempoolBinMap x)
 }
 
 /* Set cinuse bit and pinuse bit of next chunk */
-MEMPOOL_INLINE void mempool_util_setinuse(MempoolState* mst, MempoolPlainChunk* p, size_t s)
+MEMPOOL_INLINE void mempool_util_setinuse(MempoolPlainChunk* p, size_t s)
 {
-    (void)mst;
-    (p)->head = (((p)->head & MEMPOOL_PINUSE_BIT) | s | MEMPOOL_CINUSE_BIT);
-    ((MempoolPlainChunk*)(((char*)(p)) + (s)))->head |= MEMPOOL_PINUSE_BIT;
+    p->head = ((p->head & MEMPOOL_PINUSE_BIT) | s | MEMPOOL_CINUSE_BIT);
+    ((MempoolPlainChunk*)(((char*)p) + s))->head |= MEMPOOL_PINUSE_BIT;
 }
 
 /* ----------------------- Operations on smallbins ----------------------- */
@@ -1236,7 +1250,7 @@ MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* newbase, c
     psize = (size_t)((char*)oldfirst - (char*)p);
     q = mempool_util_chunkplusoffset(p, nb);
     qsize = psize - nb;
-    mempool_util_setsizeandpinuseofinusechunk(m, p, nb);
+    mempool_util_setsizeandpinuseofinusechunk(p, nb);
     /* consolidate remainder with first chunk of old base */
     if(oldfirst == m->top)
     {
@@ -1287,7 +1301,7 @@ MEMPOOL_INLINE void mempool_util_addsegment(MempoolState* m, char* tbase, size_t
     mempool_util_inittop(m, (MempoolPlainChunk*)tbase, tsize - mempool_util_topfootsize());
 
     /* Set up segment record */
-    mempool_util_setsizeandpinuseofinusechunk(m, sp, ssize);
+    mempool_util_setsizeandpinuseofinusechunk(sp, ssize);
     *ss = m->seg; /* Push current record */
     m->seg.base = tbase;
     m->seg.size = tsize;
@@ -1389,7 +1403,7 @@ MEMPOOL_INLINE void* mempool_util_allocsys(MempoolState* m, size_t nb)
             p = m->top;
             r = m->top = mempool_util_chunkplusoffset(p, nb);
             r->head = rsize | MEMPOOL_PINUSE_BIT;
-            mempool_util_setsizeandpinuseofinusechunk(m, p, nb);
+            mempool_util_setsizeandpinuseofinusechunk(p, nb);
             return mempool_util_chunk2mem(p);
         }
     }
@@ -1583,11 +1597,11 @@ MEMPOOL_INLINE void* mempool_util_tmalloclarge(MempoolState* m, size_t nb)
         mempool_util_unlinklargechunk(m, v);
         if(rsize < MEMPOOL_MINCHUNKSIZE)
         {
-            mempool_util_setinuseandpinuse(m, v, (rsize + nb));
+            mempool_util_setinuseandpinuse(v, (rsize + nb));
         }
         else
         {
-            mempool_util_setsizeandpinuseofinusechunk(m, v, nb);
+            mempool_util_setsizeandpinuseofinusechunk(v, nb);
             mempool_util_setsizeand_pinuseoffreechunk(r, rsize);
             mempool_util_insertchunk(m, r, rsize);
         }
@@ -1621,11 +1635,11 @@ MEMPOOL_INLINE void* mempool_util_tmallocsmall(MempoolState* m, size_t nb)
     mempool_util_unlinklargechunk(m, v);
     if(rsize < MEMPOOL_MINCHUNKSIZE)
     {
-        mempool_util_setinuseandpinuse(m, v, (rsize + nb));
+        mempool_util_setinuseandpinuse(v, (rsize + nb));
     }
     else
     {
-        mempool_util_setsizeandpinuseofinusechunk(m, v, nb);
+        mempool_util_setsizeandpinuseofinusechunk(v, nb);
         mempool_util_setsizeand_pinuseoffreechunk(r, rsize);
         mempool_util_replacedv(m, r, rsize);
     }
@@ -1708,7 +1722,7 @@ void* mempool_usermalloc(void* msp, size_t nsize)
             b = mempool_util_smallbinat(ms, idx);
             p = b->fd;
             mempool_util_unlinkfirstsmallchunk(ms, b, p, idx);
-            mempool_util_setinuseandpinuse(ms, p, mempool_util_smallindex2size(idx));
+            mempool_util_setinuseandpinuse(p, mempool_util_smallindex2size(idx));
             mem = mempool_util_chunk2mem(p);
             return mem;
         }
@@ -1725,11 +1739,11 @@ void* mempool_usermalloc(void* msp, size_t nsize)
                 /* Fit here cannot be remainderless if 4byte sizes */
                 if(MEMPOOL_CONST_SIZETSIZE != 4 && rsize < MEMPOOL_MINCHUNKSIZE)
                 {
-                    mempool_util_setinuseandpinuse(ms, p, mempool_util_smallindex2size(i));
+                    mempool_util_setinuseandpinuse(p, mempool_util_smallindex2size(i));
                 }
                 else
                 {
-                    mempool_util_setsizeandpinuseofinusechunk(ms, p, nb);
+                    mempool_util_setsizeandpinuseofinusechunk(p, nb);
                     r = mempool_util_chunkplusoffset(p, nb);
                     mempool_util_setsizeand_pinuseoffreechunk(r, rsize);
                     mempool_util_replacedv(ms, r, rsize);
@@ -1764,14 +1778,14 @@ void* mempool_usermalloc(void* msp, size_t nsize)
             r = ms->dv = mempool_util_chunkplusoffset(p, nb);
             ms->dvsize = rsize;
             mempool_util_setsizeand_pinuseoffreechunk(r, rsize);
-            mempool_util_setsizeandpinuseofinusechunk(ms, p, nb);
+            mempool_util_setsizeandpinuseofinusechunk(p, nb);
         }
         else
         { /* exhaust dv */
             dvs = ms->dvsize;
             ms->dvsize = 0;
             ms->dv = 0;
-            mempool_util_setinuseandpinuse(ms, p, dvs);
+            mempool_util_setinuseandpinuse(p, dvs);
         }
         mem = mempool_util_chunk2mem(p);
         return mem;
@@ -1782,7 +1796,7 @@ void* mempool_usermalloc(void* msp, size_t nsize)
         p = ms->top;
         r = ms->top = mempool_util_chunkplusoffset(p, nb);
         r->head = rsize | MEMPOOL_PINUSE_BIT;
-        mempool_util_setsizeandpinuseofinusechunk(ms, p, nb);
+        mempool_util_setsizeandpinuseofinusechunk(p, nb);
         mem = mempool_util_chunk2mem(p);
         return mem;
     }
@@ -1938,8 +1952,8 @@ void* mempool_userrealloc(void* msp, void* ptr, size_t nsize)
             if(rsize >= MEMPOOL_MINCHUNKSIZE)
             {
                 MempoolPlainChunk* rem = mempool_util_chunkplusoffset(newp, nb);
-                mempool_util_setinuse(m, newp, nb);
-                mempool_util_setinuse(m, rem, rsize);
+                mempool_util_setinuse(newp, nb);
+                mempool_util_setinuse(rem, rsize);
                 mempool_userfree(m, mempool_util_chunk2mem(rem));
             }
         }
@@ -1949,7 +1963,7 @@ void* mempool_userrealloc(void* msp, void* ptr, size_t nsize)
             newsize = oldsize + m->topsize;
             newtopsize = newsize - nb;
             newtop = mempool_util_chunkplusoffset(oldp, nb);
-            mempool_util_setinuse(m, oldp, nb);
+            mempool_util_setinuse(oldp, nb);
             newtop->head = newtopsize | MEMPOOL_PINUSE_BIT;
             m->top = newtop;
             m->topsize = newtopsize;

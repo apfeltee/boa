@@ -1,1 +1,1 @@
-print(GLOBALS)
+print(ScriptVM.globals)
