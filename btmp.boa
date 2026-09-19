@@ -1,0 +1,74 @@
+var arg = 0;
+var m_codepos = 0;
+var m_datapos = 0;
+var m_memory = Array(300000, 0);
+arg = 8;
+m_memory[m_datapos] += arg;
+arg = 30;
+
+                if(m_memory[m_datapos] > 0)
+                {
+                    m_codepos = m_codepos;
+                }
+                else
+                {
+                    m_codepos = arg;
+                };
+arg = 2;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 1;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = -3;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 7;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 3;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 2;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = -1;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = -1;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = -1;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 3;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = -6;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = -8;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 2;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = 1;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);
+arg = 1;
+m_datapos = ((m_datapos + arg) + 30000) % 30000;
+arg = 2;
+m_memory[m_datapos] += arg;
+arg = 0;
+printchar(m_memory[m_datapos]);

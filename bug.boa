@@ -1,4 +1,6 @@
 
-    var name = "james"
-    println(`hello ${name}!
-    `)
+fh = File.open("stuff.txt", "wb")
+println(`fh = ${fh}`)
+fh.write("blah")
+println("after print?\n")
+//fh.close()

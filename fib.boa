@@ -6,7 +6,6 @@ function fib(n)
     }
     var numfirst = (n - 2)
     var numsecond = (n - 1)
-    println(`numfirst = ${numfirst}, numsecond = ${numsecond}`)
     var resfirst = fib(numfirst)
     var ressecond = fib(numsecond)
     return resfirst + ressecond

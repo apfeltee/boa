@@ -742,11 +742,16 @@ MEMPOOL_INLINE int mempool_util_nativebitscanforward(uint64_t x)
     uint32_t l, r;
     x &= -x;
     l = x | x >> 32;
-    r = !!(x >> 32), r <<= 1;
-    r += !!((l & 0xffff0000)), r <<= 1;
-    r += !!((l & 0xff00ff00)), r <<= 1;
-    r += !!((l & 0xf0f0f0f0)), r <<= 1;
-    r += !!((l & 0xcccccccc)), r <<= 1;
+    r = !!(x >> 32);
+    r <<= 1;
+    r += !!((l & 0xffff0000));
+    r <<= 1;
+    r += !!((l & 0xff00ff00));
+    r <<= 1;
+    r += !!((l & 0xf0f0f0f0));
+    r <<= 1;
+    r += !!((l & 0xcccccccc));
+    r <<= 1;
     r += !!((l & 0xaaaaaaaa));
     return r;
 }

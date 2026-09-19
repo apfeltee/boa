@@ -13,10 +13,8 @@
 #include <time.h>
 #include <errno.h>
 #include <ctype.h>
-#if !defined(__SDCC)
-    #include <sys/stat.h>
-    #include <fcntl.h>
-#endif
+#include <sys/stat.h>
+#include <fcntl.h>
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
     #include <io.h>
@@ -57,27 +55,6 @@
 int __dso_handle = 0;
 #endif
 
-#if defined(__SDCC)
-typedef struct ioFILE FILE;
-
-struct stat {
-   int      st_dev;      /* ID of device containing file */
-   int      st_ino;      /* Inode number */
-   int     st_mode;     /* File type and mode */
-   int    st_nlink;    /* Number of hard links */
-   int      st_uid;      /* User ID of owner */
-   int      st_gid;      /* Group ID of owner */
-   int      st_rdev;     /* Device ID (if special file) */
-   int      st_size;     /* Total size, in bytes */
-   int  st_blksize;  /* Block size for filesystem I/O */
-   int   st_blocks;   /* Number of 512 B blocks allocated */
-};
-
-int stat(const char* pathname, struct stat* statbuf);
-int fstat(int fd, struct stat *statbuf);
-int lstat(const char* pathname, struct stat* statbuf);
-int fstatat(int dirfd, const char* pathname, struct stat* statbuf, int flags);
-#endif
 
 #if defined(__STRICT_ANSI__)
 char *strdup(const char *s);
@@ -113,6 +90,31 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #if !defined(OSLIB_CONF_OSPATHSIZE)
     #define OSLIB_CONF_OSPATHSIZE 1024
 #endif
+
+#if defined(BOA_OSPLATFORM_LINUX)
+    #undef BOA_CONFIG_PLATFORMNAME
+    #define BOA_CONFIG_PLATFORMNAME "linux"
+#elif defined(BOA_CONFIG_OSPLATFORM_ISWINNT)
+    #undef BOA_CONFIG_PLATFORMNAME
+    #define BOA_CONFIG_PLATFORMNAME "windows"
+#else
+    #define BOA_CONFIG_PLATFORMNAME "unknown"
+#endif
+
+#if defined(_WIN64) || defined(__x86_64) || defined(__amd64__) || (__LONG_WIDTH__ == 64)
+    #undef BOA_CONFIG_ARCHNAME
+    #undef BOA_CONFIG_ARCHBITS
+    #define BOA_CONFIG_ARCHNAME "x64"
+    #define BOA_CONFIG_ARCHBITS 64
+#elif (__LONG_WIDTH__ == 32)
+    #undef BOA_CONFIG_ARCHNAME
+    #undef BOA_CONFIG_ARCHBITS
+    #define BOA_CONFIG_ARCHNAME "x86"
+    #define BOA_CONFIG_ARCHBITS 32
+#else
+    #define BOA_CONFIG_ARCHNAME "unknown"    
+#endif
+
 
 #ifndef S_IREAD
     #define S_IREAD     (0400)
@@ -384,10 +386,10 @@ enum BoaAstTokType
     BOA_ASTTOKTYP_BANGEQUAL,
     BOA_ASTTOKTYP_EQUAL,
     BOA_ASTTOKTYP_EQUALEQUAL,
-    BOA_ASTTOKTYP_GREATER,
+    BOA_ASTTOKTYP_GREATERTHAN,
     BOA_ASTTOKTYP_GREATEREQUAL,
     BOA_ASTTOKTYP_GREATERGREATER,
-    BOA_ASTTOKTYP_LESS,
+    BOA_ASTTOKTYP_LESSTHAN,
     BOA_ASTTOKTYP_LESSEQUAL,
     BOA_ASTTOKTYP_LESSLESS,
     BOA_ASTTOKTYP_PLUS,
@@ -1301,8 +1303,8 @@ struct BoaAstParser
     BoaState* pstate;
     bool haderror;
     bool panicmode;
-    BoaAstToken previous;
-    BoaAstToken current;
+    BoaAstToken previoustoken;
+    BoaAstToken currenttoken;
     BoaAstCompiler* compiler;
     uint32_t exprrootcnt;
     uint32_t stmtrootcnt;
@@ -1593,6 +1595,7 @@ struct BoaAstThrowExpr
 
 struct BoaFileData
 {
+    BoaInstance innerobject;
     char* path;
     FILE* fdhandle;
 };
@@ -3065,8 +3068,11 @@ int boa_strbuf_appendformatnoterm(BoaStrBuffer* sb, size_t pos, const char* fmt,
 }
 
 /* Trim whitespace characters from the start and end of a string */
-void boa_strbuf_triminplace(BoaStrBuffer* sb)
+void boa_strbuf_triminplace(BoaStrBuffer* sb, const char* list)
 {
+    boa_strbuf_trimleftinplace(sb, list);
+    boa_strbuf_trimrightinplace(sb, list);
+    /*
     size_t start;
     char* data;
     if(sb->length == 0)
@@ -3074,7 +3080,6 @@ void boa_strbuf_triminplace(BoaStrBuffer* sb)
         return;
     }
     data = boa_strbuf_mutdata(sb);
-    /* Trim end first */
     while(sb->length > 0 && isspace((int)data[sb->length - 1]))
     {
         sb->length--;
@@ -3095,6 +3100,7 @@ void boa_strbuf_triminplace(BoaStrBuffer* sb)
         memmove(data, data + start, sb->length * sizeof(char));
         data[sb->length] = '\0';
     }
+    */
 }
 
 /*
@@ -3651,11 +3657,7 @@ char* boa_util_readfile(const char* filename, size_t* dlen)
     return b;
 }
 
-bool boa_util_fileexists(const char* path)
-{
-    struct stat buffer;
-    return stat(path, &buffer) == 0;
-}
+
 
 char* boa_util_dupstring(const char* string)
 {
@@ -3861,20 +3863,6 @@ int boa_util_kill(int pid, int code)
     #endif
 }
 
-bool boa_util_fsfileexists(const char* filepath)
-{
-    #if !defined(BOA_OSPLATFORM_ISWINNT)
-        return access(filepath, F_OK) == 0;
-    #else
-        struct stat st;
-        if(stat(filepath, &st) == -1)
-        {
-            return false;
-        }
-        return true;
-    #endif
-}
-
 bool boa_util_fsfileistype(const char* filepath, int typ)
 {
     struct stat st;
@@ -3902,6 +3890,11 @@ bool boa_util_fsfileisfile(const char* filepath)
 bool boa_util_fsfileisdirectory(const char* filepath)
 {
     return boa_util_fsfileistype(filepath, 'd');
+}
+
+bool boa_util_fsfileexists(const char* filepath)
+{
+    return boa_util_fsfileistype(filepath, 'f');
 }
 
 /* endutils */
@@ -4675,7 +4668,7 @@ bool boa_table_set(BoaTable* table, BoaString* key, BoaValue value)
     return isnew;
 }
 
-bool boa_table_getentry(BoaTable* table, BoaString* key, BoaValue* value)
+bool boa_table_getentry(BoaTable* table, BoaString* key, BoaValue* valuedest)
 {
     BoaTabEntry* entry;
     if(table->htcount == 0)
@@ -4687,7 +4680,10 @@ bool boa_table_getentry(BoaTable* table, BoaString* key, BoaValue* value)
     {
         return false;
     }
-    *value = entry->entvalue;
+    if(valuedest != NULL)
+    {
+        *valuedest = entry->entvalue;
+    }
     return true;
 }
 
@@ -4769,27 +4765,27 @@ BoaString* boa_table_findstring(BoaTable* table, const char* chars, size_t lengt
     }
 }
 
-void boa_stringtable_init(BoaStringTable* table)
+void boa_strtable_init(BoaStringTable* table)
 {
     table->count = 0;
     table->capacity = -1;
     table->entries = NULL;
 }
 
-void boa_stringtable_free(BoaStringTable* table)
+void boa_strtable_free(BoaStringTable* table)
 {
     if(table->capacity > 0)
     {
         boa_sysmem_free(table->entries);
     }
-    boa_stringtable_init(table);
+    boa_strtable_init(table);
 }
 
 /*
  * probes for a free slot. hash must already be applied to the caller's string.
  * returns the first NULL (empty) or tombstone slot in the probe chain.
  */
-BoaString** boa_stringtable_findslot(BoaStringTable* table, const char* chars, size_t length, uint32_t hash)
+BoaString** boa_strtable_findslot(BoaStringTable* table, const char* chars, size_t length, uint32_t hash)
 {
     uint32_t index;
     BoaString** slot;
@@ -4813,7 +4809,7 @@ BoaString** boa_stringtable_findslot(BoaStringTable* table, const char* chars, s
     }
 }
 
-BoaString* boa_stringtable_find(BoaStringTable* table, const char* chars, size_t length, uint32_t hash)
+BoaString* boa_strtable_find(BoaStringTable* table, const char* chars, size_t length, uint32_t hash)
 {
     uint32_t index;
     BoaString* string;
@@ -4840,7 +4836,7 @@ BoaString* boa_stringtable_find(BoaStringTable* table, const char* chars, size_t
     }
 }
 
-void boa_stringtable_adjustcapacity(BoaStringTable* table, int capacity)
+void boa_strtable_adjustcapacity(BoaStringTable* table, int capacity)
 {
     int i;
     BoaString** entries;
@@ -4874,7 +4870,7 @@ void boa_stringtable_adjustcapacity(BoaStringTable* table, int capacity)
     table->entries = entries;
 }
 
-bool boa_stringtable_set(BoaStringTable* table, BoaString* string)
+bool boa_strtable_set(BoaStringTable* table, BoaString* string)
 {
     int capacity;
     BoaString** slot;
@@ -4882,9 +4878,9 @@ bool boa_stringtable_set(BoaStringTable* table, BoaString* string)
     if(table->count + 1 > (table->capacity + 1) * BOA_CONFIG_TABLEMAXLOAD)
     {
         capacity = boa_util_grownextcapacity(table->capacity + 1) - 1;
-        boa_stringtable_adjustcapacity(table, capacity);
+        boa_strtable_adjustcapacity(table, capacity);
     }
-    slot = boa_stringtable_findslot(table, boa_string_getdata(string), boa_string_getlength(string), string->strhash);
+    slot = boa_strtable_findslot(table, boa_string_getdata(string), boa_string_getlength(string), string->strhash);
     isnew = (*slot == NULL);
     if(isnew)
     {
@@ -4894,7 +4890,7 @@ bool boa_stringtable_set(BoaStringTable* table, BoaString* string)
     return isnew;
 }
 
-void boa_stringtable_removewhite(BoaStringTable* table)
+void boa_strtable_removewhite(BoaStringTable* table)
 {
     int i;
     BoaObject* obj;
@@ -5284,42 +5280,6 @@ bool boa_stream_istty(BoaStream* pr)
     return false;
 }
 
-void boa_stream_flush(BoaStream* pr)
-{
-    if(pr->shouldflush)
-    {
-        fflush(pr->desthndfile);
-    }
-}
-
-bool boa_stream_putlen(BoaStream* pr, const char* estr, size_t elen)
-{
-    size_t chlen;
-    chlen = sizeof(char);
-    if(elen > 0)
-    {
-        if(pr->wrmode == BOA_IOSTRMODE_FILE)
-        {
-            fwrite(estr, chlen, elen, pr->desthndfile);
-            boa_stream_flush(pr);
-        }
-        else if(pr->wrmode == BOA_IOSTRMODE_STRING)
-        {
-            boa_strbuf_appendstrn(&pr->desthndstring, estr, elen);
-        }
-        else
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool boa_stream_puts(BoaStream* pr, const char* estr)
-{
-    return boa_stream_putlen(pr, estr, strlen(estr));
-}
-
 const char* boa_stream_getcolor(BoaStream* pr, int c)
 {
     int i;
@@ -5366,6 +5326,77 @@ bool boa_stream_setcolor(BoaStream* pr, int c)
 bool boa_stream_resetcolor(BoaStream* pr)
 {
     return boa_stream_setcolor(pr, '0');
+}
+
+void boa_stream_flush(BoaStream* pr)
+{
+    if(pr->wrmode == BOA_IOSTRMODE_FILE)
+    {
+        if(pr->shouldflush)
+        {
+            fflush(pr->desthndfile);
+        }
+    }
+}
+
+int boa_stream_readchar(BoaStream* pr)
+{
+    if(pr->wrmode == BOA_IOSTRMODE_FILE)
+    {
+        return fgetc(pr->desthndfile);
+    }
+    return EOF;
+}
+
+bool boa_stream_readio(BoaStream* pr, char** destbuf, size_t* destlen, size_t howmuch)
+{
+    if(pr->wrmode == BOA_IOSTRMODE_FILE)
+    {
+        *destlen = fread(*destbuf, sizeof(char), howmuch, pr->desthndfile);
+        return true;
+    }
+    return true;
+}
+
+BoaString* boa_stream_readstring(BoaStream* pr, BoaState* state, size_t howmuch)
+{
+    size_t actuallen;
+    BoaString* res;
+    res = boa_string_makeemptystring(state, howmuch, false);
+    if(boa_stream_readio(pr, &res->strbuf.data, &actuallen, howmuch))
+    {
+        boa_strbuf_resize(&res->strbuf, actuallen);
+        return res;
+    }
+    return res;
+}
+
+bool boa_stream_putlen(BoaStream* pr, const char* estr, size_t elen)
+{
+    size_t chlen;
+    chlen = sizeof(char);
+    if(elen > 0)
+    {
+        if(pr->wrmode == BOA_IOSTRMODE_FILE)
+        {
+            fwrite(estr, chlen, elen, pr->desthndfile);
+            boa_stream_flush(pr);
+        }
+        else if(pr->wrmode == BOA_IOSTRMODE_STRING)
+        {
+            boa_strbuf_appendstrn(&pr->desthndstring, estr, elen);
+        }
+        else
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool boa_stream_puts(BoaStream* pr, const char* estr)
+{
+    return boa_stream_putlen(pr, estr, strlen(estr));
 }
 
 bool boa_stream_putc(BoaStream* pr, int b)
@@ -5509,7 +5540,7 @@ BoaString* boa_stream_takestring(BoaState* state, BoaStream* pr)
     uint32_t hash;
     BoaString* interned;
     hash = boa_string_hash(pr->desthndstring.data, pr->desthndstring.length);
-    interned = boa_stringtable_find(&state->vmstate.storedstrings, pr->desthndstring.data, pr->desthndstring.length, hash);
+    interned = boa_strtable_find(&state->vmstate.storedstrings, pr->desthndstring.data, pr->desthndstring.length, hash);
     if(interned != NULL)
     {
         boa_strbuf_destroyfromstack(&pr->desthndstring);
@@ -6060,7 +6091,7 @@ uint64_t boa_collect_garbage(BoaState* state)
 #endif
     boa_gcmem_markroots(state);
     boa_gcmem_tracereferences(state);
-    boa_stringtable_removewhite(&state->vmstate.storedstrings);
+    boa_strtable_removewhite(&state->vmstate.storedstrings);
     boa_gcmem_sweep(state);
     state->gcnextgc = state->bytesallocated * BOA_CONFIG_GCHEAPGROWFACTOR;
     state->gcallowgc = true;
@@ -6122,14 +6153,14 @@ void boa_string_register(BoaState* state, BoaString* sobj)
     }
     sdata = boa_string_getdata(sobj);
     slen = boa_string_getlength(sobj);
-    tmp = boa_stringtable_find(&state->vmstate.storedstrings, sdata, slen, sobj->strhash);
+    tmp = boa_strtable_find(&state->vmstate.storedstrings, sdata, slen, sobj->strhash);
     if(tmp != NULL)
     {
         return;
     }
 
     boa_state_pushroot(state, (BoaObject*)sobj);
-    boa_stringtable_set(&state->vmstate.storedstrings, sobj);
+    boa_strtable_set(&state->vmstate.storedstrings, sobj);
     boa_state_poproot(state);
 }
 
@@ -6161,7 +6192,7 @@ BoaString* boa_string_take(BoaState* state, char* chars, size_t length)
     uint32_t hash;
     BoaString* interned;
     hash = boa_string_hash(chars, length);
-    interned = boa_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
+    interned = boa_strtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(interned != NULL)
     {
         boa_sysmem_free(chars);
@@ -6176,7 +6207,7 @@ BoaString* boa_string_copylen(BoaState* state, const char* chars, size_t length)
     char* heapchars;
     BoaString* res;
     hash = boa_string_hash(chars, length);
-    res = boa_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
+    res = boa_strtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(res != NULL)
     {
         return res;
@@ -6201,7 +6232,7 @@ BoaString* boa_string_maketemplen(BoaState* state, BoaString* stacktarget, const
     BoaString* res;
     BoaStrBuffer sb;
     hash = boa_string_hash(chars, length);
-    res = boa_stringtable_find(&state->vmstate.storedstrings, chars, length, hash);
+    res = boa_strtable_find(&state->vmstate.storedstrings, chars, length, hash);
     if(res != NULL)
     {
         return res;
@@ -6230,6 +6261,11 @@ BOA_INLINE void boa_string_setlength(BoaString* string, size_t ns)
 BOA_INLINE char* boa_string_getdata(BoaString* string)
 {
     return string->strbuf.data;
+}
+
+BOA_INLINE BoaStrBuffer* boa_string_getstrbuf(BoaString* string)
+{
+    return &string->strbuf;
 }
 
 BOA_INLINE char boa_string_getat(BoaString* string, size_t pos)
@@ -6483,6 +6519,8 @@ void boa_value_printobjinstance(BoaStream* pr, BoaClass* klass, BoaInstance* sel
 {
     BoaString* sr;
     BoaState* state;
+    const char* clname;
+    clname = "undefined";
     (void)state;
     state = ((BoaObject*)self)->pstate;
     sr = NULL;
@@ -6495,7 +6533,11 @@ void boa_value_printobjinstance(BoaStream* pr, BoaClass* klass, BoaInstance* sel
     }
     else
     {
-        boa_stream_printf(pr, "<instance of %s: ", boa_string_getdata(klass->name));
+        if(klass != NULL)
+        {
+            clname = boa_string_getdata(klass->name);
+        }
+        boa_stream_printf(pr, "<instance of %s: ", clname);
         boa_value_printobjtable(pr, (BoaObject*)self, &self->fields);
         boa_stream_printf(pr, "  >");
     }
@@ -7273,25 +7315,25 @@ void boa_ast_destroyexpression(BoaState* state, BoaAstExpression* topexpr)
     }
 }
 
-BoaAstExpression* boa_ast_allocexpression(uint64_t scriptsrcline, size_t size, BoaAstExprType type)
+BoaAstExpression* boa_ast_allocexpression(uint64_t ssrcln, size_t size, BoaAstExprType type)
 {
     BoaAstExpression* object;
     object = (BoaAstExpression*)boa_sysmem_malloc(size);
     object->type = type;
-    object->line = scriptsrcline;
+    object->line = ssrcln;
     return object;
 }
 
-BoaAstLiteralValExpr* boa_ast_makeliteralexpr(size_t scriptsrcline, BoaValue value)
+BoaAstLiteralValExpr* boa_ast_makeliteralexpr(size_t ssrcln, BoaValue value)
 {
-    BoaAstLiteralValExpr* expr = (BoaAstLiteralValExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstLiteralValExpr), BOA_ASTEXPRTYP_LITERAL);
+    BoaAstLiteralValExpr* expr = (BoaAstLiteralValExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstLiteralValExpr), BOA_ASTEXPRTYP_LITERAL);
     expr->value = value;
     return expr;
 }
 
-BoaAstBinaryExpr* boa_ast_makebinaryexpr(size_t scriptsrcline, BoaAstExpression* left, BoaAstExpression* right, BoaAstTokType op)
+BoaAstBinaryExpr* boa_ast_makebinaryexpr(size_t ssrcln, BoaAstExpression* left, BoaAstExpression* right, BoaAstTokType op)
 {
-    BoaAstBinaryExpr* expr = (BoaAstBinaryExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstBinaryExpr), BOA_ASTEXPRTYP_BINARY);
+    BoaAstBinaryExpr* expr = (BoaAstBinaryExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstBinaryExpr), BOA_ASTEXPRTYP_BINARY);
     expr->left = left;
     expr->right = right;
     expr->op = op;
@@ -7299,34 +7341,34 @@ BoaAstBinaryExpr* boa_ast_makebinaryexpr(size_t scriptsrcline, BoaAstExpression*
     return expr;
 }
 
-BoaAstUnaryExpr* boa_ast_makeunaryexpr(size_t scriptsrcline, BoaAstExpression* right, BoaAstTokType op)
+BoaAstUnaryExpr* boa_ast_makeunaryexpr(size_t ssrcln, BoaAstExpression* right, BoaAstTokType op)
 {
-    BoaAstUnaryExpr* expr = (BoaAstUnaryExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstUnaryExpr), BOA_ASTEXPRTYP_UNARY);
+    BoaAstUnaryExpr* expr = (BoaAstUnaryExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstUnaryExpr), BOA_ASTEXPRTYP_UNARY);
     expr->right = right;
     expr->op = op;
     return expr;
 }
 
-BoaAstAssignExpr* boa_ast_makeassignexpr(size_t scriptsrcline, BoaAstExpression* to, BoaAstExpression* value)
+BoaAstAssignExpr* boa_ast_makeassignexpr(size_t ssrcln, BoaAstExpression* to, BoaAstExpression* value)
 {
-    BoaAstAssignExpr* expr = (BoaAstAssignExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstAssignExpr), BOA_ASTEXPRTYP_ASSIGN);
+    BoaAstAssignExpr* expr = (BoaAstAssignExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstAssignExpr), BOA_ASTEXPRTYP_ASSIGN);
     expr->to = to;
     expr->value = value;
     return expr;
 }
 
-BoaAstCallExpr* boa_ast_makecallexpr(size_t scriptsrcline, BoaAstExpression* callee)
+BoaAstCallExpr* boa_ast_makecallexpr(size_t ssrcln, BoaAstExpression* callee)
 {
-    BoaAstCallExpr* expr = (BoaAstCallExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstCallExpr), BOA_ASTEXPRTYP_CALL);
+    BoaAstCallExpr* expr = (BoaAstCallExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstCallExpr), BOA_ASTEXPRTYP_CALL);
     expr->excallee = callee;
     expr->init = NULL;
     boa_dynlistexpr_init(&expr->callargs);
     return expr;
 }
 
-BoaAstIndexGetExpr* boa_ast_makegetexpr(size_t scriptsrcline, BoaAstExpression* where, const char* name, size_t length, bool questionable, bool ignresult, bool isdot)
+BoaAstIndexGetExpr* boa_ast_makegetexpr(size_t ssrcln, BoaAstExpression* where, const char* name, size_t length, bool questionable, bool ignresult, bool isdot)
 {
-    BoaAstIndexGetExpr* expr = (BoaAstIndexGetExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstIndexGetExpr), BOA_ASTEXPRTYP_INDEXGET);
+    BoaAstIndexGetExpr* expr = (BoaAstIndexGetExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstIndexGetExpr), BOA_ASTEXPRTYP_INDEXGET);
     expr->where = where;
     expr->name = name;
     expr->length = length;
@@ -7337,9 +7379,9 @@ BoaAstIndexGetExpr* boa_ast_makegetexpr(size_t scriptsrcline, BoaAstExpression* 
     return expr;
 }
 
-BoaAstIndexSetExpr* boa_ast_makesetexpr(size_t scriptsrcline, BoaAstExpression* where, const char* name, size_t length, BoaAstExpression* value, bool isdot)
+BoaAstIndexSetExpr* boa_ast_makesetexpr(size_t ssrcln, BoaAstExpression* where, const char* name, size_t length, BoaAstExpression* value, bool isdot)
 {
-    BoaAstIndexSetExpr* expr = (BoaAstIndexSetExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstIndexSetExpr), BOA_ASTEXPRTYP_INDEXSET);
+    BoaAstIndexSetExpr* expr = (BoaAstIndexSetExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstIndexSetExpr), BOA_ASTEXPRTYP_INDEXSET);
     expr->where = where;
     expr->name = name;
     expr->length = length;
@@ -7348,99 +7390,99 @@ BoaAstIndexSetExpr* boa_ast_makesetexpr(size_t scriptsrcline, BoaAstExpression* 
     return expr;
 }
 
-BoaAstLiteralArrayExpr* boa_ast_makearrayexpr(size_t scriptsrcline)
+BoaAstLiteralArrayExpr* boa_ast_makearrayexpr(size_t ssrcln)
 {
-    BoaAstLiteralArrayExpr* expr = (BoaAstLiteralArrayExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstLiteralArrayExpr), BOA_ASTEXPRTYP_ARRAY);
+    BoaAstLiteralArrayExpr* expr = (BoaAstLiteralArrayExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstLiteralArrayExpr), BOA_ASTEXPRTYP_ARRAY);
     boa_dynlistexpr_init(&expr->exvalues);
     return expr;
 }
 
-BoaAstLiteralObjectExpr* boa_ast_makeobjectexpr(size_t scriptsrcline)
+BoaAstLiteralObjectExpr* boa_ast_makeobjectexpr(size_t ssrcln)
 {
-    BoaAstLiteralObjectExpr* expr = (BoaAstLiteralObjectExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstLiteralObjectExpr), BOA_ASTEXPRTYP_OBJECT);
+    BoaAstLiteralObjectExpr* expr = (BoaAstLiteralObjectExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstLiteralObjectExpr), BOA_ASTEXPRTYP_OBJECT);
     boa_dynlistval_init(&expr->objexkeys);
     boa_dynlistexpr_init(&expr->objexvalues);
     return expr;
 }
 
-BoaAstSubscriptExpr* boa_ast_makesubscriptexpr(size_t scriptsrcline, BoaAstExpression* array, BoaAstExpression* index)
+BoaAstSubscriptExpr* boa_ast_makesubscriptexpr(size_t ssrcln, BoaAstExpression* array, BoaAstExpression* index)
 {
-    BoaAstSubscriptExpr* expr = (BoaAstSubscriptExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstSubscriptExpr), BOA_ASTEXPRTYP_SUBSCRIPT);
+    BoaAstSubscriptExpr* expr = (BoaAstSubscriptExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstSubscriptExpr), BOA_ASTEXPRTYP_SUBSCRIPT);
     expr->array = array;
     expr->index = index;
     return expr;
 }
 
-BoaAstThisExpr* boa_ast_makethisexpr(size_t scriptsrcline)
+BoaAstThisExpr* boa_ast_makethisexpr(size_t ssrcln)
 {
-    return (BoaAstThisExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstThisExpr), BOA_ASTEXPRTYP_THIS);
+    return (BoaAstThisExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstThisExpr), BOA_ASTEXPRTYP_THIS);
 }
 
-BoaAstSuperExpr* boa_ast_makesuperexpr(size_t scriptsrcline, BoaString* method, bool ignresult)
+BoaAstSuperExpr* boa_ast_makesuperexpr(size_t ssrcln, BoaString* method, bool ignresult)
 {
-    BoaAstSuperExpr* expr = (BoaAstSuperExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstSuperExpr), BOA_ASTEXPRTYP_SUPER);
+    BoaAstSuperExpr* expr = (BoaAstSuperExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstSuperExpr), BOA_ASTEXPRTYP_SUPER);
     expr->methodname = method;
     expr->ignoreemit = false;
     expr->ignoreresult = ignresult;
     return expr;
 }
 
-BoaAstRangeExpr* boa_ast_makerangeexpr(size_t scriptsrcline, BoaAstExpression* from, BoaAstExpression* to)
+BoaAstRangeExpr* boa_ast_makerangeexpr(size_t ssrcln, BoaAstExpression* from, BoaAstExpression* to)
 {
-    BoaAstRangeExpr* expr = (BoaAstRangeExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstRangeExpr), BOA_ASTEXPRTYP_RANGE);
+    BoaAstRangeExpr* expr = (BoaAstRangeExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstRangeExpr), BOA_ASTEXPRTYP_RANGE);
     expr->from = from;
     expr->to = to;
     return expr;
 }
 
-BoaAstTernaryExpr* boa_ast_maketernaryexpr(size_t scriptsrcline, BoaAstExpression* condition, BoaAstExpression* ifbranch, BoaAstExpression* elsebranch)
+BoaAstTernaryExpr* boa_ast_maketernaryexpr(size_t ssrcln, BoaAstExpression* condition, BoaAstExpression* ifbranch, BoaAstExpression* elsebranch)
 {
-    BoaAstTernaryExpr* expr = (BoaAstTernaryExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstTernaryExpr), BOA_ASTEXPRTYP_TERNARY);
+    BoaAstTernaryExpr* expr = (BoaAstTernaryExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstTernaryExpr), BOA_ASTEXPRTYP_TERNARY);
     expr->condition = condition;
     expr->branchif = ifbranch;
     expr->branchelse = elsebranch;
     return expr;
 }
 
-BoaAstStrTemplateExpr* boa_ast_makeinterpolationexpr(size_t scriptsrcline)
+BoaAstStrTemplateExpr* boa_ast_makeinterpolationexpr(size_t ssrcln)
 {
-    BoaAstStrTemplateExpr* expr = (BoaAstStrTemplateExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstStrTemplateExpr), BOA_ASTEXPRTYP_INTERPOLATION);
+    BoaAstStrTemplateExpr* expr = (BoaAstStrTemplateExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstStrTemplateExpr), BOA_ASTEXPRTYP_INTERPOLATION);
     boa_dynlistexpr_init(&expr->expressions);
     return expr;
 }
 
-BoaAstRefExpr* boa_ast_makerefexpr(size_t scriptsrcline, BoaAstExpression* to)
+BoaAstRefExpr* boa_ast_makerefexpr(size_t ssrcln, BoaAstExpression* to)
 {
-    BoaAstRefExpr* expr = (BoaAstRefExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstRefExpr), BOA_ASTEXPRTYP_REFERENCE);
+    BoaAstRefExpr* expr = (BoaAstRefExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstRefExpr), BOA_ASTEXPRTYP_REFERENCE);
     expr->to = to;
     return expr;
 }
 
-BoaAstExprStmtExpr* boa_ast_makeexprstmt(size_t scriptsrcline, BoaAstExpression* exv)
+BoaAstExprStmtExpr* boa_ast_makeexprstmt(size_t ssrcln, BoaAstExpression* exv)
 {
-    BoaAstExprStmtExpr* expr = (BoaAstExprStmtExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstExprStmtExpr), BOA_ASTEXPRTYP_EXPRESSION);
+    BoaAstExprStmtExpr* expr = (BoaAstExprStmtExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstExprStmtExpr), BOA_ASTEXPRTYP_EXPRESSION);
     expr->exvalue = exv;
     return expr;
 }
 
-BoaAstBlockExpr* boa_ast_makeblockstmt(size_t scriptsrcline)
+BoaAstBlockExpr* boa_ast_makeblockstmt(size_t ssrcln)
 {
-    BoaAstBlockExpr* expr = (BoaAstBlockExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstBlockExpr), BOA_ASTEXPRTYP_BLOCK);
+    BoaAstBlockExpr* expr = (BoaAstBlockExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstBlockExpr), BOA_ASTEXPRTYP_BLOCK);
     boa_dynlistexpr_init(&expr->statements);
     return expr;
 }
 
-BoaAstVarGetExpr* boa_ast_makevargetexpr(size_t scriptsrcline, const char* name, size_t length)
+BoaAstVarGetExpr* boa_ast_makevargetexpr(size_t ssrcln, const char* name, size_t length)
 {
-    BoaAstVarGetExpr* expr = (BoaAstVarGetExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstVarGetExpr), BOA_ASTEXPRTYP_VARGET);
+    BoaAstVarGetExpr* expr = (BoaAstVarGetExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstVarGetExpr), BOA_ASTEXPRTYP_VARGET);
     expr->name = name;
     expr->length = length;
     return expr;
 }
 
-BoaAstVarDeclExpr* boa_ast_makevardeclstmt(size_t scriptsrcline, const char* name, size_t length, BoaAstExpression* init, bool constant)
+BoaAstVarDeclExpr* boa_ast_makevardeclstmt(size_t ssrcln, const char* name, size_t length, BoaAstExpression* init, bool constant)
 {
-    BoaAstVarDeclExpr* expr = (BoaAstVarDeclExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstVarDeclExpr), BOA_ASTEXPRTYP_VARDECL);
+    BoaAstVarDeclExpr* expr = (BoaAstVarDeclExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstVarDeclExpr), BOA_ASTEXPRTYP_VARDECL);
     expr->name = name;
     expr->length = length;
     expr->init = init;
@@ -7448,9 +7490,9 @@ BoaAstVarDeclExpr* boa_ast_makevardeclstmt(size_t scriptsrcline, const char* nam
     return expr;
 }
 
-BoaAstIfExpr* boa_ast_makeifstatement(size_t scriptsrcline, BoaAstExpression* condition, BoaAstExpression* ifbranch, BoaAstExpression* elsebranch, BoaDynListExpr* elseifconditions, BoaDynListExpr* elseifbranches)
+BoaAstIfExpr* boa_ast_makeifstatement(size_t ssrcln, BoaAstExpression* condition, BoaAstExpression* ifbranch, BoaAstExpression* elsebranch, BoaDynListExpr* elseifconditions, BoaDynListExpr* elseifbranches)
 {
-    BoaAstIfExpr* expr = (BoaAstIfExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstIfExpr), BOA_ASTEXPRTYP_IF);
+    BoaAstIfExpr* expr = (BoaAstIfExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstIfExpr), BOA_ASTEXPRTYP_IF);
     expr->condition = condition;
     expr->branchif = ifbranch;
     expr->branchelse = elsebranch;
@@ -7459,26 +7501,26 @@ BoaAstIfExpr* boa_ast_makeifstatement(size_t scriptsrcline, BoaAstExpression* co
     return expr;
 }
 
-BoaAstSwitchExpr* boa_ast_makeswitchstatement(size_t scriptsrcline, BoaAstExpression* condition)
+BoaAstSwitchExpr* boa_ast_makeswitchstatement(size_t ssrcln, BoaAstExpression* condition)
 {
-    BoaAstSwitchExpr* expr = (BoaAstSwitchExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstSwitchExpr), BOA_ASTEXPRTYP_SWITCH);
+    BoaAstSwitchExpr* expr = (BoaAstSwitchExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstSwitchExpr), BOA_ASTEXPRTYP_SWITCH);
     expr->condition = condition;
     boa_dynlistexpr_init(&expr->caseconditions);
     boa_dynlistexpr_init(&expr->casebodies);
     return expr;
 }
 
-BoaAstWhileExpr* boa_ast_makewhilestmt(size_t scriptsrcline, BoaAstExpression* condition, BoaAstExpression* body)
+BoaAstWhileExpr* boa_ast_makewhilestmt(size_t ssrcln, BoaAstExpression* condition, BoaAstExpression* body)
 {
-    BoaAstWhileExpr* expr = (BoaAstWhileExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstWhileExpr), BOA_ASTEXPRTYP_WHILE);
+    BoaAstWhileExpr* expr = (BoaAstWhileExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstWhileExpr), BOA_ASTEXPRTYP_WHILE);
     expr->condition = condition;
     expr->body = body;
     return expr;
 }
 
-BoaAstForExpr* boa_ast_makeforstmt(size_t scriptsrcline, BoaAstExpression* init, BoaAstExpression* var, BoaAstExpression* condition, BoaAstExpression* increment, BoaAstExpression* body, bool cstyle)
+BoaAstForExpr* boa_ast_makeforstmt(size_t ssrcln, BoaAstExpression* init, BoaAstExpression* var, BoaAstExpression* condition, BoaAstExpression* increment, BoaAstExpression* body, bool cstyle)
 {
-    BoaAstForExpr* expr = (BoaAstForExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstForExpr), BOA_ASTEXPRTYP_FOR);
+    BoaAstForExpr* expr = (BoaAstForExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstForExpr), BOA_ASTEXPRTYP_FOR);
     expr->init = init;
     expr->var = var;
     expr->condition = condition;
@@ -7488,19 +7530,19 @@ BoaAstForExpr* boa_ast_makeforstmt(size_t scriptsrcline, BoaAstExpression* init,
     return expr;
 }
 
-BoaAstContinueExpr* boa_ast_makecontinuestmt(size_t scriptsrcline)
+BoaAstContinueExpr* boa_ast_makecontinuestmt(size_t ssrcln)
 {
-    return (BoaAstContinueExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstContinueExpr), BOA_ASTEXPRTYP_CONTINUE);
+    return (BoaAstContinueExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstContinueExpr), BOA_ASTEXPRTYP_CONTINUE);
 }
 
-BoaBreakStatement* boa_ast_makebreakstmt(size_t scriptsrcline)
+BoaBreakStatement* boa_ast_makebreakstmt(size_t ssrcln)
 {
-    return (BoaBreakStatement*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaBreakStatement), BOA_ASTEXPRTYP_BREAK);
+    return (BoaBreakStatement*)boa_ast_allocexpression(ssrcln, sizeof(BoaBreakStatement), BOA_ASTEXPRTYP_BREAK);
 }
 
-BoaAstFunctionExpr* boa_ast_makefuncdefstmt(size_t scriptsrcline, const char* name, size_t length)
+BoaAstFunctionExpr* boa_ast_makefuncdefstmt(size_t ssrcln, const char* name, size_t length)
 {
-    BoaAstFunctionExpr* function = (BoaAstFunctionExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstFunctionExpr), BOA_ASTEXPRTYP_FUNCTION);
+    BoaAstFunctionExpr* function = (BoaAstFunctionExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstFunctionExpr), BOA_ASTEXPRTYP_FUNCTION);
     function->name = name;
     function->length = length;
     function->body = NULL;
@@ -7508,25 +7550,25 @@ BoaAstFunctionExpr* boa_ast_makefuncdefstmt(size_t scriptsrcline, const char* na
     return function;
 }
 
-BoaAstFunctionExpr* boa_ast_makelambdaexpr(size_t scriptsrcline)
+BoaAstFunctionExpr* boa_ast_makelambdaexpr(size_t ssrcln)
 {
-    BoaAstFunctionExpr* expr = (BoaAstFunctionExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstFunctionExpr), BOA_ASTEXPRTYP_FUNCANON);
+    BoaAstFunctionExpr* expr = (BoaAstFunctionExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstFunctionExpr), BOA_ASTEXPRTYP_FUNCANON);
     expr->body = NULL;
     expr->name = NULL;
     boa_dynlistparam_init(&expr->parameters);
     return expr;
 }
 
-BoaAstReturnExpr* boa_ast_makereturnstmt(size_t scriptsrcline, BoaAstExpression* exv)
+BoaAstReturnExpr* boa_ast_makereturnstmt(size_t ssrcln, BoaAstExpression* exv)
 {
-    BoaAstReturnExpr* expr = (BoaAstReturnExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstReturnExpr), BOA_ASTEXPRTYP_RETURN);
+    BoaAstReturnExpr* expr = (BoaAstReturnExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstReturnExpr), BOA_ASTEXPRTYP_RETURN);
     expr->exvalue = exv;
     return expr;
 }
 
-BoaAstMethodExpr* boa_ast_makemethoddefstmt(size_t scriptsrcline, BoaString* name, bool isstatic)
+BoaAstMethodExpr* boa_ast_makemethoddefstmt(size_t ssrcln, BoaString* name, bool isstatic)
 {
-    BoaAstMethodExpr* expr = (BoaAstMethodExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstMethodExpr), BOA_ASTEXPRTYP_METHOD);
+    BoaAstMethodExpr* expr = (BoaAstMethodExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstMethodExpr), BOA_ASTEXPRTYP_METHOD);
     expr->name = name;
     expr->body = NULL;
     expr->isstatic = isstatic;
@@ -7534,18 +7576,18 @@ BoaAstMethodExpr* boa_ast_makemethoddefstmt(size_t scriptsrcline, BoaString* nam
     return expr;
 }
 
-BoaAstClassExpr* boa_ast_makeclassdefstmt(size_t scriptsrcline, BoaString* name, BoaString* parent)
+BoaAstClassExpr* boa_ast_makeclassdefstmt(size_t ssrcln, BoaString* name, BoaString* parent)
 {
-    BoaAstClassExpr* expr = (BoaAstClassExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstClassExpr), BOA_ASTEXPRTYP_CLASS);
+    BoaAstClassExpr* expr = (BoaAstClassExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstClassExpr), BOA_ASTEXPRTYP_CLASS);
     expr->name = name;
     expr->parent = parent;
     boa_dynlistexpr_init(&expr->staticfields);
     return expr;
 }
 
-BoaAstFieldExpr* boa_ast_makefieldstmt(size_t scriptsrcline, BoaString* name, BoaAstExpression* getter, BoaAstExpression* setter, bool isstatic)
+BoaAstFieldExpr* boa_ast_makefieldstmt(size_t ssrcln, BoaString* name, BoaAstExpression* getter, BoaAstExpression* setter, bool isstatic)
 {
-    BoaAstFieldExpr* expr = (BoaAstFieldExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstFieldExpr), BOA_ASTEXPRTYP_FIELD);
+    BoaAstFieldExpr* expr = (BoaAstFieldExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstFieldExpr), BOA_ASTEXPRTYP_FIELD);
     expr->name = name;
     expr->getter = getter;
     expr->setter = setter;
@@ -7553,9 +7595,9 @@ BoaAstFieldExpr* boa_ast_makefieldstmt(size_t scriptsrcline, BoaString* name, Bo
     return expr;
 }
 
-BoaAstTryExpr* boa_ast_maketrystmt(size_t scriptsrcline, BoaAstExpression* tryblock, BoaAstExpression* catchblock, BoaAstExpression* finallyblock, const char* catchvarstr, size_t catchvarlen)
+BoaAstTryExpr* boa_ast_maketrystmt(size_t ssrcln, BoaAstExpression* tryblock, BoaAstExpression* catchblock, BoaAstExpression* finallyblock, const char* catchvarstr, size_t catchvarlen)
 {
-    BoaAstTryExpr* expr = (BoaAstTryExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstTryExpr), BOA_ASTEXPRTYP_TRY);
+    BoaAstTryExpr* expr = (BoaAstTryExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstTryExpr), BOA_ASTEXPRTYP_TRY);
     expr->tryblock = tryblock;
     expr->catchblock = catchblock;
     expr->finallyblock = finallyblock;
@@ -7564,9 +7606,9 @@ BoaAstTryExpr* boa_ast_maketrystmt(size_t scriptsrcline, BoaAstExpression* trybl
     return expr;
 }
 
-BoaAstThrowExpr* boa_ast_makethrowstmt(size_t scriptsrcline, BoaAstExpression* exvalue)
+BoaAstThrowExpr* boa_ast_makethrowstmt(size_t ssrcln, BoaAstExpression* exvalue)
 {
-    BoaAstThrowExpr* expr = (BoaAstThrowExpr*)boa_ast_allocexpression(scriptsrcline, sizeof(BoaAstThrowExpr), BOA_ASTEXPRTYP_THROW);
+    BoaAstThrowExpr* expr = (BoaAstThrowExpr*)boa_ast_allocexpression(ssrcln, sizeof(BoaAstThrowExpr), BOA_ASTEXPRTYP_THROW);
     expr->exvalue = exvalue;
     return expr;
 }
@@ -8191,9 +8233,9 @@ BoaAstToken boa_astlex_scantoken(BoaAstLexer* lex)
         case '^':
             return boa_astlex_matchtoken(lex, '=', BOA_ASTTOKTYP_CARETEQUAL, BOA_ASTTOKTYP_CARET);
         case '>':
-            return boa_astlex_matchtokens(lex, '=', '>', BOA_ASTTOKTYP_GREATEREQUAL, BOA_ASTTOKTYP_GREATERGREATER, BOA_ASTTOKTYP_GREATER);
+            return boa_astlex_matchtokens(lex, '=', '>', BOA_ASTTOKTYP_GREATEREQUAL, BOA_ASTTOKTYP_GREATERGREATER, BOA_ASTTOKTYP_GREATERTHAN);
         case '<':
-            return boa_astlex_matchtokens(lex, '=', '<', BOA_ASTTOKTYP_LESSEQUAL, BOA_ASTTOKTYP_LESSLESS, BOA_ASTTOKTYP_LESS);
+            return boa_astlex_matchtokens(lex, '=', '<', BOA_ASTTOKTYP_LESSEQUAL, BOA_ASTTOKTYP_LESSLESS, BOA_ASTTOKTYP_LESSTHAN);
         case '*':
             return boa_astlex_matchtokens(lex, '=', '*', BOA_ASTTOKTYP_STAREQUAL, BOA_ASTTOKTYP_STARSTAR, BOA_ASTTOKTYP_STAR);
         case '=':
@@ -8290,7 +8332,7 @@ BoaAstRule* boa_astparser_getrule(BoaAstTokType type)
 
 bool boa_astparser_isatend(BoaAstParser* prs)
 {
-    return prs->current.type == BOA_ASTTOKTYP_EOF;
+    return prs->currenttoken.type == BOA_ASTTOKTYP_EOF;
 }
 
 void boa_astparser_init(BoaState* state, BoaAstParser* prs)
@@ -8331,7 +8373,7 @@ void boa_astparser_failherefmt(BoaAstParser* prs, const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    boa_astparser_failatv(prs, &prs->current, fmt, args);
+    boa_astparser_failatv(prs, &prs->currenttoken, fmt, args);
     va_end(args);
 }
 
@@ -8339,32 +8381,32 @@ void boa_astparser_failfmt(BoaAstParser* prs, const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    boa_astparser_failatv(prs, &prs->previous, fmt, args);
+    boa_astparser_failatv(prs, &prs->previoustoken, fmt, args);
     va_end(args);
 }
 
 void boa_astparser_advance(BoaAstParser* prs)
 {
-    prs->previous = prs->current;
+    prs->previoustoken = prs->currenttoken;
     while(true)
     {
-        prs->current = boa_astlex_scantoken(prs->pstate->activelexer);
-        if(prs->current.type != BOA_ASTTOKTYP_ERROR)
+        prs->currenttoken = boa_astlex_scantoken(prs->pstate->activelexer);
+        if(prs->currenttoken.type != BOA_ASTTOKTYP_ERROR)
         {
             break;
         }
-        boa_astparser_failactual(prs, &prs->current, prs->current.start);
+        boa_astparser_failactual(prs, &prs->currenttoken, prs->currenttoken.start);
     }
 }
 
 bool boa_astparser_check(BoaAstParser* prs, BoaAstTokType type)
 {
-    return prs->current.type == type;
+    return prs->currenttoken.type == type;
 }
 
 bool boa_astparser_match(BoaAstParser* prs, BoaAstTokType type)
 {
-    if(prs->current.type == type)
+    if(prs->currenttoken.type == type)
     {
         boa_astparser_advance(prs);
         return true;
@@ -8375,10 +8417,10 @@ bool boa_astparser_match(BoaAstParser* prs, BoaAstTokType type)
 bool boa_astparser_matchident(BoaAstParser* prs, const char* type)
 {
     BoaAstTokType ctp;
-    ctp = prs->current.type;
+    ctp = prs->currenttoken.type;
     if(ctp == BOA_ASTTOKTYP_IDENTIFIER || ctp == BOA_ASTTOKTYP_KWCLASS || ctp == BOA_ASTTOKTYP_KWTRY)
     {
-        if(memcmp(prs->previous.start, type, fmax(strlen(type), prs->previous.length)))
+        if(memcmp(prs->previoustoken.start, type, fmax(strlen(type), prs->previoustoken.length)))
         {
             boa_astparser_advance(prs);
             return true;
@@ -8391,14 +8433,14 @@ void boa_astparser_consume(BoaAstParser* prs, BoaAstTokType type, const char* er
 {
     bool islinefeed;
     BoaString* r;
-    if(prs->current.type == type)
+    if(prs->currenttoken.type == type)
     {
         boa_astparser_advance(prs);
         return;
     }
-    islinefeed = prs->previous.type == BOA_ASTTOKTYP_LINEFEED;
-    r = boa_state_errorfmt(prs->pstate, prs->current.line, "expected %s, got <%.*s>", error, islinefeed ? 8 : prs->previous.length, islinefeed ? "new line" : prs->previous.start);
-    boa_astparser_failactual(prs, &prs->current, boa_string_getdata(r));
+    islinefeed = prs->previoustoken.type == BOA_ASTTOKTYP_LINEFEED;
+    r = boa_state_errorfmt(prs->pstate, prs->currenttoken.line, "expected %s, got <%.*s>", error, islinefeed ? 8 : prs->previoustoken.length, islinefeed ? "new line" : prs->previoustoken.start);
+    boa_astparser_failactual(prs, &prs->currenttoken, boa_string_getdata(r));
 }
 
 bool boa_astparser_matchlinefeed(BoaAstParser* prs)
@@ -8422,7 +8464,7 @@ BoaAstExpression* boa_astparser_parseblock(BoaAstParser* prs)
 {
     BoaAstBlockExpr* expr;
     boa_astparser_scopebegin(prs);
-    expr = boa_ast_makeblockstmt(prs->previous.line);
+    expr = boa_ast_makeblockstmt(prs->previoustoken.line);
     boa_astparser_ignorelinefeeds(prs);
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE) && !boa_astparser_check(prs, BOA_ASTTOKTYP_EOF))
     {
@@ -8455,10 +8497,10 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
     int gotlen;
     const char* gotstr;
     const char* exstr;
-    previous = prs->previous;
+    previous = prs->previoustoken;
     boa_astparser_ignorelinefeeds(prs);
     boa_astparser_advance(prs);
-    rule = boa_astparser_getrule(prs->previous.type);
+    rule = boa_astparser_getrule(prs->previoustoken.type);
     if(rule == NULL)
     {
         boa_astparser_failfmt(prs, "no rule for this token found");
@@ -8468,7 +8510,7 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
     {
         /* todo: file start */
         prevnewline = ((previous.start != NULL) && (*previous.start == '\n'));
-        parserprevnewline = ((prs->previous.start != NULL) && (*prs->previous.start == '\n'));
+        parserprevnewline = ((prs->previoustoken.start != NULL) && (*prs->previoustoken.start == '\n'));
         exstr = "new line";
         gotstr = "new line";
         exlen = strlen(exstr);
@@ -8480,8 +8522,8 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
         }
         if(!parserprevnewline)
         {
-            gotlen = prs->previous.length;
-            gotstr = prs->previous.start;
+            gotlen = prs->previoustoken.length;
+            gotstr = prs->previoustoken.start;
         }
         boa_astparser_failfmt(prs, "expected expression after <%.*s>, got <%.*s>", exlen, exstr, gotlen, gotstr);
         return NULL;
@@ -8496,12 +8538,12 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
     while(true)
     {
         boa_astparser_ignorelinefeeds(prs);
-        if(precedence > boa_astparser_getrule(prs->current.type)->precedence)
+        if(precedence > boa_astparser_getrule(prs->currenttoken.type)->precedence)
         {
             break;
         }
         boa_astparser_advance(prs);
-        infixrule = boa_astparser_getrule(prs->previous.type)->infix;
+        infixrule = boa_astparser_getrule(prs->previoustoken.type)->infix;
         if(infixrule == NULL)
         {
             break;
@@ -8518,7 +8560,7 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
 BoaAstExpression* boa_astparser_rulenumber(BoaAstParser* prs, bool canassign)
 {
     (void)canassign;
-    return (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue);
+    return (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previoustoken.line, prs->previoustoken.tokvalue);
 }
 
 BoaAstExpression* boa_astparser_parselambda(BoaAstParser* prs, BoaAstFunctionExpr* lambda)
@@ -8558,8 +8600,8 @@ void boa_astparser_parseparams(BoaAstParser* prs, BoaDynListParam* parameters)
             return;
         }
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "argument name");
-        argname = prs->previous.start;
-        arglength = prs->previous.length;
+        argname = prs->previoustoken.start;
+        arglength = prs->previoustoken.length;
         defval = NULL;
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
         {
@@ -8601,19 +8643,19 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_RIGHTPAREN))
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_ARROW, "=> after lambda arguments");
-        return boa_astparser_parselambda(prs, boa_ast_makelambdaexpr(prs->previous.line));
+        return boa_astparser_parselambda(prs, boa_ast_makelambdaexpr(prs->previoustoken.line));
     }
-    start = prs->previous.start;
-    line = prs->previous.line;
+    start = prs->previoustoken.start;
+    line = prs->previoustoken.line;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_IDENTIFIER) || boa_astparser_match(prs, BOA_ASTTOKTYP_DOTDOTDOT))
     {
         state = prs->pstate;
-        firstargstart = prs->previous.start;
-        firstarglength = prs->previous.length;
+        firstargstart = prs->previoustoken.start;
+        firstarglength = prs->previoustoken.length;
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_COMMA) || (boa_astparser_match(prs, BOA_ASTTOKTYP_RIGHTPAREN) && boa_astparser_match(prs, BOA_ASTTOKTYP_ARROW)))
         {
-            hadarrow = prs->previous.type == BOA_ASTTOKTYP_ARROW;
-            hadvararg = prs->previous.type == BOA_ASTTOKTYP_DOTDOTDOT;
+            hadarrow = prs->previoustoken.type == BOA_ASTTOKTYP_ARROW;
+            hadvararg = prs->previoustoken.type == BOA_ASTTOKTYP_DOTDOTDOT;
             /* this is a lambda */
             lambda = boa_ast_makelambdaexpr(line);
             defvalue = NULL;
@@ -8624,7 +8666,7 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
             }
             boa_astparser_ignorelinefeeds(prs);
             boa_dynlistparam_push(&lambda->parameters, boa_astparser_makeparameter(firstargstart, firstarglength, 0, defvalue));
-            if(!hadvararg && prs->previous.type == BOA_ASTTOKTYP_COMMA)
+            if(!hadvararg && prs->previoustoken.type == BOA_ASTTOKTYP_COMMA)
             {
                 do
                 {
@@ -8637,8 +8679,8 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
                     {
                         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "argument name");
                     }
-                    argname = prs->previous.start;
-                    arglength = prs->previous.length;
+                    argname = prs->previoustoken.start;
+                    arglength = prs->previoustoken.length;
                     defval = NULL;
                     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
                     {
@@ -8669,7 +8711,7 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
             lex = state->activelexer;
             lex->sourcedatacurrent = start;
             lex->sourcecurrentline = line;
-            prs->current = boa_astlex_scantoken(lex);
+            prs->currenttoken = boa_astlex_scantoken(lex);
             boa_astparser_advance(prs);
         }
     }
@@ -8687,7 +8729,7 @@ BoaAstExpression* boa_astparser_ruleparsecall(BoaAstParser* prs, BoaAstExpressio
     (void)canassign;
     dotstr = boa_string_getdata(prs->pstate->strings.strdots);
     dotlen = boa_string_getlength(prs->pstate->strings.strdots);
-    expr = boa_ast_makecallexpr(prs->previous.line, prev);
+    expr = boa_ast_makecallexpr(prs->previoustoken.line, prev);
     boa_astparser_ignorelinefeeds(prs);
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTPAREN))
     {
@@ -8726,9 +8768,9 @@ BoaAstExpression* boa_astparser_ruleunary(BoaAstParser* prs, bool canassign)
     BoaAstRefExpr* refexp;
     BoaAstExpression* targetexpr;
     (void)canassign;
-    op = prs->previous.type;
-    line = prs->previous.line;
-    isrefsym = (prs->previous.start[0] == '@');
+    op = prs->previoustoken.type;
+    line = prs->previoustoken.line;
+    isrefsym = (prs->previoustoken.start[0] == '@');
     #if 1
     if(isrefsym)
     {
@@ -8759,17 +8801,17 @@ BoaAstExpression* boa_astparser_rulebinary(BoaAstParser* prs, BoaAstExpression* 
     BoaAstRule* rule;
     BoaAstExpression* expr;
     (void)canassign;
-    invert = prs->previous.type == BOA_ASTTOKTYP_BANG;
+    invert = prs->previoustoken.type == BOA_ASTTOKTYP_BANG;
     if(invert)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_KWIS, "<is> after <!>");
     }
-    op = prs->previous.type;
-    line = prs->previous.line;
+    op = prs->previoustoken.type;
     rule = boa_astparser_getrule(op);
     boa_astparser_ignorelinefeeds(prs);
     expr = boa_astparser_parseprec(prs, (BoaPrecedence)(rule->precedence + 1), true);
     boa_astparser_ignorelinefeeds(prs);
+    line = prs->previoustoken.line;
     expr = (BoaAstExpression*)boa_ast_makebinaryexpr(line, prev, expr, op);
     if(invert)
     {
@@ -8784,8 +8826,8 @@ BoaAstExpression* boa_astparser_rulelogicaland(BoaAstParser* prs, BoaAstExpressi
     BoaAstTokType op;
     size_t line;
     (void)canassign;
-    op = prs->previous.type;
-    line = prs->previous.line;
+    op = prs->previoustoken.type;
+    line = prs->previoustoken.line;
     expr = boa_astparser_parseprec(prs, BOA_ASTPREC_AND, true);
     boa_astparser_ignorelinefeeds(prs);
     return (BoaAstExpression*)boa_ast_makebinaryexpr(line, prev, expr, op);
@@ -8797,8 +8839,8 @@ BoaAstExpression* boa_astparser_rulelogicalor(BoaAstParser* prs, BoaAstExpressio
     BoaAstTokType op;
     size_t line;
     (void)canassign;
-    op = prs->previous.type;
-    line = prs->previous.line;
+    op = prs->previoustoken.type;
+    line = prs->previoustoken.line;
     expr = boa_astparser_parseprec(prs, BOA_ASTPREC_OR, true);
     boa_astparser_ignorelinefeeds(prs);
     return (BoaAstExpression*)boa_ast_makebinaryexpr(line, prev, expr, op);
@@ -8809,8 +8851,8 @@ BoaAstExpression* boa_astparser_rulenullfilter(BoaAstParser* prs, BoaAstExpressi
     BoaAstTokType op;
     size_t line;
     (void)canassign;
-    op = prs->previous.type;
-    line = prs->previous.line;
+    op = prs->previoustoken.type;
+    line = prs->previoustoken.line;
     return (BoaAstExpression*)boa_ast_makebinaryexpr(line, prev, boa_astparser_parseprec(prs, BOA_ASTPREC_NULL, true), op);
 }
 
@@ -8856,8 +8898,8 @@ BoaAstExpression* boa_astparser_rulecompound(BoaAstParser* prs, BoaAstExpression
     BoaAstExpression* expr;
     BoaAstBinaryExpr* binary;
     (void)canassign;
-    op = prs->previous.type;
-    line = prs->previous.line;
+    op = prs->previoustoken.type;
+    line = prs->previoustoken.line;
     rule = boa_astparser_getrule(op);
     if(op == BOA_ASTTOKTYP_PLUSPLUS || op == BOA_ASTTOKTYP_MINUSMINUS)
     {
@@ -8867,6 +8909,7 @@ BoaAstExpression* boa_astparser_rulecompound(BoaAstParser* prs, BoaAstExpression
     {
         expr = boa_astparser_parseprec(prs, (BoaPrecedence)(rule->precedence + 1), true);
     }
+    line = prs->previoustoken.line;
     binary = boa_ast_makebinaryexpr(line, prev, expr, boa_astparser_convertcompoundop(op));
     /* to make sure we don't free it twice */
     binary->ignoreleft = true;
@@ -8877,8 +8920,8 @@ BoaAstExpression* boa_astparser_ruleliteral(BoaAstParser* prs, bool canassign)
 {
     size_t line;
     (void)canassign;
-    line = prs->previous.line;
-    switch(prs->previous.type)
+    line = prs->previoustoken.line;
+    switch(prs->previoustoken.type)
     {
         case BOA_ASTTOKTYP_KWTRUE:
         {
@@ -8900,7 +8943,7 @@ BoaAstExpression* boa_astparser_ruleliteral(BoaAstParser* prs, bool canassign)
 
 BoaAstExpression* boa_astparser_rulestring(BoaAstParser* prs, bool canassign)
 {
-    BoaAstExpression* expr = (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue);
+    BoaAstExpression* expr = (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previoustoken.line, prs->previoustoken.tokvalue);
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTBRACKET))
     {
         return boa_astparser_parsesubscript(prs, expr, canassign);
@@ -8914,29 +8957,29 @@ BoaAstExpression* boa_astparser_ruleinterpolation(BoaAstParser* prs, bool canass
     BoaString* str;
     BoaAstExpression* innerexpr;
     BoaAstStrTemplateExpr* expr;
-    expr = boa_ast_makeinterpolationexpr(prs->previous.line);
+    expr = boa_ast_makeinterpolationexpr(prs->previoustoken.line);
     do
     {
-        tval = prs->previous.tokvalue;
+        tval = prs->previoustoken.tokvalue;
         str = boa_value_asstring(tval);
         if(str != NULL)
         {
             if(boa_string_getlength(str) > 0)
             {
-                boa_dynlistexpr_push(&expr->expressions, (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previous.line, tval));
+                boa_dynlistexpr_push(&expr->expressions, (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previoustoken.line, tval));
             }
         }
         innerexpr = boa_astparser_parseexpr(prs);
         boa_dynlistexpr_push(&expr->expressions, innerexpr);
     } while(boa_astparser_match(prs, BOA_ASTTOKTYP_STRTEMPLATE));
     boa_astparser_consume(prs, BOA_ASTTOKTYP_STRING, "end of template string");
-    tval = prs->previous.tokvalue;
+    tval = prs->previoustoken.tokvalue;
     str = boa_value_asstring(tval);
     if(str != NULL)
     {
         if(boa_string_getlength(str) > 0)
         {
-            boa_dynlistexpr_push(&expr->expressions, (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previous.line, prs->previous.tokvalue));
+            boa_dynlistexpr_push(&expr->expressions, (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previoustoken.line, prs->previoustoken.tokvalue));
         }
     }
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTBRACKET))
@@ -8948,7 +8991,7 @@ BoaAstExpression* boa_astparser_ruleinterpolation(BoaAstParser* prs, bool canass
 
 BoaAstExpression* boa_astparser_rulearray(BoaAstParser* prs, bool canassign)
 {
-    BoaAstLiteralArrayExpr* array = boa_ast_makearrayexpr(prs->previous.line);
+    BoaAstLiteralArrayExpr* array = boa_ast_makearrayexpr(prs->previoustoken.line);
     boa_astparser_ignorelinefeeds(prs);
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACKET))
     {
@@ -8975,7 +9018,7 @@ BoaAstExpression* boa_astparser_ruleobject(BoaAstParser* prs, bool canassign)
     BoaString* keystr;
     BoaAstLiteralObjectExpr* object;
     (void)canassign;
-    object = boa_ast_makeobjectexpr(prs->previous.line);
+    object = boa_ast_makeobjectexpr(prs->previoustoken.line);
     boa_astparser_ignorelinefeeds(prs);
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE))
     {
@@ -8983,11 +9026,11 @@ BoaAstExpression* boa_astparser_ruleobject(BoaAstParser* prs, bool canassign)
         boa_astparser_ignorelinefeeds(prs);
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_STRING))
         {
-            keystr = boa_string_copylen(prs->pstate, prs->previous.start+1, prs->previous.length-2);
+            keystr = boa_string_copylen(prs->pstate, prs->previoustoken.start+1, prs->previoustoken.length-2);
         }
         else if(boa_astparser_match(prs, BOA_ASTTOKTYP_IDENTIFIER))
         {
-            keystr = boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+            keystr = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
         }
         else
         {
@@ -9015,7 +9058,7 @@ BoaAstExpression* boa_astparser_parsevarexprbase(BoaAstParser* prs, bool canassi
     bool hadargs;
     BoaAstCallExpr* call;
     BoaAstExpression* expr;
-    expr = (BoaAstExpression*)boa_ast_makevargetexpr(prs->previous.line, prs->previous.start, prs->previous.length);
+    expr = (BoaAstExpression*)boa_ast_makevargetexpr(prs->previoustoken.line, prs->previoustoken.start, prs->previoustoken.length);
     if(isnew)
     {
         hadargs = boa_astparser_check(prs, BOA_ASTTOKTYP_LEFTPAREN);
@@ -9035,7 +9078,7 @@ BoaAstExpression* boa_astparser_parsevarexprbase(BoaAstParser* prs, bool canassi
         }
         else if(!hadargs)
         {
-            boa_astparser_failherefmt(prs, "expected %s, got <%.*s>", "argument list for instance creation", prs->previous.length, prs->previous.start);
+            boa_astparser_failherefmt(prs, "expected %s, got <%.*s>", "argument list for instance creation", prs->previoustoken.length, prs->previoustoken.start);
         }
         return (BoaAstExpression*)call;
     }
@@ -9045,7 +9088,7 @@ BoaAstExpression* boa_astparser_parsevarexprbase(BoaAstParser* prs, bool canassi
     }
     if(canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previous.line, expr, boa_astparser_parseexpr(prs));
+        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpr(prs));
     }
     return expr;
 }
@@ -9069,16 +9112,16 @@ BoaAstExpression* boa_astparser_ruledot(BoaAstParser* prs, BoaAstExpression* pre
     size_t line;
     bool ignored;
     BoaAstExpression* expr;
-    line = prs->previous.line;
-    ignored = prs->previous.type == BOA_ASTTOKTYP_SMALLARROW;
+    line = prs->previoustoken.line;
+    ignored = prs->previoustoken.type == BOA_ASTTOKTYP_SMALLARROW;
     boa_astparser_ignorelinefeeds(prs);
     /* class and super are allowed field names */
     if(!(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCLASS) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWSUPER) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWTRY)))
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, ignored ? "property name after < -> >" : "property name after <.>");
     }
-    name = prs->previous.start;
-    length = prs->previous.length;
+    name = prs->previoustoken.start;
+    length = prs->previoustoken.length;
     if(!ignored && canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
         return (BoaAstExpression*)boa_ast_makesetexpr(line, previous, name, length, boa_astparser_parseexpr(prs), true);
@@ -9095,7 +9138,7 @@ BoaAstExpression* boa_astparser_rulerange(BoaAstParser* prs, BoaAstExpression* p
 {
     size_t line;
     (void)canassign;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     return (BoaAstExpression*)boa_ast_makerangeexpr(line, previous, boa_astparser_parseexpr(prs));
 }
 
@@ -9106,12 +9149,12 @@ BoaAstExpression* boa_astparser_ruleternaryorquestion(BoaAstParser* prs, BoaAstE
     BoaAstExpression* ifbranch;
     BoaAstExpression* elsebranch;
     (void)canassign;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_DOT) /* || boa_astparser_match(prs, BOA_ASTTOKTYP_SMALLARROW)*/)
     {
-        ignored = prs->previous.type == BOA_ASTTOKTYP_SMALLARROW;
+        ignored = prs->previoustoken.type == BOA_ASTTOKTYP_SMALLARROW;
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, ignored ? "property name after <->>" : "property name after <.>");
-        return (BoaAstExpression*)boa_ast_makegetexpr(line, previous, prs->previous.start, prs->previous.length, true, ignored, true);
+        return (BoaAstExpression*)boa_ast_makegetexpr(line, previous, prs->previoustoken.start, prs->previoustoken.length, true, ignored, true);
     }
     ifbranch = boa_astparser_parseexpr(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_COLON, "':' after expression");
@@ -9124,7 +9167,7 @@ BoaAstExpression* boa_astparser_parsesubscript(BoaAstParser* prs, BoaAstExpressi
     size_t line;
     BoaAstExpression* index;
     BoaAstExpression* expr;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     index = boa_astparser_parseexpr(prs);
     boa_astparser_ignorelinefeeds(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTBRACKET, "']' after subscript");
@@ -9135,7 +9178,7 @@ BoaAstExpression* boa_astparser_parsesubscript(BoaAstParser* prs, BoaAstExpressi
     }
     else if(canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previous.line, expr, boa_astparser_parseexpr(prs));
+        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpr(prs));
     }
     return expr;
 }
@@ -9143,7 +9186,7 @@ BoaAstExpression* boa_astparser_parsesubscript(BoaAstParser* prs, BoaAstExpressi
 BoaAstExpression* boa_astparser_rulethis(BoaAstParser* prs, bool canassign)
 {
     BoaAstExpression* expr;
-    expr = (BoaAstExpression*)boa_ast_makethisexpr(prs->previous.line);
+    expr = (BoaAstExpression*)boa_ast_makethisexpr(prs->previoustoken.line);
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTBRACKET))
     {
         return boa_astparser_parsesubscript(prs, expr, canassign);
@@ -9158,7 +9201,7 @@ BoaAstExpression* boa_astparser_rulesuper(BoaAstParser* prs, bool canassign)
     BoaAstExpression* res;
     BoaAstExpression* expr;
     (void)canassign;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     if(!(boa_astparser_match(prs, BOA_ASTTOKTYP_DOT) || boa_astparser_match(prs, BOA_ASTTOKTYP_SMALLARROW)))
     {
         expr = (BoaAstExpression*)boa_ast_makesuperexpr(line, prs->pstate->strings.strconstructor, false);
@@ -9166,9 +9209,9 @@ BoaAstExpression* boa_astparser_rulesuper(BoaAstParser* prs, bool canassign)
         res = boa_astparser_ruleparsecall(prs, expr, false);
         return res;
     }
-    ignoring = prs->previous.type == BOA_ASTTOKTYP_SMALLARROW;
+    ignoring = prs->previoustoken.type == BOA_ASTTOKTYP_SMALLARROW;
     boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, ignoring ? "super method name after <->>" : "super method name after <.>");
-    expr = (BoaAstExpression*)boa_ast_makesuperexpr(line, boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length), ignoring);
+    expr = (BoaAstExpression*)boa_ast_makesuperexpr(line, boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length), ignoring);
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN))
     {
         res = boa_astparser_ruleparsecall(prs, expr, false);
@@ -9195,7 +9238,7 @@ BoaAstExpression* boa_astparser_rulereference(BoaAstParser* prs, bool canassign)
     size_t line;
     BoaAstRefExpr* expr;
     (void)canassign;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     boa_astparser_ignorelinefeeds(prs);
     expr = boa_ast_makerefexpr(line, boa_astparser_parseprec(prs, BOA_ASTPREC_CALL, false));
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
@@ -9218,12 +9261,12 @@ BoaAstExpression* boa_astparser_parsevardecl(BoaAstParser* prs)
     BoaAstExpression* init;
     bool constant;
     size_t line;
-    constant = prs->previous.type == BOA_ASTTOKTYP_KWCONST;
-    line = prs->previous.line;
+    constant = prs->previoustoken.type == BOA_ASTTOKTYP_KWCONST;
+    line = prs->previoustoken.line;
     init = NULL;
     boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "variable name");
-    name = prs->previous.start;
-    length = prs->previous.length;
+    name = prs->previoustoken.start;
+    length = prs->previoustoken.length;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
         init = boa_astparser_parseexpr(prs);
@@ -9239,7 +9282,7 @@ BoaAstExpression* boa_astparser_parsetry(BoaAstParser* prs)
     BoaAstExpression* finallyblock;
     const char* catchvarstr;
     size_t catchvarlen;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     boa_astparser_ignorelinefeeds(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "Expect <{> after <try>");
     tryblock = boa_astparser_parseblock(prs);
@@ -9253,8 +9296,8 @@ BoaAstExpression* boa_astparser_parsetry(BoaAstParser* prs)
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN))
         {
             boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "expected identifier after <catch(>");
-            catchvarstr = prs->previous.start;
-            catchvarlen = prs->previous.length;
+            catchvarstr = prs->previoustoken.start;
+            catchvarlen = prs->previoustoken.length;
             boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "expected <)> after catch identifier");
         }
         boa_astparser_ignorelinefeeds(prs);
@@ -9279,7 +9322,7 @@ BoaAstExpression* boa_astparser_parsethrow(BoaAstParser* prs)
 {
     size_t line;
     BoaAstExpression* exvalue;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     exvalue = boa_astparser_parseexpr(prs);
     return (BoaAstExpression*)boa_ast_makethrowstmt(line, exvalue);
 }
@@ -9295,7 +9338,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
     size_t line;
     bool invert;
     bool hadparen;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     invert = boa_astparser_match(prs, BOA_ASTTOKTYP_BANG);
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
     condition = boa_astparser_parseexpr(prs);
@@ -9363,7 +9406,7 @@ BoaAstExpression* boa_astparser_parseswitch(BoaAstParser* prs)
     BoaAstBlockExpr* bodyblock;
     BoaAstExpression* casecond;
     BoaAstSwitchExpr* switchexpr;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
     condition = boa_astparser_parseexpr(prs);
     if(hadparen)
@@ -9391,7 +9434,7 @@ BoaAstExpression* boa_astparser_parseswitch(BoaAstParser* prs)
             boa_astparser_consume(prs, BOA_ASTTOKTYP_KWCASE, "expected <case> or <default>");
         }
         boa_astparser_ignorelinefeeds(prs);
-        bodyblock = boa_ast_makeblockstmt(prs->previous.line);
+        bodyblock = boa_ast_makeblockstmt(prs->previoustoken.line);
         while(!boa_astparser_check(prs, BOA_ASTTOKTYP_KWCASE) &&
               !boa_astparser_check(prs, BOA_ASTTOKTYP_KWDEFAULT) &&
               !boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE) &&
@@ -9416,7 +9459,7 @@ BoaAstExpression* boa_astparser_parsefor(BoaAstParser* prs)
     size_t line;
     bool hadparen;
     bool cstyle;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
     var = NULL;
     init = NULL;
@@ -9464,7 +9507,7 @@ BoaAstExpression* boa_astparser_parsewhile(BoaAstParser* prs)
     bool hadparen;
     BoaAstExpression* condition;
     BoaAstExpression* body;
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
     condition = boa_astparser_parseexpr(prs);
     if(hadparen)
@@ -9491,17 +9534,17 @@ BoaAstExpression* boa_astparser_parsefunction(BoaAstParser* prs)
     noname = false;
     fnname = "anonymous";
     namelen = strlen(fnname);
-    isexport = prs->previous.type == BOA_ASTTOKTYP_KWEXPORT;
+    isexport = prs->previoustoken.type == BOA_ASTTOKTYP_KWEXPORT;
     if(isexport)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_KWFUNCTION, "<function> after <export>");
     }
-    line = prs->previous.line;
+    line = prs->previoustoken.line;
     if(boa_astparser_check(prs, BOA_ASTTOKTYP_IDENTIFIER))
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "function name");
-        fnname = prs->previous.start;
-        namelen = prs->previous.length;
+        fnname = prs->previoustoken.start;
+        namelen = prs->previoustoken.length;
     }
     else
     {
@@ -9511,7 +9554,7 @@ BoaAstExpression* boa_astparser_parsefunction(BoaAstParser* prs)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "function name");
         lambda = boa_ast_makelambdaexpr(line);
-        to = boa_ast_makesetexpr(line, (BoaAstExpression*)boa_ast_makevargetexpr(line, fnname, namelen), prs->previous.start, prs->previous.length, (BoaAstExpression*)lambda, true);
+        to = boa_ast_makesetexpr(line, (BoaAstExpression*)boa_ast_makevargetexpr(line, fnname, namelen), prs->previoustoken.start, prs->previoustoken.length, (BoaAstExpression*)lambda, true);
         boa_astparser_compilerinit(prs, &stackcc);
         boa_astparser_scopebegin(prs);
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN))
@@ -9560,7 +9603,7 @@ BoaAstExpression* boa_astparser_parsefunction(BoaAstParser* prs)
 
 BoaAstExpression* boa_astparser_parsereturn(BoaAstParser* prs)
 {
-    size_t line = prs->previous.line;
+    size_t line = prs->previoustoken.line;
     BoaAstExpression* expr = NULL;
     if(!boa_astparser_check(prs, BOA_ASTTOKTYP_SEMICOLON) && !boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE) && !boa_astparser_check(prs, BOA_ASTTOKTYP_EOF))
     {
@@ -9571,7 +9614,7 @@ BoaAstExpression* boa_astparser_parsereturn(BoaAstParser* prs)
 
 BoaAstExpression* boa_astparser_parsefield(BoaAstParser* prs, BoaString* name, bool isstatic)
 {
-    size_t line = prs->previous.line;
+    size_t line = prs->previoustoken.line;
     BoaAstExpression* getter = NULL;
     BoaAstExpression* setter = NULL;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_ARROW))
@@ -9609,8 +9652,8 @@ BoaAstExpression* boa_astparser_parsefield(BoaAstParser* prs, BoaString* name, b
 /* clang-format off */
 static BoaAstTokType operators[] = {
     BOA_ASTTOKTYP_PLUS, BOA_ASTTOKTYP_MINUS, BOA_ASTTOKTYP_STAR, BOA_ASTTOKTYP_PERCENT,
-    BOA_ASTTOKTYP_SLASH, BOA_ASTTOKTYP_SHARP, BOA_ASTTOKTYP_BANG, BOA_ASTTOKTYP_LESS,
-    BOA_ASTTOKTYP_LESSEQUAL, BOA_ASTTOKTYP_GREATER, BOA_ASTTOKTYP_GREATEREQUAL, BOA_ASTTOKTYP_EQUALEQUAL,
+    BOA_ASTTOKTYP_SLASH, BOA_ASTTOKTYP_SHARP, BOA_ASTTOKTYP_BANG, BOA_ASTTOKTYP_LESSTHAN,
+    BOA_ASTTOKTYP_LESSEQUAL, BOA_ASTTOKTYP_GREATERTHAN, BOA_ASTTOKTYP_GREATEREQUAL, BOA_ASTTOKTYP_EQUALEQUAL,
     BOA_ASTTOKTYP_LEFTBRACKET, BOA_ASTTOKTYP_EOF
 };
 /* clang-format on */
@@ -9641,26 +9684,26 @@ BoaAstExpression* boa_astparser_parsemethod(BoaAstParser* prs, bool isstatic)
             }
             i++;
         }
-        if(prs->previous.type == BOA_ASTTOKTYP_LEFTBRACKET)
+        if(prs->previoustoken.type == BOA_ASTTOKTYP_LEFTBRACKET)
         {
             boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTBRACKET, "<]> after <[> in op method declaration");
             name = prs->pstate->strings.stropindex;
         }
         else
         {
-            name = boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+            name = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
         }
     }
     else
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "method name");
-        name = boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+        name = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
         if(boa_astparser_check(prs, BOA_ASTTOKTYP_LEFTBRACE) || boa_astparser_check(prs, BOA_ASTTOKTYP_ARROW))
         {
             return boa_astparser_parsefield(prs, name, isstatic);
         }
     }
-    method = boa_ast_makemethoddefstmt(prs->previous.line, name, isstatic);
+    method = boa_ast_makemethoddefstmt(prs->previoustoken.line, name, isstatic);
     boa_astparser_compilerinit(prs, &stackcc);
     boa_astparser_scopebegin(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTPAREN, "<(> after method name");
@@ -9693,19 +9736,19 @@ BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs)
     {
         return NULL;
     }
-    line = prs->previous.line;
-    isstatic = prs->previous.type == BOA_ASTTOKTYP_KWSTATIC;
+    line = prs->previoustoken.line;
+    isstatic = prs->previoustoken.type == BOA_ASTTOKTYP_KWSTATIC;
     if(isstatic)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_KWCLASS, "<class> after <static>");
     }
     boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "class name after <class>");
-    name = boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+    name = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
     super = NULL;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_COLON) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWEXTENDS))
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "super class name after <:> (or <extends>)");
-        super = boa_string_copylen(prs->pstate, prs->previous.start, prs->previous.length);
+        super = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
         if(super == name)
         {
             boa_astparser_failfmt(prs, "class cannot inherit itself");
@@ -9759,14 +9802,14 @@ BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs)
 void boa_astparser_sync(BoaAstParser* prs)
 {
     prs->panicmode = false;
-    while(prs->current.type != BOA_ASTTOKTYP_EOF)
+    while(prs->currenttoken.type != BOA_ASTTOKTYP_EOF)
     {
-        if(prs->previous.type == BOA_ASTTOKTYP_LINEFEED)
+        if(prs->previoustoken.type == BOA_ASTTOKTYP_LINEFEED)
         {
             longjmp(g_parserjumpbuffer, 1);
             return;
         }
-        switch(prs->current.type)
+        switch(prs->currenttoken.type)
         {
             case BOA_ASTTOKTYP_KWCLASS:
             case BOA_ASTTOKTYP_KWFUNCTION:
@@ -9833,11 +9876,11 @@ BoaAstExpression* boa_astparser_parsestmt(BoaAstParser* prs)
     }
     else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCONTINUE))
     {
-        return (BoaAstExpression*)boa_ast_makecontinuestmt(prs->previous.line);
+        return (BoaAstExpression*)boa_ast_makecontinuestmt(prs->previoustoken.line);
     }
     else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWBREAK))
     {
-        return (BoaAstExpression*)boa_ast_makebreakstmt(prs->previous.line);
+        return (BoaAstExpression*)boa_ast_makebreakstmt(prs->previoustoken.line);
     }
     else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWFUNCTION) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWEXPORT))
     {
@@ -9852,7 +9895,7 @@ BoaAstExpression* boa_astparser_parsestmt(BoaAstParser* prs)
     {
         return NULL;
     }
-    return (BoaAstExpression*)boa_ast_makeexprstmt(prs->previous.line, expr);
+    return (BoaAstExpression*)boa_ast_makeexprstmt(prs->previoustoken.line, expr);
 }
 
 BoaAstExpression* boa_astparser_parsestmtorblock(BoaAstParser* prs)
@@ -9942,9 +9985,9 @@ void boa_astparser_setuprules()
     gastparserules[BOA_ASTTOKTYP_KWNULL] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
     gastparserules[BOA_ASTTOKTYP_BANGEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
     gastparserules[BOA_ASTTOKTYP_EQUALEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
-    gastparserules[BOA_ASTTOKTYP_GREATER] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    gastparserules[BOA_ASTTOKTYP_GREATERTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
     gastparserules[BOA_ASTTOKTYP_GREATEREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
-    gastparserules[BOA_ASTTOKTYP_LESS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    gastparserules[BOA_ASTTOKTYP_LESSTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
     gastparserules[BOA_ASTTOKTYP_LESSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
     gastparserules[BOA_ASTTOKTYP_STRING] = boa_astparser_makerule(boa_astparser_rulestring, NULL, BOA_ASTPREC_NONE);
     gastparserules[BOA_ASTTOKTYP_STRTEMPLATE] = boa_astparser_makerule(boa_astparser_ruleinterpolation, NULL, BOA_ASTPREC_NONE);
@@ -10005,10 +10048,10 @@ const char* boa_astprint_tokopstring(int t)
         case BOA_ASTTOKTYP_BANGEQUAL: return "!=";
         case BOA_ASTTOKTYP_EQUAL: return "=";
         case BOA_ASTTOKTYP_EQUALEQUAL: return "==";
-        case BOA_ASTTOKTYP_GREATER: return ">";
+        case BOA_ASTTOKTYP_GREATERTHAN: return ">";
         case BOA_ASTTOKTYP_GREATEREQUAL: return ">=";
         case BOA_ASTTOKTYP_GREATERGREATER: return ">>";
-        case BOA_ASTTOKTYP_LESS: return "<";
+        case BOA_ASTTOKTYP_LESSTHAN: return "<";
         case BOA_ASTTOKTYP_LESSEQUAL: return "<=";
         case BOA_ASTTOKTYP_LESSLESS: return "<<";
         case BOA_ASTTOKTYP_PLUS: return "+";
@@ -11414,11 +11457,11 @@ BoaOpCode boa_emitter_translatebinaryop(BoaAstTokType token)
         case BOA_ASTTOKTYP_BANGEQUAL:
         case BOA_ASTTOKTYP_EQUALEQUAL:
             return BOA_OPCODE_EQUAL;
-        case BOA_ASTTOKTYP_LESS:
+        case BOA_ASTTOKTYP_LESSTHAN:
             return BOA_OPCODE_LESSTHAN;
         case BOA_ASTTOKTYP_LESSEQUAL:
             return BOA_OPCODE_LESSEQUAL;
-        case BOA_ASTTOKTYP_GREATER:
+        case BOA_ASTTOKTYP_GREATERTHAN:
             return BOA_OPCODE_GREATERTHAN;
         case BOA_ASTTOKTYP_GREATEREQUAL:
             return BOA_OPCODE_GREATEREQUAL;
@@ -11621,9 +11664,9 @@ void boa_emitter_emitexprfull(BoaAstEmitter* emt, BoaAstExpression* topexpr, uin
             bexpr = (BoaAstBinaryExpr*)topexpr;
             switch(bexpr->op)
             {
-                case BOA_ASTTOKTYP_GREATER:
+                case BOA_ASTTOKTYP_GREATERTHAN:
                 case BOA_ASTTOKTYP_GREATEREQUAL:
-                case BOA_ASTTOKTYP_LESS:
+                case BOA_ASTTOKTYP_LESSTHAN:
                 case BOA_ASTTOKTYP_LESSEQUAL:
                 case BOA_ASTTOKTYP_EQUALEQUAL:
                 {
@@ -13370,7 +13413,11 @@ int64_t boa_vmutil_getsbx(uint64_t instruction)
 void boa_debug_disasmodrecursive(BoaState* state, BoaStream* pr, BoaFuncScript* function, const char* source, BoaTable* disassembled)
 {
     size_t i;
-    if(function == NULL || boa_table_getentry(disassembled, function->name, NULL))
+    if(function == NULL)
+    {
+        return;
+    }
+    if(boa_table_getentry(disassembled, function->name, NULL))
     {
         return;
     }
@@ -14210,7 +14257,7 @@ BoaValue boa_objfnstring_chr(BoaState* state, BoaValue instance, size_t argc, Bo
     return boa_value_fromobject(res);
 }
 
-BoaValue boa_objfnstring_utf8encode(BoaState* state, BoaValue instance, size_t argc, BoaValue* argv)
+BoaValue boa_objfnstring_utf8encode(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     int incode;
     size_t len;
@@ -14218,13 +14265,13 @@ BoaValue boa_objfnstring_utf8encode(BoaState* state, BoaValue instance, size_t a
     char* buf;
     (void)instance;
     (void)argc;
-    incode = boa_value_asnumber(argv[0]);
+    incode = boa_value_asnumber(args[0]);
     buf = boa_util_utf8encode(incode, &len);
     res = boa_string_take(state, buf, len);
     return boa_value_fromobject(res);
 }
 
-static BoaValue boa_util_stringutf8chars(BoaState* state, BoaValue thisval, size_t argc, BoaValue* argv, bool onlycodepoint)
+static BoaValue boa_util_stringutf8chars(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args, bool onlycodepoint)
 {
     int cp;
     bool havemax;
@@ -14240,7 +14287,7 @@ static BoaValue boa_util_stringutf8chars(BoaState* state, BoaValue thisval, size
     if(argc > 0)
     {
         havemax = true;
-        maxamount = boa_value_asnumber(argv[0]);
+        maxamount = boa_value_asnumber(args[0]);
     }
     res = boa_array_make(state);
     boa_utf8iter_init(&iter, boa_string_getdata(instr), boa_string_getlength (instr));
@@ -14271,14 +14318,14 @@ static BoaValue boa_util_stringutf8chars(BoaState* state, BoaValue thisval, size
     return boa_value_fromobject(res);
 }
 
-static BoaValue boa_objfnstring_utf8chars(BoaState* state, BoaValue thisval, size_t argc, BoaValue* argv)
+static BoaValue boa_objfnstring_utf8chars(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
 {
-    return boa_util_stringutf8chars(state, thisval, argc, argv, false);
+    return boa_util_stringutf8chars(state, thisval, argc, args, false);
 }
 
-static BoaValue boa_objfnstring_utf8codepoints(BoaState* state, BoaValue thisval, size_t argc, BoaValue* argv)
+static BoaValue boa_objfnstring_utf8codepoints(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
 {
-    return boa_util_stringutf8chars(state, thisval, argc, argv, true);
+    return boa_util_stringutf8chars(state, thisval, argc, args, true);
 }
 
 
@@ -14884,6 +14931,54 @@ BoaValue boa_objfnstring_itervalue(BoaState* state, BoaValue thisval, size_t arg
         return boa_value_makebool(false);
     }
     return boa_value_fromobject(boa_string_codepointstringat(state, selfstr, index));
+}
+
+static BoaValue boa_objfnstring_trim(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
+{
+    const char* trimmer;
+    BoaString* selfstr;
+    BoaString* newstr;
+    trimmer = "\r\n\t ";
+    if(argc == 1)
+    {
+        trimmer = boa_string_getdata(boa_value_asstring(args[0]));
+    }
+    selfstr = boa_value_asstring(thisval);
+    newstr = boa_string_copylen(state, boa_string_getdata(selfstr), boa_string_getlength(selfstr));
+    boa_strbuf_triminplace(boa_string_getstrbuf(newstr), trimmer);
+    return boa_value_fromobject(newstr);
+}
+
+static BoaValue boa_objfnstring_ltrim(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
+{
+    const char* trimmer;
+    BoaString* newstr;
+    BoaString* selfstr;
+    trimmer = "\r\n\t ";
+    if(argc == 1)
+    {
+        trimmer = boa_string_getdata(boa_value_asstring(args[0]));
+    }
+    selfstr = boa_value_asstring(thisval);
+    newstr = boa_string_copylen(state, boa_string_getdata(selfstr), boa_string_getlength(selfstr));
+    boa_strbuf_trimleftinplace(boa_string_getstrbuf(newstr), trimmer);
+    return boa_value_fromobject(newstr);
+}
+
+static BoaValue boa_objfnstring_rtrim(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
+{
+    const char* trimmer;
+    BoaString* newstr;
+    BoaString* selfstr;
+    trimmer = "\r\n\t ";
+    if(argc == 1)
+    {
+        trimmer = boa_string_getdata(boa_value_asstring(args[0]));
+    }
+    selfstr = boa_value_asstring(thisval);
+    newstr = boa_string_copylen(state, boa_string_getdata(selfstr), boa_string_getlength(selfstr));
+    boa_strbuf_trimrightinplace(boa_string_getstrbuf(newstr), trimmer);
+    return boa_value_fromobject(newstr);
 }
 
 /*
@@ -15948,6 +16043,54 @@ BoaValue boa_objfnprocess_abort(BoaState* state, BoaValue instance, size_t argc,
     return boa_value_makenull();
 }
 
+BoaValue boa_objfnprocess_kill(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    int rt;
+    int pid;
+    int code;
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    pid = boa_value_asnumber(args[0]);
+    code = boa_value_asnumber(args[1]);
+    rt = boa_util_kill(pid, code);
+    return boa_value_makenumber(rt);
+}
+
+BoaValue boa_objfnprocess_getpid(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    return boa_value_makenumber(boa_util_getpid());
+}
+
+BoaValue boa_objfnprocess_setenv(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    bool replace;
+    BoaString* key;
+    BoaString* value;
+    replace = true;
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    key = boa_value_tostring(state, args[0], 0);
+    value = boa_value_tostring(state, args[1], 0);
+    return boa_value_makebool(boa_util_setenv(boa_string_getdata(key), boa_string_getdata(value), replace));
+}
+
+BoaValue boa_objfnscriptvm_getglobal(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    BoaString* name;
+    (void)instance;
+    (void)argc;
+    name = boa_value_asstring(args[0]);
+    return boa_state_getglobal(state, name);
+}
+
 BoaValue boa_objfnscriptvm_globalsget(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     (void)state;
@@ -16095,7 +16238,7 @@ void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaVal
             case 'p':
                 {
                     if(argid >= argc) goto done;
-                    boa_value_printvalue(strm, args[argid++], false);
+                    boa_value_printvalue(strm, args[argid++], true);
                 }
                 break;
             case '%':
@@ -16265,10 +16408,13 @@ void boa_state_opencorelibrary(BoaState* state)
         boa_class_bindmethod(klass, ">=", boa_objfnstring_greaterequal);
         boa_class_bindmethod(klass, "<=", boa_objfnstring_lessequal);
         boa_class_bindmethod(klass, "utf8Codepoints", boa_objfnstring_utf8codepoints);
+        boa_class_bindmethod(klass, "utf8Chars", boa_objfnstring_utf8chars);
         boa_class_bindmethod(klass, "toString", boa_objfnstring_tostring);
         boa_class_bindmethod(klass, "toNumber", boa_objfnstring_tonumber);
         boa_class_bindmethod(klass, "toUpperCase", boa_objfnstring_touppercase);
+        boa_class_bindmethod(klass, "upper", boa_objfnstring_touppercase);
         boa_class_bindmethod(klass, "toLowerCase", boa_objfnstring_tolowercase);
+        boa_class_bindmethod(klass, "lower", boa_objfnstring_tolowercase);
         boa_class_bindmethod(klass, "contains", boa_objfnstring_contains);
         boa_class_bindmethod(klass, "startsWith", boa_objfnstring_startswith);
         boa_class_bindmethod(klass, "endsWith", boa_objfnstring_endswith);
@@ -16278,6 +16424,9 @@ void boa_state_opencorelibrary(BoaState* state)
         boa_class_bindmethod(klass, "indexOf", boa_objfnstring_indexof);
         boa_class_bindmethod(klass, "iterator", boa_objfnstring_iterator);
         boa_class_bindmethod(klass, "iteratorValue", boa_objfnstring_itervalue);
+        boa_class_bindmethod(klass, "trim", boa_objfnstring_trim);
+        boa_class_bindmethod(klass, "trimLeft", boa_objfnstring_ltrim);
+        boa_class_bindmethod(klass, "trimRight", boa_objfnstring_rtrim);
         boa_class_bindmethod(klass, "[]", boa_objfnstring_subscript);
         boa_class_bindmethod(klass, "charAt", boa_objfnstring_charat);
         boa_class_bindmethod(klass, "charCodeAt", boa_objfnstring_charcodeat);
@@ -16384,10 +16533,17 @@ void boa_state_opencorelibrary(BoaState* state)
         boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
         boa_class_bindstaticmethod(klass, "exit", boa_objfnprocess_exit);
         boa_class_bindstaticmethod(klass, "abort", boa_objfnprocess_abort);
+        boa_class_bindstaticmethod(klass, "kill", boa_objfnprocess_kill);
+        boa_class_bindstaticmethod(klass, "pid", boa_objfnprocess_getpid);
+        boa_class_bindstaticmethod(klass, "setenv", boa_objfnprocess_setenv);
+        boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
+        boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
+        boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
 
     }
     {
         klass = boa_class_make(state, "ScriptVM", state->stdobjectclass);
+        boa_class_bindstaticmethod(klass, "getglobal", boa_objfnscriptvm_getglobal);
         boa_class_bindstaticgetter(klass, "globals", boa_objfnscriptvm_globalsget);
     }
     {
@@ -16916,6 +17072,7 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     const char* strmode;
     FILE* fhnd;
     BoaFileData* data;
+    BoaClass* fileclass;
     (void)argc;
     path = boa_value_asstring(args[0]);
     mode = boa_value_asstring(args[1]);
@@ -16926,6 +17083,11 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     {
         boa_vm_raiseexception(state, state->stdioerror, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
         return boa_value_makenull();
+    }
+    if(!boa_value_isinstance(instance))
+    {
+        fileclass = boa_value_asclass(instance);
+        instance = boa_value_fromobject(boa_object_makeinstance(state, fileclass));
     }
     data = (BoaFileData*)boa_userdata_insertdata(state, instance, sizeof(BoaFileData), boa_callback_onfilecleanup);
     data->path = (char*)strpath;
@@ -16945,7 +17107,12 @@ BoaValue boa_objfnfile_close(BoaState* state, BoaValue instance, size_t argc, Bo
     return boa_value_makenull();
 }
 
-BoaValue boa_objfnfile_exists(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+BoaValue boa_objfnfile_staticopen(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    return boa_objfnfile_constructor(state, instance, argc, args);
+}
+
+BoaValue boa_objfnfile_staticexists(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaString* fname;
     const char* strfname;
@@ -16954,10 +17121,10 @@ BoaValue boa_objfnfile_exists(BoaState* state, BoaValue instance, size_t argc, B
     (void)argc;
     fname = boa_value_asstring(args[0]);
     strfname = boa_string_getdata(fname);
-    return boa_value_makebool(boa_util_fileexists(strfname));
+    return boa_value_makebool(boa_util_fsfileexists(strfname));
 }
 
-BoaValue boa_objfnfile_create(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+BoaValue boa_objfnfile_staticcreate(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaString* path;
     const char* strpath;
@@ -17042,6 +17209,8 @@ BoaString* boa_util_readhandletostring(BoaState* state, FILE* hnd, bool havesize
     result = boa_string_makeemptystring(state, length, true);
     result->strbuf.data = (char*)boa_sysmem_malloc((length + 1) * sizeof(char));
     result->strbuf.data[length] = '\0';
+    result->strbuf.isshort = false;
+    result->strbuf.capacity = length + 1;
     rsz = fread(result->strbuf.data, sizeof(char), length, hnd);
     result->strbuf.length = rsz;
     result->strhash = boa_string_hash(result->strbuf.data, result->strbuf.length);
@@ -17069,7 +17238,7 @@ BoaValue boa_objfnfile_readallinstance(BoaState* state, BoaValue instance, size_
     return boa_value_fromobject(result);
 }
 
-BoaValue boa_objfnfile_readallstatic(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+BoaValue boa_objfnfile_staticreadall(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     bool havesizeparam;
     size_t howmuch;
@@ -17096,6 +17265,19 @@ BoaValue boa_objfnfile_readallstatic(BoaState* state, BoaValue instance, size_t 
     result = boa_util_readhandletostring(state, hnd, havesizeparam, howmuch);
     fclose(hnd);
     return boa_value_fromobject(result);
+}
+
+BoaValue boa_objfnfile_staticunlink(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    BoaString* path;
+    (void)instance;
+    (void)argc;
+    path = boa_value_asstring(args[0]);
+    if(boa_util_unlink(boa_string_getdata(path)) != 0)
+    {
+        boa_vm_raiseexception(state, state->stdioerror, "unlink(%s): %s", boa_string_getdata(path), strerror(errno));
+    }
+    return boa_value_makenull();
 }
 
 BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
@@ -17136,6 +17318,76 @@ BoaValue boa_objfndirectory_exists(BoaState* state, BoaValue instance, size_t ar
     (void)argc;
     directoryname = boa_string_getdata(boa_value_asstring(args[0]));
     return boa_value_makebool(stat(directoryname, &buffer) == 0);
+}
+
+
+BoaValue boa_objfndirectory_chdir(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    const char* cstr;
+    BoaString* str;
+    (void)instance;
+    (void)argc;
+    str = boa_value_asstring(args[0]);
+    cstr = boa_string_getdata(str);
+    if(!boa_util_chdir(cstr))
+    {
+        boa_vm_raiseexception(state, state->stdioerror, "chdir(%s): %s", cstr, strerror(errno));
+        return boa_value_makenull();
+    }
+    return boa_value_makenull();
+}
+
+BoaValue boa_objfndirectory_mkdir(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    int mode;
+    const char* cstr;
+    BoaString* str;
+    mode = 0644;
+    (void)instance;
+    (void)argc;
+    str = boa_value_asstring(args[0]);
+    cstr = boa_string_getdata(str);
+    if(argc > 1)
+    {
+        mode = boa_value_asnumber(args[1]);
+    }
+    if(!boa_util_mkdir(cstr, mode))
+    {
+        boa_vm_raiseexception(state, state->stdioerror, "mkdir(%s): %s", cstr, strerror(errno));
+        return boa_value_makenull();
+    }
+    return boa_value_makenull();
+}
+
+BoaValue boa_objfndirectory_rmdir(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    const char* cstr;
+    BoaString* str;
+    (void)instance;
+    (void)argc;
+    str = boa_value_asstring(args[0]);
+    cstr = boa_string_getdata(str);
+    if(!boa_util_rmdir(cstr))
+    {
+        boa_vm_raiseexception(state, state->stdioerror, "rmdir(%s): %s", cstr, strerror(errno));
+        return boa_value_makenull();
+    }
+    return boa_value_makenull();
+}
+
+BoaValue boa_objfndirectory_getcwd(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    char cwdbuf[512];
+    const char* cstr;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    cstr = boa_util_getcwd(cwdbuf, 512);
+    if(!cstr)
+    {
+        return boa_value_makenull();
+    }
+    return boa_value_fromobject(boa_string_copy(state, cwdbuf));
 }
 
 BoaValue boa_objfndirectory_read(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
@@ -17196,10 +17448,12 @@ void boa_corelib_installfile(BoaState* state)
     BoaClass* klass;
     {
         klass = boa_class_make(state, "File", state->stdobjectclass);
-        boa_class_bindstaticmethod(klass, "exists", boa_objfnfile_exists);
-        boa_class_bindstaticmethod(klass, "create", boa_objfnfile_create);
-        boa_class_bindstaticmethod(klass, "read", boa_objfnfile_readallstatic);
         boa_class_bindconstructor(klass, boa_objfnfile_constructor);
+        boa_class_bindstaticmethod(klass, "open", boa_objfnfile_staticopen);
+        boa_class_bindstaticmethod(klass, "exists", boa_objfnfile_staticexists);
+        boa_class_bindstaticmethod(klass, "create", boa_objfnfile_staticcreate);
+        boa_class_bindstaticmethod(klass, "read", boa_objfnfile_staticreadall);
+        boa_class_bindstaticmethod(klass, "unlink", boa_objfnfile_staticunlink);
         boa_class_bindmethod(klass, "close", boa_objfnfile_close);
         boa_class_bindmethod(klass, "write", boa_objfnfile_writevalvalue);
         boa_class_bindmethod(klass, "writeString", boa_objfnfile_writevalstring);
@@ -17210,6 +17464,10 @@ void boa_corelib_installfile(BoaState* state)
         klass = boa_class_make(state, "Directory", state->stdobjectclass);
         boa_class_bindstaticmethod(klass, "exists", boa_objfndirectory_exists);
         boa_class_bindstaticmethod(klass, "read", boa_objfndirectory_read);
+        boa_class_bindstaticmethod(klass, "chdir", boa_objfndirectory_chdir);
+        boa_class_bindstaticmethod(klass, "mkdir", boa_objfndirectory_mkdir);
+        boa_class_bindstaticmethod(klass, "rmdir", boa_objfndirectory_rmdir);
+        boa_class_bindstaticmethod(klass, "cwd", boa_objfndirectory_getcwd);
     }
 }
 
@@ -18403,9 +18661,11 @@ BoaUserdata* boa_userdata_makeuserdata(BoaState* state, size_t size)
 void* boa_userdata_insertdata(BoaState* state, BoaValue instance, size_t typesz, BoaCleanupFn cleanup)
 {
     BoaUserdata* userdata;
+    BoaInstance* iptr;
     userdata = boa_userdata_makeuserdata(state, typesz);
     userdata->oncleanupfn = cleanup;
-    boa_table_set(&boa_value_asinstance(instance)->fields, state->strings.struserdatafield, boa_value_fromobject(userdata));
+    iptr = boa_value_asinstance(instance);
+    boa_table_set(&iptr->fields, state->strings.struserdatafield, boa_value_fromobject(userdata));
     return userdata->data;
 }
 
@@ -18562,6 +18822,11 @@ BoaState* boa_state_make()
     boa_emitter_init(state, state->activeemitter);
     boa_state_opencorelibrary(state);
     boa_state_openlibraries(state);
+    {
+        #if 0
+            boa_state_setglobal(state, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
+        #endif
+    }
     return state;
 }
 
@@ -18928,7 +19193,7 @@ void boa_vmexec_resetvm(BoaState* state)
     state->vmstate.gcgraystack = NULL;
     state->vmstate.gcgraycount = 0;
     state->vmstate.gcgraycapacity = 0;
-    boa_stringtable_init(&state->vmstate.storedstrings);
+    boa_strtable_init(&state->vmstate.storedstrings);
     state->vmstate.globals = NULL;
     state->vmstate.modules = NULL;
 }
@@ -18942,7 +19207,7 @@ void boa_init_vm(BoaState* state)
 
 void boa_free_vm(BoaState* state)
 {
-    boa_stringtable_free(&state->vmstate.storedstrings);
+    boa_strtable_free(&state->vmstate.storedstrings);
     boa_gcmem_freeobjlist(state, state->vmstate.objects);
     boa_vmexec_resetvm(state);
 }
@@ -19508,7 +19773,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethoddefault(BoaState* state, BoaF
         {
             if(!boa_vmmac_recoverstate(state, fiber, &tmpres))
             {
-                //return tmpres;
+                return tmpres;
             }
             return boa_result_make(BOA_STATUS_INVALID, boa_value_makenull());
         }
@@ -19582,7 +19847,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, 
     { \
         snbv = boa_value_valtypename(bv); \
         sncv = boa_value_valtypename(cv); \
-        boa_vmmac_fail(state, "attempt to use the operator %s with a %s and a %s", boa_string_getdata(opstring), snbv, sncv); \
+        boa_vmmac_fail(state, "srcline %d: attempt to use operator '%s' with a %s and a %s", __LINE__, boa_string_getdata(opstring), snbv, sncv); \
     } \
     isinst = (boa_value_isinstance(bv) && boa_value_asinstance(bv)->klass == state->stdclassnumber); \
     if(boa_value_isnumber(bv) || isinst) \
@@ -19636,7 +19901,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, 
     { \
         if(BOA_UNLIKELY(boa_value_isnull(bv))) \
         { \
-            boa_vmmac_fail(state, "attempt to use the operator %s on a null value", boa_string_getdata(opstring)); \
+            boa_vmmac_fail(state, "srcline %d: attempt to use operator '%s' on a null value", __LINE__, boa_string_getdata(opstring)); \
         } \
         state->vmstate.vmregisteritems[ra] = boa_vmmac_getrc(state, rb); \
         tmpb = state->vmstate.vmregisteritems[ra + 1]; \
@@ -19675,7 +19940,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, 
         { \
             snbv = boa_value_valtypename(bv); \
             sncv = boa_value_valtypename(cv); \
-            boa_vmmac_fail(state, "attempt to use the operator %s with a %s and a %s", boa_string_getdata(opstring), snbv, sncv); \
+            boa_vmmac_fail(state, "srcline %d: attempt to use operator '%s' with a %s and a %s", __LINE__, boa_string_getdata(opstring), snbv, sncv); \
         } \
         res = boa_value_makenull();\
         switch(opcode) \
@@ -19710,7 +19975,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, 
     } \
     else if(boa_value_isnull(bv)) \
     { \
-        boa_vmmac_fail(state, "attempt to use the operator %s on a null value", boa_string_getdata(opstring)); \
+        boa_vmmac_fail(state, "srcline %d: attempt to use operator '%s' on a null value", __LINE__, boa_string_getdata(opstring)); \
     } \
     else \
     { \
@@ -20633,6 +20898,15 @@ dispatch:
             }
             else
             {
+                if(boa_value_ismap(object))
+                {
+                    if(!boa_map_getvalue(boa_value_asmap(object), name, &value))
+                    {
+                        value = boa_value_makenull();
+                    }
+                    state->vmstate.vmregisteritems[ra] = value;
+                    boa_vmmac_dispatchnext();
+                }
                 klass = boa_state_getclassfor(state, object);
                 if(klass == NULL)
                 {
@@ -21315,7 +21589,7 @@ static void optprs_fprintmaybearg(FILE* out, const char* begin, const char* flag
 
 static void optprs_fprintusage(FILE* out, optcontext_t* ox)
 {
-    size_t i;
+    int i;
     char ch;
     bool needval;
     bool maybeval;

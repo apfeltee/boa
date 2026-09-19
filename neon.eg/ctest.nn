@@ -1,0 +1,11 @@
+
+/*
+    colors = try{ import colors }
+*/
+
+const colors = require("colors")
+
+println("colors=", colors);
+
+print(colors.text('Successful!', colors.text_color.green))
+

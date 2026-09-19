@@ -1,0 +1,34 @@
+
+
+function scan(dir)
+{
+    Dir.readdir(dir, def(item)
+    {
+        if((item == ".") || (item == ".."))
+        {
+        }
+        else
+        {
+            //var fp = File.join(dir, item);
+            //var fp = [dir, "/", item].join();
+            var fp = dir+"/"+item
+            var isdir = File.isDirectory(fp);
+            if(isdir)
+            {
+                println(fp);
+                scan(fp);
+            }
+            else
+            {
+                println(fp);
+            }
+        }
+    })
+}
+
+var dir = Process.scriptdirectory() + "/../mods";
+if(ARGV.length > 1)
+{
+    dir = ARGV[1];
+}
+scan(dir);

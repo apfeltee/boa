@@ -1833,8 +1833,10 @@ static void lino_context_freehistory(linocontext_t* ctx)
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void lino_context_handleimplicitexit()
 {
+    #if 0
     lino_context_disablerawmode(g_linoconst_gcontext, fileno(stdin));
     lino_context_freehistory(g_linoconst_gcontext);
+    #endif
 }
 
 /* This is the API call to add a new entry in the linenoise history.

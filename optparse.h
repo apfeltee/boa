@@ -519,7 +519,6 @@ static char* optprs_nextpositional(optcontext_t* ox)
     return option;
 }
 
-//optprs_add(&options, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
 static bool optprs_add(optcontext_t* ox, optcallback_t callback, const char* longname, int shortname, optargtype_t argtype, const char* helptext)
 {
     optflag_t flag;
@@ -542,12 +541,10 @@ static bool optprs_run(optcontext_t* ox)
     while ((opt = optprs_nextlongflag(ox, ox->knownflags, &longindex)) != -1)
     {
         flag = &ox->knownflags[longindex];
-        //typedef bool(*optcallback_t)(optcontext_t* ox, optflag_t*, void* userptr);
-
-            if(!flag->callback(ox, flag, ox->userptr))
-            {
+        if(!flag->callback(ox, flag, ox->userptr))
+        {
                 break;
-            }
+        }
     }
     while(true)
     {

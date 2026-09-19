@@ -1,1 +1,3 @@
-print(ScriptVM.globals)
+gl = ScriptVM.globals
+print(gl.ENV)
+print(ScriptVM.globals.ENV)

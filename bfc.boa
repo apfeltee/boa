@@ -46,7 +46,7 @@ function getchar()
 * in a language with dynamic arrays, that isn't needed, obviously.
 * so, compile() returns the array of bytecode.
 */
-function compile(program, len)
+function compilecode(program, len, toscript)
 {
     var depth;
     var target;
@@ -57,7 +57,7 @@ function compile(program, len)
     var nextop;
     var pvop;
     var finalcode = [];
-    var compiledcount = 0;
+    var comcount = 0;
     var sourcepos = 0;
     while(sourcepos < len)
     {
@@ -65,7 +65,7 @@ function compile(program, len)
         sourcepos++;
         if(c == '>' || c == '<')
         {
-            if((compiledcount > 0) && (finalcode[compiledcount - 1][FIELD_OPER] == OP_MOVE))
+            if((comcount > 0) && (finalcode[comcount - 1][FIELD_OPER] == OP_MOVE))
             {
                 // NOTE: may be truncated on assignment to arg
                 // coalesce
@@ -74,7 +74,7 @@ function compile(program, len)
                 {
                     mval = 1;
                 }
-                finalcode[compiledcount - 1][FIELD_ARGUMENT] += mval;
+                finalcode[comcount - 1][FIELD_ARGUMENT] += mval;
             }
             else
             {
@@ -85,12 +85,12 @@ function compile(program, len)
                     mval = 1;
                 }
                 finalcode.push([OP_MOVE, mval])
-                compiledcount++;
+                comcount++;
             }
         }
         else if(c == '+' || c == '-')
         {
-            if((compiledcount > 0) && (finalcode[compiledcount - 1][FIELD_OPER] == OP_ADD))
+            if((comcount > 0) && (finalcode[comcount - 1][FIELD_OPER] == OP_ADD))
             {
                 // NOTE: may be truncated on assignment to arg
                 // coalesce
@@ -99,7 +99,7 @@ function compile(program, len)
                 {
                     mval = 1;
                 }
-                finalcode[compiledcount - 1][FIELD_ARGUMENT] += mval;
+                finalcode[comcount - 1][FIELD_ARGUMENT] += mval;
             }
             else
             {
@@ -109,40 +109,40 @@ function compile(program, len)
                     mval = 1;
                 }
                 finalcode.push([OP_ADD, mval])
-                compiledcount++;
+                comcount++;
             }
         }
         else if(c == '.')
         {
             finalcode.push([OP_PRINTBYTE, 0])
-            compiledcount++;
+            comcount++;
         }
         else if(c == ',')
         {
             finalcode.push([OP_READBYTE, 0])
-            compiledcount++;
+            comcount++;
         }
         else if(c == '[')
         {
             finalcode.push([OP_JUMPIFFALSE, 0])
-            compiledcount++;
+            comcount++;
         }
         else if(c == ']')
         {
             finalcode.push([OP_JUMPIFTRUE, 0])
-            compiledcount++;
+            comcount++;
         }
     }
-    println("compiled ", compiledcount, " instructions. now resolving jumps...")
+    println("compiled ", comcount, " instructions. now resolving jumps...")
     // Resolve all jumps
-    for(i = 0; i < compiledcount; i++)
+    for(i = 0; i < comcount; i++)
     {
         tmpop = finalcode[i][FIELD_OPER];
         if(tmpop == OP_JUMPIFFALSE)
         {
             depth = 1;
             target = i + 1;
-            while((depth > 0) && (target < compiledcount))
+            while((depth > 0) && (target < comcount))
             {
                 nextop = finalcode[target][FIELD_OPER];
                 target++;
@@ -187,17 +187,92 @@ function compile(program, len)
             finalcode[i][FIELD_ARGUMENT] = target + 1;
         }
     }
+    if(toscript)
+    {
+        println("compiling to boa ... ")
+        var csrc = [];
+        /*
+            OP_MOVE = 1;
+            OP_ADD = 2;
+            OP_PRINTBYTE = 3;
+            OP_READBYTE = 4;
+            OP_JUMPIFFALSE = 5;
+            OP_JUMPIFTRUE = 6;
+        
+        */
+        var iter = 0;
+        var maxcodecount = finalcode.length;
+        csrc.push(`var arg = 0`)
+        csrc.push(`var m_codepos = 0`)
+        csrc.push(`var m_datapos = 0`)
+        csrc.push(`var m_memory = Array(300000, 0)`)
+        while(iter < maxcodecount)
+        {
+            var arg = finalcode[iter][FIELD_ARGUMENT];
+            var opc = finalcode[iter][FIELD_OPER];
+            csrc.push(`arg = ${arg}`)
+            iter += 1;
+            if(opc == OP_MOVE)
+            {
+                csrc.push(`m_datapos = ((m_datapos + arg) + 30000) % 30000`)
+                //iter = ((iter + arg) + 30000) % 30000
+            }
+            else if(opc == OP_ADD)
+            {
+                csrc.push(`m_memory[m_datapos] += arg`)
+            }
+            else if(opc == OP_JUMPIFFALSE)
+            {
+                csrc.push(`
+                if(m_memory[m_datapos] > 0)
+                {
+                    m_codepos = m_codepos;
+                }
+                else
+                {
+                    m_codepos = arg;
+                }`)
+                iter = arg
+            }
+            else if(opc == OP_JUMPIFTRUE)
+            {
+                csrc.push(`
+                if(m_memory[m_datapos] > 0)
+                {
+                    m_codepos = arg;
+                }
+                else
+                {
+                    m_codepos = m_codepos;
+                }
+                `)
+            }
+            else if(opc == OP_PRINTBYTE)
+            {
+                csrc.push(`printchar(m_memory[m_datapos])`)
+            }
+            else if(opc == OP_READBYTE)
+            {
+                //STDOUT.flush()
+                csrc.push(`var c = STDIN.readChar()`)
+                csrc.push(`m_memory[m_datapos] = c`)
+            }
+        }
+        println("finished compiling!")
+        return csrc;
+    }
     println("finished compiling!")
     return finalcode;
 }
 
+
 // Run a compiled bytecode program.
-function run(bcode)
+function runbc(bcode)
 {
     var datapos;
     var codepos;
     var maxcodecount = bcode.length;
-    var mem = makefilledarray(30000, 0)
+    var mem = Array(300000, 0)
     //var mem = []
     datapos = 0;
     codepos = 0;
@@ -239,7 +314,7 @@ function run(bcode)
         }
         else if(opc == OP_PRINTBYTE)
         {
-            print(String.fromCharCode(mem[datapos]));
+            printchar(mem[datapos]);
         }
         else if(opc == OP_READBYTE)
         {
@@ -255,6 +330,20 @@ function run(bcode)
             }
         }
     }
+}
+
+function runcode(bc)
+{
+    eval(bc.join(";"))
+}
+
+function run(bc, toscript)
+{
+    if(toscript)
+    {
+        return runcode(bc);
+    }
+    return runbc(bc);
 }
 
 function optoname(op)
@@ -286,11 +375,11 @@ function optoname(op)
     return null;
 }
 
-function printbc(bcode)
+function printcodebc(bcode)
 {
     var brline = 0;
     var len = bcode.length;
-    print("compiled: ", len, " items: [\n");
+    print("count: ", len, " items: [\n");
     for(i=0; i<len; i++)
     {
         var nopt = bcode[i][FIELD_OPER];
@@ -311,6 +400,28 @@ function printbc(bcode)
     print("\n]\n");
 }
 
+function printcodescript(bcode)
+{
+    var destfilename = "btmp.boa"
+    var len = bcode.length;
+    print("count: ", len, " writing to ", destfilename, "\n");
+    var fh = File(destfilename, "wb")
+    for(var itm in bcode)
+    {
+        fh.write(itm)
+        fh.write(";\n")
+    }
+    fh.close()
+}
+
+function printcode(bc, toscript)
+{
+    if(toscript)
+    {
+        return printcodescript(bc);
+    }
+    return printcodebc(bc);
+}
 
 function getargv(i)
 {
@@ -331,7 +442,7 @@ function readfile(path)
 {
     if(typeof(ARGV) == "array")
     {
-        return File(path, "rb").read()
+        return File.read(path)
     }
     var fs=require("fs");
     return fs.readFileSync(path).toString();
@@ -339,16 +450,46 @@ function readfile(path)
 
 function main()
 {
+    var src = null;
+    var fpath = null;
+    var toscript = false;
+    var first = getargv(1);
+    if(first)
+    {
+        if(first[0] == "-")
+        {
+            fpath = getargv(2);
+            if(first == "-n")
+            {
+                toscript = true;
+            }
+        }
+        else
+        {
+            fpath = first;
+        }
+    }
     src = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
     println("fpath=", fpath)
+    if(fpath != null)
+    {
+        src = readfile(fpath)
+    }
     println("src=", src)
-    var code = compile(src, src.length);
+    var code = compilecode(src, src.length, toscript);
     if(!code)
     {
-        println("failed to compile program");
+        println("failed to parse program");
     }
-    printbc(code);
-    run(code);
+    printcode(code, toscript);
+    if(toscript)
+    {
+        println("run btmp.boa!")
+    }
+    else
+    {
+        run(code, toscript);
+    }
 }
 
 main()
