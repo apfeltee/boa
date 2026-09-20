@@ -1597,7 +1597,7 @@ struct BoaFileData
 {
     BoaInstance innerobject;
     char* path;
-    FILE* fdhandle;
+    BoaStream* fdhandle;
 };
 
 struct utf8iterator_t
@@ -5245,9 +5245,7 @@ void boa_stream_destroy(BoaStream* pr)
     {
         if(pr->shouldclose)
         {
-#if 0
             fclose(pr->desthndfile);
-#endif
         }
     }
     if(!pr->fromstack)
@@ -5371,6 +5369,37 @@ BoaString* boa_stream_readstring(BoaStream* pr, BoaState* state, size_t howmuch)
     return res;
 }
 
+BoaString* boa_stream_readuntil(BoaStream* hnd, BoaState* state, bool havesizeparam, size_t howmuch)
+{
+    size_t rsz;
+    size_t length;
+    BoaString* result;
+    if(hnd->wrmode == BOA_IOSTRMODE_FILE)
+    {
+        if(havesizeparam)
+        {
+            length = howmuch;
+        }
+        else
+        {
+            fseek(hnd->desthndfile, 0, SEEK_END);
+            length = ftell(hnd->desthndfile);
+            fseek(hnd->desthndfile, 0, SEEK_SET);
+        }
+        result = boa_string_makeemptystring(state, length, true);
+        result->strbuf.data = (char*)boa_sysmem_malloc((length + 1) * sizeof(char));
+        result->strbuf.data[length] = '\0';
+        result->strbuf.isshort = false;
+        result->strbuf.capacity = length + 1;
+        rsz = fread(result->strbuf.data, sizeof(char), length, hnd->desthndfile);
+        result->strbuf.length = rsz;
+        result->strhash = boa_string_hash(result->strbuf.data, result->strbuf.length);
+        boa_string_register(state, result);
+        return result;
+    }
+    return NULL;
+}
+
 bool boa_stream_putlen(BoaStream* pr, const char* estr, size_t elen)
 {
     size_t chlen;
@@ -5413,6 +5442,22 @@ bool boa_stream_putc(BoaStream* pr, int b)
         boa_stream_flush(pr);
     }
     return true;
+}
+
+int boa_stream_getc(BoaStream* pr)
+{
+    int c;
+    if(pr->wrmode == BOA_IOSTRMODE_STRING)
+    {
+        return -1;
+    }
+    else if(pr->wrmode == BOA_IOSTRMODE_FILE)
+    {
+        c = fgetc(pr->desthndfile);
+        boa_stream_flush(pr);
+        return c;
+    }
+    return -1;
 }
 
 bool boa_stream_putescapedchar(BoaStream* pr, int ch)
@@ -17059,7 +17104,7 @@ void boa_callback_onfilecleanup(BoaState* state, BoaUserdata* data, bool mark)
     filedata = ((BoaFileData*)data->data);
     if(filedata->fdhandle != NULL)
     {
-        fclose(filedata->fdhandle);
+        boa_stream_destroy(filedata->fdhandle);
         filedata->fdhandle = NULL;
     }
 }
@@ -17070,7 +17115,7 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     BoaString* mode;
     const char* strpath;
     const char* strmode;
-    FILE* fhnd;
+    BoaStream* strm;
     BoaFileData* data;
     BoaClass* fileclass;
     (void)argc;
@@ -17078,8 +17123,8 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     mode = boa_value_asstring(args[1]);
     strpath = boa_string_getdata(path);
     strmode = boa_string_getdata(mode);
-    fhnd = fopen(strpath, strmode);
-    if(fhnd == NULL)
+    strm = boa_stream_makeopenfile(strpath, strmode);
+    if(strm == NULL)
     {
         boa_vm_raiseexception(state, state->stdioerror, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
         return boa_value_makenull();
@@ -17091,7 +17136,7 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     }
     data = (BoaFileData*)boa_userdata_insertdata(state, instance, sizeof(BoaFileData), boa_callback_onfilecleanup);
     data->path = (char*)strpath;
-    data->fdhandle = fhnd;
+    data->fdhandle = strm;
     return instance;
 }
 
@@ -17102,7 +17147,7 @@ BoaValue boa_objfnfile_close(BoaState* state, BoaValue instance, size_t argc, Bo
     (void)argc;
     (void)args;
     data = (BoaFileData*)boa_userdata_extractdata(instance);
-    fclose(data->fdhandle);
+    boa_stream_destroy(data->fdhandle);
     data->fdhandle = NULL;
     return boa_value_makenull();
 }
@@ -17151,14 +17196,12 @@ BoaValue boa_objfnfile_staticcreate(BoaState* state, BoaValue instance, size_t a
 BoaValue boa_objfnfile_writevalvalue(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     size_t i;
-    BoaStream pr;
     BoaFileData* lfd;
     (void)state;
     lfd = (BoaFileData*)boa_userdata_extractdata(instance);
-    boa_stream_makestackio(&pr, lfd->fdhandle, false);
     for(i = 0; i < argc; i++)
     {
-        boa_value_printvalue(&pr, args[i], false);
+        boa_value_printvalue(lfd->fdhandle, args[i], false);
     }
     return boa_value_makenull();
 }
@@ -17182,7 +17225,7 @@ BoaValue boa_objfnfile_writevalstring(BoaState* state, BoaValue instance, size_t
         maxlen = boa_value_asnumber(args[1]);
     }
     data = (BoaFileData*)boa_userdata_extractdata(instance);
-    wr = fwrite(boa_string_getdata(string), sizeof(char), maxlen, data->fdhandle);
+    wr = boa_stream_putlen(data->fdhandle, boa_string_getdata(string), maxlen);
     return boa_value_makenumber(wr);
 }
 
@@ -17191,32 +17234,7 @@ BoaValue boa_objfnfile_writevalstring(BoaState* state, BoaValue instance, size_t
  * File reading
  */
 
-BoaString* boa_util_readhandletostring(BoaState* state, FILE* hnd, bool havesizeparam, size_t howmuch)
-{
-    size_t rsz;
-    size_t length;
-    BoaString* result;
-    if(havesizeparam)
-    {
-        length = howmuch;
-    }
-    else
-    {
-        fseek(hnd, 0, SEEK_END);
-        length = ftell(hnd);
-        fseek(hnd, 0, SEEK_SET);
-    }
-    result = boa_string_makeemptystring(state, length, true);
-    result->strbuf.data = (char*)boa_sysmem_malloc((length + 1) * sizeof(char));
-    result->strbuf.data[length] = '\0';
-    result->strbuf.isshort = false;
-    result->strbuf.capacity = length + 1;
-    rsz = fread(result->strbuf.data, sizeof(char), length, hnd);
-    result->strbuf.length = rsz;
-    result->strhash = boa_string_hash(result->strbuf.data, result->strbuf.length);
-    boa_string_register(state, result);
-    return result;
-}
+
 
 BoaValue boa_objfnfile_readallinstance(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -17234,7 +17252,7 @@ BoaValue boa_objfnfile_readallinstance(BoaState* state, BoaValue instance, size_
         havesizeparam = true;
     }
     data = (BoaFileData*)boa_userdata_extractdata(instance);
-    result = boa_util_readhandletostring(state, data->fdhandle, havesizeparam, howmuch);
+    result = boa_stream_readuntil(data->fdhandle, state, havesizeparam, howmuch);
     return boa_value_fromobject(result);
 }
 
@@ -17245,6 +17263,7 @@ BoaValue boa_objfnfile_staticreadall(BoaState* state, BoaValue instance, size_t 
     const char* filename;
     FILE* hnd;
     BoaString* result;
+    BoaStream pr;
     (void)instance;
     (void)argc;
     (void)args;
@@ -17262,8 +17281,9 @@ BoaValue boa_objfnfile_staticreadall(BoaState* state, BoaValue instance, size_t 
         boa_vm_raiseexception(state, state->stdioerror, "cannot open '%s' for reading", filename);
         return boa_value_makenull();
     }
-    result = boa_util_readhandletostring(state, hnd, havesizeparam, howmuch);
-    fclose(hnd);
+    boa_stream_makestackio(&pr, hnd, true);
+    result = boa_stream_readuntil(&pr, state, havesizeparam, howmuch);
+    boa_stream_destroy(&pr);
     return boa_value_fromobject(result);
 }
 
@@ -17291,7 +17311,7 @@ BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc,
     res = boa_string_makeemptystring(state, 64, false);
     while(true)
     {
-        ch = fgetc(data->fdhandle);
+        ch = boa_stream_getc(data->fdhandle);
         if(ch == EOF)
         {
             break;
