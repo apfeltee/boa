@@ -26,18 +26,22 @@
 #if !defined(BOA_INLINE)
     #if defined(__muccdebug__)
         #define BOA_INLINE
+        #define BOA_FORCEINLINE
     #else
         /* gcc defines __STRICT_ANSI__ in C++, because C++ defaults to strict mode */
         #if (defined(__STRICT_ANSI__) && (!defined(__cplusplus))) || defined(__PCC__)
             #define BOA_INLINE
+            #define BOA_FORCEINLINE 
             /* prot.inc would still use the inline keyword */
             #undef inline
             #define inline
         #else
             #if defined(__GNUC__) || defined(__TINYC__)
-                #define BOA_INLINE __attribute__((always_inline)) inline
+                #define BOA_INLINE static inline
+                #define BOA_FORCEINLINE static __attribute__((always_inline)) inline
             #else
-                #define BOA_INLINE inline
+                #define BOA_INLINE static inline
+                #define BOA_FORCEINLINE static inline
             #endif
         #endif
     #endif
@@ -334,6 +338,7 @@ enum BoaObjType
     BOA_OBJTYPE_FIELD,
     BOA_OBJTYPE_REFERENCE,
     BOA_OBJTYPE_EXCEPTION,
+    BOA_OBJTYPE_CALLABLEFUNCTION = (BOA_OBJTYPE_FUNCCLOSURE | BOA_OBJTYPE_FUNCSCRIPT | BOA_OBJTYPE_FUNCNATIVE | BOA_OBJTYPE_FUNCNATMETHOD | BOA_OBJTYPE_FUNCBOUNDMETHOD),
 };
 
 enum BoaValType
@@ -602,13 +607,6 @@ enum BoaStrMode
     BOA_IOSTRMODE_FILE
 };
 
-enum BoaAstTranspileMode
-{
-    BOA_TRANSPILE_DEFAULT,
-    BOA_TRANSPILE_TOCSI
-};
-
-typedef enum BoaAstTranspileMode BoaAstTranspileMode;
 typedef enum BoaStrMode BoaStrMode;
 typedef enum BoaObjType BoaObjType;
 typedef enum BoaFuncType BoaFuncType;
@@ -722,6 +720,11 @@ typedef BoaValue (*BoaOnMapSetFn)(BoaState*, BoaMap*, BoaString*, BoaValue*);
 typedef BoaValue (*BoaOnMapGetFn)(BoaState*, BoaMap*, BoaString*, BoaValue*);
 typedef BoaValue (*BoaNativeFunctionFn)(BoaState*, BoaValue, size_t, BoaValue*);
 
+typedef struct BoaChecker BoaChecker;
+
+typedef bool(*BoaValueIsFN)(BoaValue);
+
+
 struct BoaFSStat
 {
     struct stat rawstbuf;
@@ -796,7 +799,6 @@ typedef void (*BoaAstCallback)(BoaAstPrinter*, BoaDynListExpr*);
 struct BoaAstPrinter
 {
     BoaAstCallback startfunc;
-    BoaAstTranspileMode trmode;
     bool nosigil;
     bool fromcall;
     size_t indentlevel;
@@ -1166,7 +1168,6 @@ struct BoaConfig
 {
     /* should the AST be dumped? */
     bool dumpast;
-    BoaAstTranspileMode transpilemode;
     /* should the interpreter stop after dumping the AST? */
     bool quitafterdump;
     /* should execution be traced? */
@@ -1217,8 +1218,11 @@ struct BoaState
     BoaClass* stdclassarray;
     BoaClass* stdclassmap;
     BoaClass* stdclassrange;
-    BoaException* stdexception;
-    BoaException* stdioerror;
+    struct {
+        BoaException* stdexception;
+        BoaException* stdioerror;
+        BoaException* stdargumenterror;
+    } exceptions;
     BoaModule* lastmodule;
     BoaConstStrings strings;
 };
@@ -1624,6 +1628,14 @@ struct utf8iterator_t
     uint32_t currcount;
 };
 
+struct BoaChecker
+{
+    BoaState* state;
+    const char* name;
+    size_t argc;
+    BoaValue* args;
+};
+
 
 #include "prot.inc"
 
@@ -1633,12 +1645,27 @@ struct utf8iterator_t
     #define BOA_ATTRIB(...)
 #endif
 
-BOA_INLINE size_t boa_string_getlength(BoaString* string);
-BOA_INLINE void boa_string_setlength(BoaString* string, size_t ns);
-BOA_INLINE char* boa_string_getdata(BoaString* string);
-BOA_INLINE char boa_string_getat(BoaString* string, size_t pos);
-bool boa_vm_raisefatalerror(BoaState *state, const char *format, ...) BOA_ATTRIB((format(printf, 2, 3)));
-bool boa_vm_raiseexception(BoaState *state, BoaException *exclass, const char *format, ...);
+#define BOA_CHECK_INIT(statevar, chk, namestr, argcvar, argsvar) \
+    (chk)->state = statevar; \
+    (chk)->name = namestr; \
+    (chk)->argc = argcvar; \
+    (chk)->args = argsvar;
+
+#define BOA_CHECK_REQUIREARGS(chk, cnt) \
+    if(BOA_UNLIKELY((chk)->argc < cnt)) \
+    { \
+        return boa_vm_raiseexception((chk)->state, (chk)->state->exceptions.stdargumenterror, "function %s expected %d arguments, got %d instead", (chk)->name, cnt, (chk)->argc); \
+    }
+
+#define BOA_CHECK_CHECKARGTYPE(chk, idx, asfn) \
+    if(BOA_LIKELY(((chk)->argc != 0) && ((int)((chk)->argc) >= ((int)(idx))))) \
+    { \
+        if(BOA_UNLIKELY(!asfn((chk)->args[idx]))) \
+        { \
+            return boa_vm_raiseexception((chk)->state, (chk)->state->exceptions.stdargumenterror, "function %s expected argument #%d to be a %s, but got %s instead", (chk)->name, idx, boa_value_typenamefromfn(asfn), boa_value_valtypename((chk)->args[idx])); \
+        } \
+    }
+
 
 jmp_buf g_vmglobaljumpbuf = {};
 
@@ -3144,21 +3171,6 @@ void boa_strbuf_trimrightinplace(BoaStrBuffer* sb, const char* list)
     data[sb->length] = '\0';
 }
 
-bool boa_util_strtotrmode(const char* str, BoaAstTranspileMode* dest)
-{
-    if(strcmp(str, "default") == 0)
-    {
-        *dest = BOA_TRANSPILE_DEFAULT;
-        return true;
-    }
-    else if(strcmp(str, "csi") == 0)
-    {
-        *dest = BOA_TRANSPILE_TOCSI;
-        return true;
-    }
-    return false;
-}
-
 size_t boa_util_grownextcapacity(size_t capacity)
 {
     if(capacity < 8)
@@ -3899,12 +3911,12 @@ bool boa_util_fsfileexists(const char* filepath)
 
 /* endutils */
 
-BOA_INLINE BoaObject* boa_value_asobject(BoaValue v)
+BOA_FORCEINLINE BoaObject* boa_value_asobject(BoaValue v)
 {
     return (v.as.obj);
 }
 
-BOA_INLINE BoaObjType boa_value_objtype(BoaValue value)
+BOA_FORCEINLINE BoaObjType boa_value_objtype(BoaValue value)
 {
     return boa_value_asobject(value)->type;
 }
@@ -4019,113 +4031,112 @@ BOA_INLINE bool boa_value_iscallablefunction(BoaValue value)
     return false;
 }
 
-
-BOA_INLINE BoaNumber boa_value_asnumber(BoaValue value)
+BOA_FORCEINLINE BoaNumber boa_value_asnumber(BoaValue value)
 {
     return value.as.numval;
 }
 
-BOA_INLINE bool boa_value_asbool(BoaValue v)
+BOA_FORCEINLINE bool boa_value_asbool(BoaValue v)
 {
     return (v.as.boolval);
 }
 
-BOA_INLINE BoaString* boa_value_asstring(BoaValue value)
+BOA_FORCEINLINE BoaString* boa_value_asstring(BoaValue value)
 {
     return ((BoaString*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFuncScript* boa_value_asfuncscript(BoaValue value)
+BOA_FORCEINLINE BoaFuncScript* boa_value_asfuncscript(BoaValue value)
 {
     return ((BoaFuncScript*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFuncNative* boa_value_asfuncnative(BoaValue value)
+BOA_FORCEINLINE BoaFuncNative* boa_value_asfuncnative(BoaValue value)
 {
     return ((BoaFuncNative*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFuncNative* boa_value_asfuncmethod(BoaValue value)
+BOA_FORCEINLINE BoaFuncNative* boa_value_asfuncmethod(BoaValue value)
 {
     return ((BoaFuncNative*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaModule* boa_value_asmodule(BoaValue value)
+BOA_FORCEINLINE BoaModule* boa_value_asmodule(BoaValue value)
 {
     return ((BoaModule*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFuncClosure* boa_value_asfuncclosure(BoaValue value)
+BOA_FORCEINLINE BoaFuncClosure* boa_value_asfuncclosure(BoaValue value)
 {
     return ((BoaFuncClosure*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaClsPrototype* boa_value_asclsproto(BoaValue value)
+BOA_FORCEINLINE BoaClsPrototype* boa_value_asclsproto(BoaValue value)
 {
     return ((BoaClsPrototype*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaUpvalue* boa_value_asupvalue(BoaValue value)
+BOA_FORCEINLINE BoaUpvalue* boa_value_asupvalue(BoaValue value)
 {
     return ((BoaUpvalue*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaClass* boa_value_asclass(BoaValue value)
+BOA_FORCEINLINE BoaClass* boa_value_asclass(BoaValue value)
 {
     return ((BoaClass*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaInstance* boa_value_asinstance(BoaValue value)
+BOA_FORCEINLINE BoaInstance* boa_value_asinstance(BoaValue value)
 {
     return ((BoaInstance*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaArray* boa_value_asarray(BoaValue value)
+BOA_FORCEINLINE BoaArray* boa_value_asarray(BoaValue value)
 {
     return ((BoaArray*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaMap* boa_value_asmap(BoaValue value)
+BOA_FORCEINLINE BoaMap* boa_value_asmap(BoaValue value)
 {
     return ((BoaMap*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFuncBound* boa_value_asfuncboundmethod(BoaValue value)
+BOA_FORCEINLINE BoaFuncBound* boa_value_asfuncboundmethod(BoaValue value)
 {
     return ((BoaFuncBound*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaUserdata* boa_value_asuserdata(BoaValue value)
+BOA_FORCEINLINE BoaUserdata* boa_value_asuserdata(BoaValue value)
 {
     return ((BoaUserdata*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaRange* boa_value_asrange(BoaValue value)
+BOA_FORCEINLINE BoaRange* boa_value_asrange(BoaValue value)
 {
     return ((BoaRange*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaField* boa_value_asfield(BoaValue value)
+BOA_FORCEINLINE BoaField* boa_value_asfield(BoaValue value)
 {
     return ((BoaField*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaFiber* boa_value_asfiber(BoaValue value)
+BOA_FORCEINLINE BoaFiber* boa_value_asfiber(BoaValue value)
 {
     return ((BoaFiber*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaReference* boa_value_asreference(BoaValue value)
+BOA_FORCEINLINE BoaReference* boa_value_asreference(BoaValue value)
 {
     return ((BoaReference*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaException* boa_value_asexception(BoaValue value)
+BOA_FORCEINLINE BoaException* boa_value_asexception(BoaValue value)
 {
     return ((BoaException*)boa_value_asobject(value));
 }
 
-BOA_INLINE BoaValue boa_value_makenull()
+BOA_FORCEINLINE BoaValue boa_value_makenull()
 {
     BoaValue rt;
     rt.type = BOA_VALTYPE_NULL;
@@ -4133,7 +4144,7 @@ BOA_INLINE BoaValue boa_value_makenull()
     return rt;
 }
 
-BOA_INLINE BoaValue boa_value_makebool(bool b)
+BOA_FORCEINLINE BoaValue boa_value_makebool(bool b)
 {
     BoaValue rt;
     rt.type = BOA_VALTYPE_BOOL;
@@ -4141,7 +4152,7 @@ BOA_INLINE BoaValue boa_value_makebool(bool b)
     return rt;
 }
 
-BOA_INLINE BoaValue boa_value_makenumber(BoaNumber num)
+BOA_FORCEINLINE BoaValue boa_value_makenumber(BoaNumber num)
 {
     BoaValue rt;
     rt.type = BOA_VALTYPE_NUMBER;
@@ -4151,7 +4162,7 @@ BOA_INLINE BoaValue boa_value_makenumber(BoaNumber num)
 
 #define boa_value_fromobject(obj) boa_value_fromobject_actual((BoaObject*)(obj))
 
-BOA_INLINE BoaValue boa_value_fromobject_actual(BoaObject* obj)
+BOA_FORCEINLINE BoaValue boa_value_fromobject_actual(BoaObject* obj)
 {
     BoaValue rt;
     rt.type = BOA_VALTYPE_OBJECT;
@@ -4188,7 +4199,7 @@ BOA_INLINE bool boa_value_isfalsy(BoaValue value)
     return false;
 }
 
-BOA_INLINE bool boa_value_compare(BoaState* state, BoaValue a, BoaValue b)
+BOA_FORCEINLINE bool boa_value_compare(BoaState* state, BoaValue a, BoaValue b)
 {
     BoaValue tmpargs[2];
     BoaString* as;
@@ -4305,6 +4316,47 @@ const char* boa_value_valtypename(BoaValue val)
         return boa_value_objtypename(boa_value_asobject(val)->type);
     }
     return boa_value_valtypefromtype(val.type);
+}
+
+
+const char* boa_value_typenamefromfn(BoaValueIsFN fn)
+{
+    #define iftypefn(name, vtyp, callthat) \
+        { \
+            static const BoaValueIsFN cache[] = {&name}; \
+            if((fn) == cache[0]) \
+            { \
+                return callthat(vtyp); \
+            } \
+        }
+    #define iftypefnval(name, vtyp) iftypefn(name, vtyp, boa_value_valtypefromtype)
+    #define iftypefnobj(name, vtyp) iftypefn(name, vtyp, boa_value_objtypename)
+
+        iftypefnval(boa_value_isfalsy, BOA_VALTYPE_BOOL);
+        iftypefnval(boa_value_isbool, BOA_VALTYPE_BOOL);
+        iftypefnval(boa_value_isnull, BOA_VALTYPE_NULL);
+        iftypefnval(boa_value_isnumber, BOA_VALTYPE_NUMBER);
+        iftypefnval(boa_value_isobject, BOA_VALTYPE_OBJECT);
+        iftypefnobj(boa_value_ismap, BOA_OBJTYPE_MAP);
+        iftypefnobj(boa_value_isstring, BOA_OBJTYPE_STRING);
+        iftypefnobj(boa_value_isfuncscript, BOA_OBJTYPE_FUNCSCRIPT);
+        iftypefnobj(boa_value_isfuncmethod, BOA_OBJTYPE_FUNCNATMETHOD);
+        iftypefnobj(boa_value_ismodule, BOA_OBJTYPE_MODULE);
+        iftypefnobj(boa_value_isclass, BOA_OBJTYPE_CLASS);
+        iftypefnobj(boa_value_isinstance, BOA_OBJTYPE_INSTANCE);
+        iftypefnobj(boa_value_isvargarray, BOA_OBJTYPE_VARARGARRAY);
+        iftypefnobj(boa_value_isarray, BOA_OBJTYPE_ARRAY);
+        iftypefnobj(boa_value_isrange, BOA_OBJTYPE_RANGE);
+        iftypefnobj(boa_value_isfield, BOA_OBJTYPE_FIELD);
+        iftypefnobj(boa_value_isreference, BOA_OBJTYPE_REFERENCE);
+        iftypefnobj(boa_value_isexception, BOA_OBJTYPE_EXCEPTION);
+        iftypefnobj(boa_value_iscallablefunction, BOA_OBJTYPE_CALLABLEFUNCTION);
+
+
+    #undef iftypefn
+    #undef iftypefnval
+    #undef iftypefnobj
+    return "unknown";
 }
 
 void boa_dynlistval_init(BoaDynListVal* list)
@@ -5111,7 +5163,7 @@ void boa_chunk_shrink(BoaChunk* chunk)
     }
 }
 
-BOA_INLINE uint32_t boa_string_hash(const char* key, size_t length)
+BOA_FORCEINLINE uint32_t boa_string_hash(const char* key, size_t length)
 {
     size_t i;
     uint32_t hash;
@@ -5874,8 +5926,9 @@ void boa_gcmem_markroots(BoaState* state)
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassarray);
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassmap);
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassrange);
-    boa_gcmem_markobject(state, (BoaObject*)state->stdexception);
-    boa_gcmem_markobject(state, (BoaObject*)state->stdioerror);
+    boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdexception);
+    boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdioerror);
+    boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdargumenterror);
     boa_gcmem_markobject(state, (BoaObject*)state->apiname);
     boa_gcmem_markobject(state, (BoaObject*)state->apifunction);
     boa_table_markentries(&state->vmstate.modules->innertable);
@@ -6293,27 +6346,27 @@ BoaString* boa_string_maketemp(BoaState* state, BoaString* stacktarget, const ch
     return boa_string_maketemplen(state, stacktarget, chars, strlen(chars));
 }
 
-BOA_INLINE size_t boa_string_getlength(BoaString* string)
+BOA_FORCEINLINE size_t boa_string_getlength(BoaString* string)
 {
     return string->strbuf.length;
 }
 
-BOA_INLINE void boa_string_setlength(BoaString* string, size_t ns)
+BOA_FORCEINLINE void boa_string_setlength(BoaString* string, size_t ns)
 {
     string->strbuf.length = ns;
 }
 
-BOA_INLINE char* boa_string_getdata(BoaString* string)
+BOA_FORCEINLINE char* boa_string_getdata(BoaString* string)
 {
     return string->strbuf.data;
 }
 
-BOA_INLINE BoaStrBuffer* boa_string_getstrbuf(BoaString* string)
+BOA_FORCEINLINE BoaStrBuffer* boa_string_getstrbuf(BoaString* string)
 {
     return &string->strbuf;
 }
 
-BOA_INLINE char boa_string_getat(BoaString* string, size_t pos)
+BOA_FORCEINLINE char boa_string_getat(BoaString* string, size_t pos)
 {
     return string->strbuf.data[pos];
 }
@@ -10154,13 +10207,12 @@ const char* boa_astprint_tokopstring(int t)
     return "<unknown>";
 }
 
-void boa_astprint_init(BoaState* state, BoaAstPrinter* apr, BoaStream* printer, BoaAstTranspileMode trmode, BoaAstCallback startfn)
+void boa_astprint_init(BoaState* state, BoaAstPrinter* apr, BoaStream* printer, BoaAstCallback startfn)
 {
     apr->startfunc = startfn;
     apr->pstate = state;
     apr->printer = printer;
     apr->indentlevel = 0;
-    apr->trmode = trmode;
     apr->nosigil = false;
     apr->fromcall = false;
 }
@@ -10214,29 +10266,6 @@ void boa_astprintdefault_printfuncparams(BoaAstPrinter* apr, BoaDynListParam* pa
     BoaStream* pr;
     BoaAstFuncParamExpr* param;
     pr = apr->printer;
-    if(apr->trmode == BOA_TRANSPILE_TOCSI)
-    {
-        if(params->listcount > 0)
-        {
-            boa_stream_puts(pr, "(");
-            for(i=0; i<params->listcount; i++)
-            {
-                param = &params->listitems[i];
-                boa_stream_putlen(pr, param->name, param->length);
-                if(param->defaultval != NULL)
-                {
-                    boa_stream_puts(pr, "=");
-                    boa_astprintdefault_printexpression(apr, param->defaultval);
-                }
-                if((i+1) < params->listcount)
-                {
-                    boa_stream_puts(pr, " ");
-                }
-            }
-            boa_stream_puts(pr, ")");
-        }
-    }
-    else
     {
         boa_stream_puts(pr, "(");
         for(i=0; i<params->listcount; i++)
@@ -10278,17 +10307,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 BoaAstBinaryExpr* oex;
                 oex = (BoaAstBinaryExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "(");
-                    boa_stream_puts(pr, boa_astprint_tokopstring(oex->op));
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->left);
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->right);
-                    boa_stream_puts(pr, ")");                    
-                }
-                else
                 {
                     boa_stream_puts(pr, "(");
                     boa_astprintdefault_printexpression(apr, oex->left);
@@ -10304,15 +10322,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 BoaAstUnaryExpr* oex;
                 oex = (BoaAstUnaryExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "(");
-                    boa_stream_puts(pr, boa_astprint_tokopstring(oex->op));
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->right);
-                    boa_stream_puts(pr, ")");
-                }
-                else
                 {
                     boa_stream_puts(pr, "(");
                     boa_stream_puts(pr, boa_astprint_tokopstring(oex->op));
@@ -10325,15 +10334,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 BoaAstVarGetExpr* oex;
                 oex = (BoaAstVarGetExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    if(!apr->nosigil)
-                    {
-                        boa_stream_putc(pr, '$');
-                    }
-                    boa_stream_printf(pr, "%.*s", (int)oex->length, oex->name);
-                }
-                else
                 {
                     boa_stream_putlen(pr, oex->name, oex->length);
                 }
@@ -10362,32 +10362,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 {
                     boa_astprint_indentprint(apr);
                 }
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    if(!apr->fromcall)
-                    {
-                        boa_stream_puts(pr, "(");
-                    }
-                    apr->fromcall = true;
-                    boa_astprintdefault_printexpression(apr, oex->excallee);
-                    apr->fromcall = false;
-                    boa_stream_puts(pr, " ");
-                    for(i=0; i<count; i++)
-                    {
-                        apr->fromcall = true;
-                        boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->callargs.listitems[i]);
-                        apr->fromcall = false;
-                        if((i+1) != count)
-                        {
-                            boa_stream_puts(pr, " ");
-                        }
-                    }
-                    if(!apr->fromcall)
-                    {
-                        boa_stream_puts(pr, ")");
-                    }
-                }
-                else
                 {
                     apr->fromcall = true;
                     boa_astprintdefault_printexpression(apr, oex->excallee);
@@ -10458,16 +10432,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 BoaAstSubscriptExpr* oex;
                 oex = (BoaAstSubscriptExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "(atindex ");
-                    boa_astprintdefault_printexpression(apr, oex->array);
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->index);
-                    boa_stream_puts(pr, ")");
-
-                }
-                else
                 {
                     boa_astprintdefault_printexpression(apr, oex->array);
                     boa_stream_puts(pr, "[");
@@ -10481,10 +10445,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstFunctionExpr* oex;
                 oex = (BoaAstFunctionExpr*)expr;
                 boa_astprint_warn(apr, "anonymous functions are NOT supported in csi");
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                }
-                else
                 {
                     boa_stream_puts(pr, "function");
                 }
@@ -10499,20 +10459,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstLiteralArrayExpr* oex;
                 oex = (BoaAstLiteralArrayExpr*)expr;
                 count = oex->exvalues.listcount;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "(array ");
-                    for(i=0; i<count; i++)
-                    {
-                        boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->exvalues.listitems[i]);
-                        if((i+1) < count)
-                        {
-                            boa_stream_puts(pr, " ");
-                        }
-                    }
-                    boa_stream_puts(pr, ")");
-                }
-                else
                 {
                     boa_stream_puts(pr, "[");
                     for(i=0; i<count; i++)
@@ -10635,16 +10581,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 BoaAstBlockExpr* oex;
                 oex = (BoaAstBlockExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "[\n");
-                    boa_astprint_indentpush(apr);
-                    boa_astprintdefault_printexprlist(apr, &oex->statements);
-                    boa_astprint_indentpop(apr);
-                    boa_astprint_indentprint(apr);
-                    boa_stream_puts(pr, "]\n");
-                }
-                else
                 {
                     boa_astprint_indentprint(apr);
                     boa_stream_puts(pr, "{\n");
@@ -10662,34 +10598,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 size_t count;
                 BoaAstIfExpr* oex;
                 oex = (BoaAstIfExpr*)expr;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_astprint_indentprint(apr);
-                    boa_stream_puts(pr, "if ");
-                    boa_astprintdefault_printexpression(apr, oex->condition);
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->branchif);
-                    if(oex->elseifcondlist != NULL)
-                    {
-                        count = oex->elseifcondlist->listcount;
-                        for(i=0; i<count; i++)
-                        {
-                            boa_astprint_indentprint(apr);
-                            boa_stream_puts(pr, "[ if ");
-                            boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->elseifcondlist->listitems[i]);
-                            boa_stream_puts(pr, " ");
-                            boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->branchelseiflist->listitems[i]);
-                            boa_stream_puts(pr, "] ");
-                        }
-                    }
-                    if(oex->branchelse != NULL)
-                    {
-                        boa_stream_puts(pr, " ");
-                        boa_astprintdefault_printexpression(apr, oex->branchelse);
-                    }
-                    boa_stream_puts(pr, "\n");
-                }
-                else
                 {
                     boa_astprint_indentprint(apr);
                     boa_stream_puts(pr, "if(");
@@ -10756,14 +10664,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstWhileExpr* oex;
                 oex = (BoaAstWhileExpr*)expr;
                 boa_astprint_indentprint(apr);
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_puts(pr, "while ");
-                    boa_astprintdefault_printexpression(apr, oex->condition);
-                    boa_stream_puts(pr, " ");
-                    boa_astprintdefault_printexpression(apr, oex->body);
-                }
-                else
                 {
                     boa_stream_puts(pr, "while(");
                     boa_astprintdefault_printexpression(apr, oex->condition);
@@ -10829,17 +10729,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstVarDeclExpr* oex;
                 oex = (BoaAstVarDeclExpr*)expr;
                 boa_astprint_indentprint(apr);
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_stream_putlen(pr, oex->name, oex->length);
-                    if(oex->init != NULL)
-                    {
-                        boa_stream_puts(pr, " = ");
-                        boa_astprintdefault_printexpression(apr, oex->init);
-                    }
-                    boa_stream_puts(pr, "\n");
-                }
-                else
                 {
                     if(oex->isconstant)
                     {
@@ -10882,17 +10771,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstFunctionExpr* oex;
                 oex = (BoaAstFunctionExpr*)expr;
                 boa_astprint_indentprint(apr);
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    if(oex->name != NULL)
-                    {
-                        boa_stream_putlen(pr, oex->name, oex->length);
-                        boa_stream_puts(pr, " = ");
-                    }
-                    boa_astprintdefault_printfuncparams(apr, &oex->parameters);
-                    boa_astprintdefault_printexpression(apr, oex->body);
-                }
-                else
                 {
                     if(oex->exported)
                     {
@@ -10928,11 +10806,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             {
                 bool notoper;
                 BoaAstMethodExpr* oex;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_astprint_warn(apr, "class methods NOT supported in csi mode");
-                }
-                else
                 {
                     oex = (BoaAstMethodExpr*)expr;
                     notoper = boa_util_charisalpha(boa_string_getat(oex->name, 0));
@@ -10953,11 +10826,6 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 size_t i;
                 size_t count;
                 BoaAstClassExpr* oex;
-                if(apr->trmode == BOA_TRANSPILE_TOCSI)
-                {
-                    boa_astprint_warn(apr, "classes are NOT supported in csi mode");
-                }
-                else
                 {
                     oex = (BoaAstClassExpr*)expr;
                     count = oex->staticfields.listcount;
@@ -11023,7 +10891,7 @@ void boa_astprintdefault_printbeginlist(BoaState* state, FILE* ofh, BoaDynListEx
     {
        printtrailing = false;
     }
-    boa_astprint_init(state, &apr, boa_stream_makeio(ofh, false), state->config.transpilemode, startfn);
+    boa_astprint_init(state, &apr, boa_stream_makeio(ofh, false), startfn);
     if(printtrailing)
     {
         boa_stream_puts(apr.printer, "<<<astdump begin>>>\n");
@@ -13879,8 +13747,7 @@ BoaValue boa_objfndefault_invalidconstructor(BoaState* state, BoaValue instance,
     {
         cname = boa_string_getdata(name);
     }
-    boa_vm_raiseexception(state, state->stdexception, "class %s has no constructor", cname);
-    return boa_value_makenull();
+    return boa_vm_raiseexception(state, state->exceptions.stdexception, "class %s has no constructor", cname);
 }
 
 /*
@@ -13998,16 +13865,14 @@ BoaValue boa_objfnclass_subscript(BoaState* state, BoaValue instance, size_t arg
     {
         if(!boa_value_isstring(args[0]))
         {
-            boa_vm_raiseexception(state, state->stdexception, "class index must be a string");
-            return boa_value_makenull();
+            return boa_vm_raiseexception(state, state->exceptions.stdexception, "class index must be a string");
         }
         boa_table_set(&klass->staticstable, boa_value_asstring(args[0]), args[1]);
         return args[1];
     }
     if(!boa_value_isstring(args[0]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "class index must be a string");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "class index must be a string");
     }
     if(boa_table_getentry(&klass->staticstable, boa_value_asstring(args[0]), &value))
     {
@@ -14057,12 +13922,10 @@ BoaValue boa_objfnobject_keys(BoaState* state, BoaValue thisval, size_t argc, Bo
     BoaArray* arr;
     BoaMap* map;
     BoaInstance* oinst;
-
     (void)thisval;
     if(argc == 0)
     {
-        boa_vm_raiseexception(state, state->stdexception, "keys() requires an argument");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "keys() requires an argument");
     }
     val = args[0];
     arr = boa_array_make(state);
@@ -14136,14 +13999,12 @@ BoaValue boa_objfnobject_subscript(BoaState* state, BoaValue instance, size_t ar
     BoaValue value;
     if(!boa_value_isinstance(instance))
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot modify built-in type '%s'", boa_value_valtypename(instance));
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot modify built-in type '%s'", boa_value_valtypename(instance));
     }
     inst = boa_value_asinstance(instance);
     if(!boa_value_isstring(args[0]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "object index must be a string, but got %s instead", boa_value_valtypename(args[0]));
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "object index must be a string, but got %s instead", boa_value_valtypename(args[0]));
     }
     tgname = boa_value_asstring(args[0]);
     if(argc == 2)
@@ -14175,8 +14036,7 @@ BoaValue boa_objfnobject_iterator(BoaState* state, BoaValue instance, size_t arg
     (void)argc;
     if(!boa_value_isinstance(instance))
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot iterate non-instance type %s", boa_value_valtypename(args[0]));
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot iterate non-instance type %s", boa_value_valtypename(args[0]));
     }
     self = boa_value_asinstance(instance);
     index = -1;
@@ -14234,12 +14094,12 @@ BoaValue boa_objfnnumber_constructor_actual(BoaState* state, BoaValue instance, 
             }
             else
             {
-                boa_vm_raiseexception(state, state->stdexception, "Number() failed to parse '%s': %s", cstr, tok.start);
+                return boa_vm_raiseexception(state, state->exceptions.stdexception, "Number() failed to parse '%s': %s", cstr, tok.start);
             }
         }
         else
         {
-            boa_vm_raiseexception(state, state->stdexception, "Number() expects either a number or a string");
+            return boa_vm_raiseexception(state, state->exceptions.stdexception, "Number() expects either a number or a string");
         }
     }
     return boa_value_makenumber(0);
@@ -14647,8 +14507,7 @@ BoaValue boa_objfnstring_replace(BoaState* state, BoaValue instance, size_t argc
     (void)argc;
     if(!boa_value_isstring(args[0]) || !boa_value_isstring(args[1]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected 2 string arguments");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "expected 2 string arguments");
     }
     selfstr = boa_value_asstring(instance);
     what = boa_value_asstring(args[0]);
@@ -14674,8 +14533,7 @@ BoaValue boa_objfnstring_splice(BoaState* state, BoaString* string, int64_t from
     to = fmin(to, length - 1);
     if(from > to)
     {
-        boa_vm_raiseexception(state, state->stdexception, "String.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "String.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
     }
     from = boa_util_stringutfucharoffset(boa_string_getdata(string), from);
     to = boa_util_stringutfucharoffset(boa_string_getdata(string), to);
@@ -14783,8 +14641,7 @@ BoaValue boa_objfnstring_charcodeat(BoaState* state, BoaValue thisval, size_t ar
     index = boa_value_asnumber(args[0]);
     if(argc != 1)
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot modify strings with the subscript op");
     }
     if(index < 0)
     {
@@ -14812,8 +14669,7 @@ BoaValue boa_objfnstring_charat(BoaState* state, BoaValue thisval, size_t argc, 
     index = boa_value_asnumber(args[0]);
     if(argc != 1)
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot modify strings with the subscript op");
     }
     if(index < 0)
     {
@@ -14845,8 +14701,7 @@ BoaValue boa_objfnstring_subscript(BoaState* state, BoaValue thisval, size_t arg
     index = boa_value_asnumber(args[0]);
     if(argc != 1)
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot modify strings with the subscript op");
-        return boa_value_makenull();
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot modify strings with the subscript op");
     }
     if(index < 0)
     {
@@ -15056,7 +14911,7 @@ BoaValue boa_objfnfiber_constructor(BoaState* state, BoaValue instance, size_t a
     (void)instance;
     if((argc == 0) || (!boa_value_iscallablefunction(args[0])))
     {
-        boa_vm_raiseexception(state, state->stdexception, "Fiber constructor expects a function as its argument");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "Fiber constructor expects a function as its argument");
         return boa_value_makenull();
     }
     arg = args[0];
@@ -15288,7 +15143,7 @@ BoaValue boa_objfnarray_splice(BoaState* state, BoaArray* array, int64_t from, i
     #if 0
     if(from > to)
     {
-        boa_vm_raiseexception(state, state->stdexception, "Array.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "Array.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
         return boa_value_makenull();
     }
     #endif
@@ -15328,14 +15183,14 @@ BoaValue boa_objfnarray_subscript(BoaState* state, BoaValue instance, size_t arg
     BoaArray* arr;
     if(!boa_value_isarray(instance))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected array, got a %s instead", boa_value_valtypename(args[0]));
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected array, got a %s instead", boa_value_valtypename(args[0]));
         return boa_value_makenull();
     }
     if(argc == 2)
     {
         if(!boa_value_isnumber(args[0]))
         {
-            boa_vm_raiseexception(state, state->stdexception, "array index must be a number, got a %s instead", boa_value_valtypename(args[0]));
+            boa_vm_raiseexception(state, state->exceptions.stdexception, "array index must be a number, got a %s instead", boa_value_valtypename(args[0]));
             return boa_value_makenull();
         }
         arr = boa_value_asarray(instance);
@@ -15354,7 +15209,7 @@ BoaValue boa_objfnarray_subscript(BoaState* state, BoaValue instance, size_t arg
             range = boa_value_asrange(args[0]);
             return boa_objfnarray_splice(state, boa_value_asarray(instance), (int)range->from, (int)range->to);
         }
-        boa_vm_raiseexception(state, state->stdexception, "array index must be a number, got a %s instead", boa_value_valtypename(args[0]));
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "array index must be a number, got a %s instead", boa_value_valtypename(args[0]));
         return boa_value_makenull();
     }
     arr = boa_value_asarray(instance);
@@ -15423,7 +15278,7 @@ BoaValue boa_objfnarray_addall(BoaState* state, BoaValue instance, size_t argc, 
     (void)argc;
     if(!boa_value_isarray(args[0]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected array as the argument");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected array as the argument");
         return boa_value_makenull();
     }
     array = boa_value_asarray(instance);
@@ -15593,7 +15448,7 @@ BoaValue boa_objfnarray_foreach(BoaState* state, BoaValue instance, size_t argc,
     callback = args[0];
     if(!boa_value_iscallablefunction(callback))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected a function as the callback");
         return boa_value_makenull();
     }
     list = &boa_value_asarray(instance)->innerlist;
@@ -15617,7 +15472,7 @@ BoaValue boa_objfnarray_map(BoaState* state, BoaValue instance, size_t argc, Boa
     callback = args[0];
     if(!boa_value_iscallablefunction(callback))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected a function as the callback");
         return boa_value_makenull();
     }
     selfarr = boa_value_asarray(instance);
@@ -15857,7 +15712,7 @@ BoaValue boa_objfnmap_subscript(BoaState* state, BoaValue instance, size_t argc,
     BoaString* index;
     if(!boa_value_isstring(args[0]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "map index must be a string");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "map index must be a string");
         return boa_value_makenull();
     }
     map = boa_value_asmap(instance);
@@ -15880,7 +15735,7 @@ BoaValue boa_objfnmap_addall(BoaState* state, BoaValue instance, size_t argc, Bo
     (void)argc;
     if(!boa_value_ismap(args[0]))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected map as the argument");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected map as the argument");
         return boa_value_makenull();
     }
     boa_map_addall(boa_value_asmap(args[0]), boa_value_asmap(instance));
@@ -15929,7 +15784,7 @@ BoaValue boa_objfnmap_foreach(BoaState* state, BoaValue instance, size_t argc, B
     callback = args[0];
     if(!boa_value_iscallablefunction(callback))
     {
-        boa_vm_raiseexception(state, state->stdexception, "expected a function as the callback");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "expected a function as the callback");
         return boa_value_makenull();
     }
     tab = &boa_value_asmap(instance)->innertable;
@@ -16351,7 +16206,7 @@ BoaValue boa_cfn_openlibrary(BoaState* state, BoaValue instance, size_t argc, Bo
     else
     */
     {
-        boa_vm_raiseexception(state, state->stdexception, "unknown built-in library %s", boa_string_getdata(name));
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "unknown built-in library %s", boa_string_getdata(name));
     }
     return boa_value_makenull();
 }
@@ -16596,11 +16451,15 @@ void boa_state_opencorelibrary(BoaState* state)
             klass = boa_class_make(state, "Exception", state->stdobjectclass);
             boa_class_bindconstructor(klass, boa_objfnexception_constructor);
             boa_class_bindgetsetter(klass, "message", boa_objfnexception_messageget, NULL);
-            state->stdexception = boa_object_makeexception(state, klass);
+            state->exceptions.stdexception = boa_object_makeexception(state, klass);
         }
         {
-            klass = boa_class_make(state, "IOError", state->stdexception->baseclass);
-            state->stdioerror = boa_object_makeexception(state, klass);
+            klass = boa_class_make(state, "IOError", state->exceptions.stdexception->baseclass);
+            state->exceptions.stdioerror = boa_object_makeexception(state, klass);
+        }
+        {
+            klass = boa_class_make(state, "ArgumentError", state->exceptions.stdexception->baseclass);
+            state->exceptions.stdargumenterror = boa_object_makeexception(state, klass);            
         }
     }
     boa_state_defnative(state, "srand", boa_cfn_srand);
@@ -17093,7 +16952,7 @@ BoaModule* boa_bcemu_initloadmodule(BoaState* state, const char* input)
     return first;
 }
 
-void boa_callback_onfilecleanup(BoaState* state, BoaUserdata* data, bool mark)
+void boa_classcallbackfile_oncleanup(BoaState* state, BoaUserdata* data, bool mark)
 {
     BoaFileData* filedata;
     (void)state;
@@ -17109,6 +16968,24 @@ void boa_callback_onfilecleanup(BoaState* state, BoaUserdata* data, bool mark)
     }
 }
 
+bool boa_util_openmodeisvalid(const char* mode, size_t len)
+{
+    char first;
+    if(len > 0)
+    {
+        first = mode[0];
+        if(first == 'r' || first == 'w' || first == 'a')
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+ 
+
+
 BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaString* path;
@@ -17118,15 +16995,28 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
     BoaStream* strm;
     BoaFileData* data;
     BoaClass* fileclass;
+    BoaChecker check;
     (void)argc;
+    BOA_CHECK_INIT(state, &check, "File::constructor", argc, args);
+    BOA_CHECK_REQUIREARGS(&check, 2);
+    if(argc < 2)
+    {
+        return boa_vm_raiseexception(state, state->exceptions.stdargumenterror, "expected two arguments [path, mode]");
+    }
+    BOA_CHECK_CHECKARGTYPE(&check, 0, boa_value_isstring);
     path = boa_value_asstring(args[0]);
+    BOA_CHECK_CHECKARGTYPE(&check, 1, boa_value_isstring);
     mode = boa_value_asstring(args[1]);
     strpath = boa_string_getdata(path);
     strmode = boa_string_getdata(mode);
+    if(!boa_util_openmodeisvalid(strmode, boa_string_getlength(mode)))
+    {
+        return boa_vm_raiseexception(state, state->exceptions.stdargumenterror, "invalid open mode '%s'", strmode);
+    }
     strm = boa_stream_makeopenfile(strpath, strmode);
     if(strm == NULL)
     {
-        boa_vm_raiseexception(state, state->stdioerror, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "failed to open file %s with mode %s (C error: %s)", strpath, strmode, strerror(errno));
         return boa_value_makenull();
     }
     if(!boa_value_isinstance(instance))
@@ -17134,7 +17024,7 @@ BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t ar
         fileclass = boa_value_asclass(instance);
         instance = boa_value_fromobject(boa_object_makeinstance(state, fileclass));
     }
-    data = (BoaFileData*)boa_userdata_insertdata(state, instance, sizeof(BoaFileData), boa_callback_onfilecleanup);
+    data = (BoaFileData*)boa_userdata_insertdata(state, instance, sizeof(BoaFileData), boa_classcallbackfile_oncleanup);
     data->path = (char*)strpath;
     data->fdhandle = strm;
     return instance;
@@ -17181,7 +17071,7 @@ BoaValue boa_objfnfile_staticcreate(BoaState* state, BoaValue instance, size_t a
     fhnd = fopen(strpath, "w");
     if(fhnd == NULL)
     {
-        boa_vm_raiseexception(state, state->stdioerror, "failed to create file %s", strpath);
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "failed to create file %s", strpath);
         return boa_value_makenull();
     }
     fclose(fhnd);
@@ -17278,7 +17168,7 @@ BoaValue boa_objfnfile_staticreadall(BoaState* state, BoaValue instance, size_t 
     hnd = fopen(filename, "rb");
     if(!hnd)
     {
-        boa_vm_raiseexception(state, state->stdioerror, "cannot open '%s' for reading", filename);
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "cannot open '%s' for reading", filename);
         return boa_value_makenull();
     }
     boa_stream_makestackio(&pr, hnd, true);
@@ -17295,7 +17185,7 @@ BoaValue boa_objfnfile_staticunlink(BoaState* state, BoaValue instance, size_t a
     path = boa_value_asstring(args[0]);
     if(boa_util_unlink(boa_string_getdata(path)) != 0)
     {
-        boa_vm_raiseexception(state, state->stdioerror, "unlink(%s): %s", boa_string_getdata(path), strerror(errno));
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "unlink(%s): %s", boa_string_getdata(path), strerror(errno));
     }
     return boa_value_makenull();
 }
@@ -17325,10 +17215,6 @@ BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc,
     return boa_value_fromobject(res);
 }
 
-/*
- * Directory
- */
-
 BoaValue boa_objfndirectory_exists(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     const char* directoryname;
@@ -17351,7 +17237,7 @@ BoaValue boa_objfndirectory_chdir(BoaState* state, BoaValue instance, size_t arg
     cstr = boa_string_getdata(str);
     if(!boa_util_chdir(cstr))
     {
-        boa_vm_raiseexception(state, state->stdioerror, "chdir(%s): %s", cstr, strerror(errno));
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "chdir(%s): %s", cstr, strerror(errno));
         return boa_value_makenull();
     }
     return boa_value_makenull();
@@ -17373,7 +17259,7 @@ BoaValue boa_objfndirectory_mkdir(BoaState* state, BoaValue instance, size_t arg
     }
     if(!boa_util_mkdir(cstr, mode))
     {
-        boa_vm_raiseexception(state, state->stdioerror, "mkdir(%s): %s", cstr, strerror(errno));
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "mkdir(%s): %s", cstr, strerror(errno));
         return boa_value_makenull();
     }
     return boa_value_makenull();
@@ -17389,7 +17275,7 @@ BoaValue boa_objfndirectory_rmdir(BoaState* state, BoaValue instance, size_t arg
     cstr = boa_string_getdata(str);
     if(!boa_util_rmdir(cstr))
     {
-        boa_vm_raiseexception(state, state->stdioerror, "rmdir(%s): %s", cstr, strerror(errno));
+        boa_vm_raiseexception(state, state->exceptions.stdioerror, "rmdir(%s): %s", cstr, strerror(errno));
         return boa_value_makenull();
     }
     return boa_value_makenull();
@@ -17795,7 +17681,7 @@ BoaCallFrame* boa_state_setupcallonframe(BoaState* state, BoaFuncScript* callee,
     fiber = state->vmstate.fiber;
     if(callee == NULL)
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot setup a call for a null value");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot setup a call for a null value");
         return NULL;
     }
     if(boa_fiber_ensureframes(state, fiber))
@@ -18000,11 +17886,11 @@ BoaResult boa_state_callmethod(BoaState* state, BoaString* name, BoaValue instan
     }
     if(boa_value_isnull(callee))
     {
-        boa_vm_raiseexception(state, state->stdexception, "cannot call null value method '%s'", boa_string_getdata(name));
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "cannot call null value method '%s'", boa_string_getdata(name));
     }
     else
     {
-        boa_vm_raiseexception(state, state->stdexception, "can only call functions and classes");
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "can only call functions and classes");
     }
     return boa_result_make(BOA_STATUS_RUNTIMEERROR, boa_value_makenull());
 }
@@ -18208,7 +18094,7 @@ BoaValue boa_state_callnew(BoaState* state, BoaString* cname, BoaValue* args, si
     BoaClass* klass;
     if(!boa_map_getvalue(state->vmstate.globals, cname, &value))
     {
-        boa_vm_raiseexception(state, state->stdexception, "failed to create instance of class %s: class not found", boa_string_getdata(cname));
+        boa_vm_raiseexception(state, state->exceptions.stdexception, "failed to create instance of class %s: class not found", boa_string_getdata(cname));
         return boa_value_makenull();
     }
     klass = boa_value_asclass(value);
@@ -18792,7 +18678,6 @@ BoaState* boa_state_make()
     state->rootcapacity = 0;
     state->lastmodule = NULL;
     state->config.dumpast = false;
-    state->config.transpilemode = BOA_TRANSPILE_DEFAULT;
     state->config.traceexecution = false;
     state->config.traceinstsonly = false;
     state->config.isreplmode = false;
@@ -19344,7 +19229,7 @@ bool boa_vm_raiseerrorva(BoaState* state, BoaException* exclass, const char* for
     str = boa_stream_takestring(state, &pr);
     if(exclass == NULL)
     {
-        exclass = state->stdexception;
+        exclass = state->exceptions.stdexception;
     }
     boa_state_pushroot(state, (BoaObject*)str);
     exception = boa_object_makeexception(state, exclass->baseclass);
@@ -19358,27 +19243,29 @@ bool boa_vm_raiseerror(BoaState* state, const char* format, ...)
     va_list args;
     bool result;
     va_start(args, format);
-    result = boa_vm_raiseerrorva(state, state->stdexception, format, args);
+    result = boa_vm_raiseerrorva(state, state->exceptions.stdexception, format, args);
     va_end(args);
     return result;
 }
 
-bool boa_vm_raiseexception(BoaState* state, BoaException* exclass, const char* format, ...)
+BoaValue boa_vm_raiseexception(BoaState* state, BoaException* exclass, const char* format, ...)
 {
     va_list args;
     bool result;
+    (void)result;
     va_start(args, format);
     result = boa_vm_raiseerrorva(state, exclass, format, args);
     va_end(args);
-    return result;
+    return boa_value_makenull();
 }
 
 bool boa_vm_raisefatalerror(BoaState* state, const char* format, ...)
 {
     va_list args;
     bool result;
+    (void)result;
     va_start(args, format);
-    result = boa_vm_raiseerrorva(state, state->stdexception, format, args);
+    result = boa_vm_raiseerrorva(state, state->exceptions.stdexception, format, args);
     va_end(args);
     boa_jmpstate_nativeexitjump();
     return result;
@@ -19675,7 +19562,7 @@ BoaResult boa_interpret_module(BoaState* state, BoaModule* module)
     #define CASE_CODE(name) case name:
 #endif
 
-BOA_INLINE void boa_vmmac_readframe(BoaState* state, BoaFiber** destfiber)
+BOA_FORCEINLINE void boa_vmmac_readframe(BoaState* state, BoaFiber** destfiber)
 {
     *destfiber = state->vmstate.fiber;
     state->vmstate.frame = &(*destfiber)->framevals[(*destfiber)->framecount - 1];
@@ -19688,12 +19575,12 @@ BOA_INLINE void boa_vmmac_readframe(BoaState* state, BoaFiber** destfiber)
     state->vmstate.vmupvalueitems = state->vmstate.frame->closure == NULL ? NULL : state->vmstate.frame->closure->closureupvalueitems;
 }
 
-BOA_INLINE void boa_vmmac_writeframe(BoaState* state)
+BOA_FORCEINLINE void boa_vmmac_writeframe(BoaState* state)
 {
     state->vmstate.frame->ip = state->vmstate.ip;
 }
 
-BOA_INLINE bool boa_vmmac_recoverstate(BoaState* state, BoaFiber** fiber, BoaResult* result)
+BOA_FORCEINLINE bool boa_vmmac_recoverstate(BoaState* state, BoaFiber** fiber, BoaResult* result)
 {
     boa_vmmac_writeframe(state);
     (*fiber) = state->vmstate.fiber;
@@ -19712,7 +19599,7 @@ BOA_INLINE bool boa_vmmac_recoverstate(BoaState* state, BoaFiber** fiber, BoaRes
     return true;
 }
 
-BOA_INLINE BoaValue boa_vmmac_getrc(BoaState* state, int64_t r)
+BOA_FORCEINLINE BoaValue boa_vmmac_getrc(BoaState* state, int64_t r)
 {
     if(BOA_BIT_ISSET(r, BOA_BITFLAG_CONSTANT_BX))
     {
@@ -19725,7 +19612,7 @@ BOA_INLINE BoaValue boa_vmmac_getrc(BoaState* state, int64_t r)
     return state->vmstate.vmregisteritems[r];
 }
 
-BOA_INLINE bool boa_vmmac_callvalue(BoaState* state, BoaFiber** fiber, BoaValue callee, size_t reg, size_t argc, BoaResult* res, const char* fname)
+BOA_FORCEINLINE bool boa_vmmac_callvalue(BoaState* state, BoaFiber** fiber, BoaValue callee, size_t reg, size_t argc, BoaResult* res, const char* fname)
 {
     if(!boa_vmexec_actualcallvalue(state, reg, argc, callee, fname))
     {
@@ -19755,7 +19642,7 @@ BOA_INLINE bool boa_vmmac_callvalue(BoaState* state, BoaFiber** fiber, BoaValue 
         } \
     }
 
-BOA_INLINE BoaResult boa_vmmac_invokeoperatormethoddefault(BoaState* state, BoaFiber** fiber, size_t reg, BoaValue bv, BoaString* mthname, size_t argc)
+BOA_FORCEINLINE BoaResult boa_vmmac_invokeoperatormethoddefault(BoaState* state, BoaFiber** fiber, size_t reg, BoaValue bv, BoaString* mthname, size_t argc)
 {
     BoaValue method;
     BoaResult tmpres;
@@ -19807,7 +19694,7 @@ BOA_INLINE BoaResult boa_vmmac_invokeoperatormethoddefault(BoaState* state, BoaF
     return boa_result_make(BOA_STATUS_OK, boa_value_makenull());
 }
 
-BOA_INLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, BoaFiber** fiber, size_t reg, BoaValue bv, BoaString* mthname, size_t argc)
+BOA_FORCEINLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* state, BoaFiber** fiber, size_t reg, BoaValue bv, BoaString* mthname, size_t argc)
 {
     BoaResult tmpres;
     BoaResult invmcres;
@@ -21673,7 +21560,6 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
 {
     int co;
     FILE* tmpfh;
-    BoaAstTranspileMode trmode;
     BoaCliOptions* cli;
     cli = (BoaCliOptions*)userptr;
     co = flag->shortname;
@@ -21692,16 +21578,6 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
     else if(co == 'a')
     {
         cli->pstate->config.dumpast = true;
-    }
-    else if(co == 'C')
-    {
-        if(!boa_util_strtotrmode(ox->optarg, &trmode))
-        {
-            fprintf(stderr, "cannot find transpile mode '%s'\n", ox->optarg);
-            cli->result = BOA_STATUS_RUNTIMEERROR;
-            return false;
-        }
-        cli->pstate->config.transpilemode = trmode;
     }
     else if(co == 'd')
     {
@@ -21778,7 +21654,6 @@ int main(int argc, char* argv[], char** envp)
     optprs_add(&options, on_flag, "help", 'h', OPTPARSE_NONE, "this help");
     optprs_add(&options, on_flag, "dump", 'd', OPTPARSE_NONE, "dump instructions");
     optprs_add(&options, on_flag, "ast", 'a', OPTPARSE_NONE, "dump AST");
-    optprs_add(&options, on_flag, "transpile", 'C', OPTPARSE_REQUIRED, "when dumping ast, transpile to <lang>");
     optprs_add(&options, on_flag, "eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code");
     optprs_add(&options, on_flag, "trace", 't', OPTPARSE_NONE, "trace execution");
     optprs_add(&options, on_flag, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
