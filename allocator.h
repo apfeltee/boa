@@ -79,7 +79,9 @@
 #endif
 
 /* if no platform can be detected, or for testing; forces MEMPOOL_TARGET_GENERIC, which uses malloc/free */
-#define MEMPOOL_CONFIG_FORCEGENERIC 0
+#if !defined(MEMPOOL_CONFIG_FORCEGENERIC)
+    #define MEMPOOL_CONFIG_FORCEGENERIC 0
+#endif
 
 /*
 #if defined(MEMPOOL_TARGET_WINDOWS)
@@ -720,6 +722,10 @@ MEMPOOL_INLINE size_t mempool_util_virtalign(size_t sz)
     }
 #endif
 
+/*
+* do not attempt to optimize these two functions further.
+* bad things will happen if you do.
+*/
 MEMPOOL_INLINE int mempool_util_nativebitscanreverse(uint64_t x)
 {
     static const char bsr_debruijntable[64] = {
@@ -739,7 +745,8 @@ MEMPOOL_INLINE int mempool_util_nativebitscanreverse(uint64_t x)
 
 MEMPOOL_INLINE int mempool_util_nativebitscanforward(uint64_t x)
 {
-    uint32_t l, r;
+    uint32_t l;
+    uint32_t r;
     x &= -x;
     l = x | x >> 32;
     r = !!(x >> 32);
@@ -769,9 +776,10 @@ MEMPOOL_INLINE MempoolSegment* mempool_util_segmentholding(MempoolState* m, char
         }
         if((sp = sp->next) == 0)
         {
-            return 0;
+            return NULL;
         }
     }
+    return NULL;
 }
 
 /* Return true if segment contains a segment link */
@@ -790,6 +798,7 @@ MEMPOOL_INLINE int mempool_util_hassegmentlink(MempoolState* m, MempoolSegment* 
             return 0;
         }
     }
+    return 0;
 }
 
 /*
@@ -1286,7 +1295,6 @@ MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* newbase, c
         mempool_util_setfreewithpinuse(q, qsize, oldfirst);
         mempool_util_insertchunk(m, q, qsize);
     }
-
     return mempool_util_chunk2mem(p);
 }
 
@@ -1294,46 +1302,62 @@ MEMPOOL_INLINE void* mempool_util_prependalloc(MempoolState* m, char* newbase, c
 MEMPOOL_INLINE void mempool_util_addsegment(MempoolState* m, char* tbase, size_t tsize)
 {
     /* Determine locations and sizes of segment, fenceposts, old top */
-    char* old_top = (char*)m->top;
-    MempoolSegment* oldsp = mempool_util_segmentholding(m, old_top);
-    char* old_end = oldsp->base + oldsp->size;
-    size_t ssize = mempool_util_padrequest(sizeof(MempoolSegment));
-    char* rawsp = old_end - (ssize + MEMPOOL_CONST_FOURSIZETSIZES + MEMPOOL_CHUNK_ALIGNMASK);
-    size_t offset = mempool_util_alignoffset(mempool_util_chunk2mem(rawsp));
-    char* asp = rawsp + offset;
-    char* csp = (asp < (old_top + MEMPOOL_MINCHUNKSIZE)) ? old_top : asp;
-    MempoolPlainChunk* sp = (MempoolPlainChunk*)csp;
-    MempoolSegment* ss = (MempoolSegment*)(mempool_util_chunk2mem(sp));
-    MempoolPlainChunk* tnext = mempool_util_chunkplusoffset(sp, ssize);
-    MempoolPlainChunk* p = tnext;
-
+    size_t psize;
+    size_t ssize;
+    size_t offset;
+    char* oldtop;
+    char* oldend;
+    char* rawsp;
+    char* asp;
+    char* csp;
+    MempoolSegment* oldsp;
+    MempoolPlainChunk* sp;
+    MempoolSegment* ss;
+    MempoolPlainChunk* tnext;
+    MempoolPlainChunk* p;
+    MempoolPlainChunk* nextp;
+    MempoolPlainChunk* q;
+    MempoolPlainChunk* tn;
+    oldtop = (char*)m->top;
+    oldsp = mempool_util_segmentholding(m, oldtop);
+    oldend = oldsp->base + oldsp->size;
+    ssize = mempool_util_padrequest(sizeof(MempoolSegment));
+    rawsp = oldend - (ssize + MEMPOOL_CONST_FOURSIZETSIZES + MEMPOOL_CHUNK_ALIGNMASK);
+    offset = mempool_util_alignoffset(mempool_util_chunk2mem(rawsp));
+    asp = rawsp + offset;
+    csp = (asp < (oldtop + MEMPOOL_MINCHUNKSIZE)) ? oldtop : asp;
+    sp = (MempoolPlainChunk*)csp;
+    ss = (MempoolSegment*)(mempool_util_chunk2mem(sp));
+    tnext = mempool_util_chunkplusoffset(sp, ssize);
+    p = tnext;
     /* reset top to new space */
     mempool_util_inittop(m, (MempoolPlainChunk*)tbase, tsize - mempool_util_topfootsize());
-
     /* Set up segment record */
     mempool_util_setsizeandpinuseofinusechunk(sp, ssize);
     *ss = m->seg; /* Push current record */
     m->seg.base = tbase;
     m->seg.size = tsize;
     m->seg.next = ss;
-
     /* Insert trailing fenceposts */
     for(;;)
     {
-        MempoolPlainChunk* nextp = mempool_util_chunkplusoffset(p, MEMPOOL_CONST_SIZETSIZE);
+        nextp = mempool_util_chunkplusoffset(p, MEMPOOL_CONST_SIZETSIZE);
         p->head = MEMPOOL_FENCEPOST_HEAD;
-        if((char*)(&(nextp->head)) < old_end)
+        if((char*)(&(nextp->head)) < oldend)
+        {
             p = nextp;
+        }
         else
+        {
             break;
+        }
     }
-
     /* Insert the rest of old top into a bin as an ordinary free chunk */
-    if(csp != old_top)
+    if(csp != oldtop)
     {
-        MempoolPlainChunk* q = (MempoolPlainChunk*)old_top;
-        size_t psize = (size_t)(csp - old_top);
-        MempoolPlainChunk* tn = mempool_util_chunkplusoffset(q, psize);
+        q = (MempoolPlainChunk*)oldtop;
+        psize = (size_t)(csp - oldtop);
+        tn = mempool_util_chunkplusoffset(q, psize);
         mempool_util_setfreewithpinuse(q, psize, tn);
         mempool_util_insertchunk(m, q, psize);
     }

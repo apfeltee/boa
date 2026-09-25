@@ -13,6 +13,7 @@
 #include <time.h>
 #include <errno.h>
 #include <ctype.h>
+#include <wchar.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #if defined(_WIN32) || defined(_WIN64)
@@ -20,8 +21,10 @@
     #include <io.h>
 #endif
 
+#include "usedeps/myregex/mrx.h"
+
 #define BOA_CONFIG_USELINO 1
-#define BOA_CONFIG_USEMEMPOOL 0
+#define BOA_CONFIG_USEMEMPOOL 1
 
 #if !defined(BOA_INLINE)
     #if defined(__muccdebug__)
@@ -95,14 +98,14 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
     #define OSLIB_CONF_OSPATHSIZE 1024
 #endif
 
+
+
 #if defined(BOA_OSPLATFORM_LINUX)
     #undef BOA_CONFIG_PLATFORMNAME
     #define BOA_CONFIG_PLATFORMNAME "linux"
 #elif defined(BOA_CONFIG_OSPLATFORM_ISWINNT)
     #undef BOA_CONFIG_PLATFORMNAME
     #define BOA_CONFIG_PLATFORMNAME "windows"
-#else
-    #define BOA_CONFIG_PLATFORMNAME "unknown"
 #endif
 
 #if defined(_WIN64) || defined(__x86_64) || defined(__amd64__) || (__LONG_WIDTH__ == 64)
@@ -115,8 +118,16 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
     #undef BOA_CONFIG_ARCHBITS
     #define BOA_CONFIG_ARCHNAME "x86"
     #define BOA_CONFIG_ARCHBITS 32
-#else
+#endif
+
+#if !defined(BOA_CONFIG_ARCHNAME)
     #define BOA_CONFIG_ARCHNAME "unknown"    
+#endif
+#if !defined(BOA_CONFIG_PLATFORMNAME)
+    #define BOA_CONFIG_PLATFORMNAME "unknown"
+#endif
+#if !defined(BOA_CONFIG_ARCHBITS)
+    #define BOA_CONFIG_ARCHBITS 32
 #endif
 
 
@@ -171,8 +182,14 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #if !defined(S_IFMT)
     #define S_IFMT  (00170000)
 #endif
+#if !defined(S_IFDIR)
+    #define S_IFDIR 0040000 /* directory */
+#endif
 #if !defined (S_ISDIR)
     #define	S_ISDIR(m)	(((m)&S_IFMT) == S_IFDIR)	/* directory */
+#endif
+#if !defined(S_IFREG)
+    #define S_IFREG (0100000) /* regular file */
 #endif
 #if !defined (S_ISREG)
     #define	S_ISREG(m)	(((m)&S_IFMT) == S_IFREG)	/* file */
@@ -207,7 +224,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #if defined(BOA_CONFIG_USELINO) && (BOA_CONFIG_USELINO == 1)
     #include "lino.h"
 #endif
-
 
 #if defined(M_PI)
     #define BOA_CONST_M_PI M_PI
@@ -675,6 +691,7 @@ typedef struct BoaAstCompiler BoaAstCompiler;
 typedef struct BoaAstRule BoaAstRule;
 typedef struct BoaEmulatedFile BoaEmulatedFile;
 typedef struct BoaFileData BoaFileData;
+typedef struct BoaRegexData BoaRegexData;
 typedef struct BoaAstToken BoaAstToken;
 typedef struct BoaDynListExpr BoaDynListExpr;
 typedef struct BoaStream BoaStream;
@@ -701,7 +718,6 @@ typedef struct BoaVarargArray BoaVarargArray;
 typedef struct BoaRange BoaRange;
 typedef struct BoaField BoaField;
 typedef struct BoaReference BoaReference;
-typedef struct ListDynListPtr ListDynListPtr;
 typedef struct BoaAstPrinter BoaAstPrinter;
 typedef struct BoaConstStrings BoaConstStrings;
 typedef struct BoaConfig BoaConfig;
@@ -709,7 +725,7 @@ typedef struct BoaFSStat BoaFSStat;
 typedef struct BoaFSDirReader BoaFSDirReader;
 typedef struct BoaFSDirItem BoaFSDirItem;
 typedef struct BoaException BoaException;
-typedef struct utf8iterator_t utf8iterator_t;
+typedef struct BoaUTF8Iterator BoaUTF8Iterator;
 
 
 typedef void (*BoaErrorFn)(BoaState* state, const char* message, bool);
@@ -799,7 +815,6 @@ typedef void (*BoaAstCallback)(BoaAstPrinter*, BoaDynListExpr*);
 struct BoaAstPrinter
 {
     BoaAstCallback startfunc;
-    bool nosigil;
     bool fromcall;
     size_t indentlevel;
     BoaStream* printer;
@@ -836,14 +851,6 @@ struct BoaDynListVal
     size_t listcapacity;
     size_t listcount;
     BoaValue* listitems;
-};
-
-struct ListDynListPtr
-{
-    size_t listcapacity;
-    size_t listcount;
-    size_t itemsize;
-    BoaAstFuncParamExpr* listitems;    
 };
 
 struct BoaDynListParam
@@ -1218,6 +1225,7 @@ struct BoaState
     BoaClass* stdclassarray;
     BoaClass* stdclassmap;
     BoaClass* stdclassrange;
+    BoaClass* stdclassregex;
     struct {
         BoaException* stdexception;
         BoaException* stdioerror;
@@ -1604,7 +1612,13 @@ struct BoaFileData
     BoaStream* fdhandle;
 };
 
-struct utf8iterator_t
+struct BoaRegexData
+{
+    BoaInstance innerobject;
+    RegexContext rxctx;
+};
+
+struct BoaUTF8Iterator
 {
     /*input string pointer */
     const char* plainstr;
@@ -1668,6 +1682,71 @@ struct BoaChecker
 
 
 jmp_buf g_vmglobaljumpbuf = {};
+#if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+    /* if any global variables need to be declared, declare them here. */
+    static void* g_mspcontext;
+#endif
+
+void boa_sysmem_poolinit()
+{
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        g_mspcontext = mempool_createpool();
+    #endif
+}
+
+void boa_sysmem_pooldestroy()
+{
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        mempool_destroypool(g_mspcontext);
+    #endif
+}
+
+void* boa_sysmem_malloc(size_t sz)
+{
+    void* p;
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        p = (void*)mempool_usermalloc(g_mspcontext, sz);
+    #else
+        p = (void*)malloc(sz);
+    #endif
+    return p;
+}
+
+void* boa_sysmem_realloc(void* p, size_t nsz)
+{
+    void* retp;
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        if(p == NULL)
+        {
+            return boa_sysmem_malloc(nsz);
+        }
+        retp = (void*)mempool_userrealloc(g_mspcontext, p, nsz);
+    #else
+        retp = (void*)realloc(p, nsz);
+    #endif
+    return retp;
+}
+
+void* boa_sysmem_calloc(size_t count, size_t typsize)
+{
+    void* p;
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        p = (void*)mempool_usermalloc(g_mspcontext, (count * typsize));
+        memset(p, 0, (count * typsize));
+    #else
+        p = (void*)calloc(count, typsize);
+    #endif
+    return p;
+}
+
+void boa_sysmem_free(void* ptr)
+{
+    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+        mempool_userfree(g_mspcontext, ptr);
+    #else
+        free(ptr);
+    #endif
+}
 
 static bool fslib_diropen(BoaFSDirReader* rd, const char* path)
 {
@@ -1690,7 +1769,7 @@ static bool fslib_diropen(BoaFSDirReader* rd, const char* path)
         b = false;
         pslen = strlen(path);
         buflen = (pslen + kExtra);
-        winsillypath = (char*)malloc(buflen);
+        winsillypath = (char*)boa_sysmem_malloc(buflen);
         if(winsillypath == NULL)
         {
             return false;
@@ -1704,7 +1783,7 @@ static bool fslib_diropen(BoaFSDirReader* rd, const char* path)
         {
             b = true;
         }
-        free(winsillypath);
+        boa_sysmem_free(winsillypath);
         return b;
     #endif
 }
@@ -1771,72 +1850,6 @@ BoaResult boa_result_make(BoaStatusCode type, BoaValue result)
 /* Bounds check when inserting (pos <= len are valid) */
 #define boa_strbuf_boundscheckinsert(sb, pos) boa_strbufutil_callboundscheckinsert(sb, pos, __FILE__, __LINE__)
 #define boa_strbuf_boundscheckreadrange(sb, start, len) boa_strbufutil_callboundscheckreadrange(sb, start, len, __FILE__, __LINE__)
-
-#if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-    /* if any global variables need to be declared, declare them here. */
-    static void* g_mspcontext;
-#endif
-
-void boa_sysmem_poolinit()
-{
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        g_mspcontext = mempool_createpool();
-    #endif
-}
-
-void boa_sysmem_pooldestroy()
-{
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        mempool_destroypool(g_mspcontext);
-    #endif
-}
-
-void* boa_sysmem_malloc(size_t sz)
-{
-    void* p;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        p = (void*)mempool_usermalloc(g_mspcontext, sz);
-    #else
-        p = (void*)malloc(sz);
-    #endif
-    return p;
-}
-
-void* boa_sysmem_realloc(void* p, size_t nsz)
-{
-    void* retp;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        if(p == NULL)
-        {
-            return boa_sysmem_malloc(nsz);
-        }
-        retp = (void*)mempool_userrealloc(g_mspcontext, p, nsz);
-    #else
-        retp = (void*)realloc(p, nsz);
-    #endif
-    return retp;
-}
-
-void* boa_sysmem_calloc(size_t count, size_t typsize)
-{
-    void* p;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        p = (void*)mempool_usermalloc(g_mspcontext, (count * typsize));
-        memset(p, 0, (count * typsize));
-    #else
-        p = (void*)calloc(count, typsize);
-    #endif
-    return p;
-}
-
-void boa_sysmem_free(void* ptr)
-{
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        mempool_userfree(g_mspcontext, ptr);
-    #else
-        free(ptr);
-    #endif
-}
 
 size_t boa_strbufutil_rndup2pow64(uint64_t x)
 {
@@ -3204,7 +3217,7 @@ int boa_util_closestpoweroftwo(int n)
 }
 
 /* allows you to set a custom length. */
-void boa_utf8iter_init(utf8iterator_t* iter, const char* ptr, uint32_t length)
+void boa_utf8iter_init(BoaUTF8Iterator* iter, const char* ptr, uint32_t length)
 {
     iter->plainstr = ptr;
     iter->plainlen = length;
@@ -3283,7 +3296,7 @@ uint32_t boa_utf8iter_converter(const char* character, uint8_t size)
 }
 
 /* returns 1 if there is a character in the next position. If there is not, return 0. */
-uint8_t boa_utf8iter_next(utf8iterator_t* iter)
+uint8_t boa_utf8iter_next(BoaUTF8Iterator* iter)
 {
     const char* pointer;
     if(iter == NULL)
@@ -3318,7 +3331,7 @@ uint8_t boa_utf8iter_next(utf8iterator_t* iter)
 }
 
 /* return current character in UFT8 - no same that iter.codepoint (not codepoint/unicode) */
-const char* boa_utf8iter_getchar(utf8iterator_t* iter)
+const char* boa_utf8iter_getchar(BoaUTF8Iterator* iter)
 {
     uint8_t i;
     const char* pointer;
@@ -3877,19 +3890,19 @@ int boa_util_kill(int pid, int code)
 
 bool boa_util_fsfileistype(const char* filepath, int typ)
 {
-    struct stat st;
+    struct stat sti;
     (void)filepath;
-    if(stat(filepath, &st) == -1)
+    if(stat(filepath, &sti) == -1)
     {
         return false;
     }
     if(typ == 'f')
     {
-        return S_ISREG(st.st_mode);
+        return S_ISREG(sti.st_mode);
     }
     else if(typ == 'd')
     {
-        return S_ISDIR(st.st_mode);
+        return S_ISDIR(sti.st_mode);
     }
     return false;
 }
@@ -5201,15 +5214,9 @@ bool boa_stream_makestackio(BoaStream* pr, FILE* fh, bool shouldclose)
     return true;
 }
 
-bool boa_stream_makestackopenfile(BoaStream* pr, const char* path, bool writemode)
+bool boa_stream_makestackopenfile(BoaStream* pr, const char* path, const char* mode)
 {
-    const char* mode;
     boa_stream_initvars(pr, BOA_IOSTRMODE_FILE);
-    mode = "rb";
-    if(writemode)
-    {
-        mode = "wb";
-    }
     pr->fromstack = true;
     pr->shouldclose = true;
     pr->desthndfile = fopen(path, mode);
@@ -5251,11 +5258,11 @@ BoaStream* boa_stream_makeio(FILE* fh, bool shouldclose)
     return pr;
 }
 
-BoaStream* boa_stream_makeopenfile(const char* path, bool writemode)
+BoaStream* boa_stream_makeopenfile(const char* path, const char* mode)
 {
     BoaStream* pr;
     pr = boa_stream_makeundefined(BOA_IOSTRMODE_FILE);
-    if(boa_stream_makestackopenfile(pr, path, writemode))
+    if(boa_stream_makestackopenfile(pr, path, mode))
     {
         pr->fromstack = false;
         return pr;
@@ -5454,13 +5461,11 @@ BoaString* boa_stream_readuntil(BoaStream* hnd, BoaState* state, bool havesizepa
 
 bool boa_stream_putlen(BoaStream* pr, const char* estr, size_t elen)
 {
-    size_t chlen;
-    chlen = sizeof(char);
     if(elen > 0)
     {
         if(pr->wrmode == BOA_IOSTRMODE_FILE)
         {
-            fwrite(estr, chlen, elen, pr->desthndfile);
+            fwrite(estr, sizeof(char), elen, pr->desthndfile);
             boa_stream_flush(pr);
         }
         else if(pr->wrmode == BOA_IOSTRMODE_STRING)
@@ -5490,7 +5495,8 @@ bool boa_stream_putc(BoaStream* pr, int b)
     }
     else if(pr->wrmode == BOA_IOSTRMODE_FILE)
     {
-        fputc(b, pr->desthndfile);
+        ch = b;
+        boa_stream_putlen(pr, &ch, 1);   
         boa_stream_flush(pr);
     }
     return true;
@@ -5926,6 +5932,7 @@ void boa_gcmem_markroots(BoaState* state)
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassarray);
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassmap);
     boa_gcmem_markobject(state, (BoaObject*)state->stdclassrange);
+    boa_gcmem_markobject(state, (BoaObject*)state->stdclassregex);
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdexception);
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdioerror);
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdargumenterror);
@@ -7908,7 +7915,6 @@ BoaAstToken boa_astlex_scanstring(BoaAstLexer* lex, bool istplstring, bool usees
     BoaAstTokType stringtype;
     BoaAstToken token;
     BoaState* state;
-    currch = -1;
     nextch = -1;
     state = lex->pstate;
     stringtype = BOA_ASTTOKTYP_STRING;
@@ -8396,7 +8402,7 @@ BoaAstToken boa_astlex_scantoken(BoaAstLexer* lex)
     return boa_astlex_makeerrortoken(lex, "unexpected character <%c>", c);
 }
 
-static BoaAstRule gastparserules[BOA_ASTTOKTYP_EOF + 1] = {};
+static BoaAstRule g_astparserules[BOA_ASTTOKTYP_EOF + 1] = {};
 static bool didsetuprules = false;
 static jmp_buf g_parserjumpbuffer = {};
 
@@ -8425,7 +8431,7 @@ void boa_astparser_scopeend(BoaAstParser* prs)
 
 BoaAstRule* boa_astparser_getrule(BoaAstTokType type)
 {
-    return &gastparserules[type];
+    return &g_astparserules[type];
 }
 
 bool boa_astparser_isatend(BoaAstParser* prs)
@@ -10061,65 +10067,65 @@ BoaAstRule boa_astparser_makerule(BoaParsePrefixFn prefix, BoaParseInfixFn infix
 
 void boa_astparser_setuprules()
 {
-    gastparserules[BOA_ASTTOKTYP_LEFTPAREN] = boa_astparser_makerule(boa_astparser_rulegroupingorlambda, boa_astparser_ruleparsecall, BOA_ASTPREC_CALL);
-    gastparserules[BOA_ASTTOKTYP_PLUS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_TERM);
-    gastparserules[BOA_ASTTOKTYP_MINUS] = boa_astparser_makerule(boa_astparser_ruleunary, boa_astparser_rulebinary, BOA_ASTPREC_TERM);
-    gastparserules[BOA_ASTTOKTYP_BANG] = boa_astparser_makerule(boa_astparser_ruleunary, boa_astparser_rulebinary, BOA_ASTPREC_IS);
-    gastparserules[BOA_ASTTOKTYP_STAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
-    gastparserules[BOA_ASTTOKTYP_STARSTAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
-    gastparserules[BOA_ASTTOKTYP_SLASH] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
-    gastparserules[BOA_ASTTOKTYP_SHARP] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
-    gastparserules[BOA_ASTTOKTYP_BAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BOR);
-    gastparserules[BOA_ASTTOKTYP_AMPERSAND] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BAND);
-    gastparserules[BOA_ASTTOKTYP_TILDE] = boa_astparser_makerule(boa_astparser_ruleunary, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_CARET] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BXOR);
-    gastparserules[BOA_ASTTOKTYP_LESSLESS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_SHIFT);
-    gastparserules[BOA_ASTTOKTYP_GREATERGREATER] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_SHIFT);
-    gastparserules[BOA_ASTTOKTYP_PERCENT] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
-    gastparserules[BOA_ASTTOKTYP_KWIS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_IS);
-    gastparserules[BOA_ASTTOKTYP_NUMBER] = boa_astparser_makerule(boa_astparser_rulenumber, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWTRUE] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWFALSE] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWNULL] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_BANGEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
-    gastparserules[BOA_ASTTOKTYP_EQUALEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
-    gastparserules[BOA_ASTTOKTYP_GREATERTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
-    gastparserules[BOA_ASTTOKTYP_GREATEREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
-    gastparserules[BOA_ASTTOKTYP_LESSTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
-    gastparserules[BOA_ASTTOKTYP_LESSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
-    gastparserules[BOA_ASTTOKTYP_STRING] = boa_astparser_makerule(boa_astparser_rulestring, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_STRTEMPLATE] = boa_astparser_makerule(boa_astparser_ruleinterpolation, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_IDENTIFIER] = boa_astparser_makerule(boa_astparser_rulevarexpr, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWNEW] = boa_astparser_makerule(boa_astparser_rulenewexpr, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_PLUSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_MINUSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_STAREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_SLASHEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_SHARPEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_PERCENTEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_CARETEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_BAREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_AMPERSANDEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
-    gastparserules[BOA_ASTTOKTYP_PLUSPLUS] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_COMPOUND);
-    gastparserules[BOA_ASTTOKTYP_MINUSMINUS] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_COMPOUND);
-    gastparserules[BOA_ASTTOKTYP_AMPERSANDAMPERSAND] = boa_astparser_makerule(NULL, boa_astparser_rulelogicaland, BOA_ASTPREC_AND);
-    gastparserules[BOA_ASTTOKTYP_BARBAR] = boa_astparser_makerule(NULL, boa_astparser_rulelogicalor, BOA_ASTPREC_OR);
-    gastparserules[BOA_ASTTOKTYP_QUESTIONQUESTION] = boa_astparser_makerule(NULL, boa_astparser_rulenullfilter, BOA_ASTPREC_NULL);
-    gastparserules[BOA_ASTTOKTYP_DOT] = boa_astparser_makerule(NULL, boa_astparser_ruledot, BOA_ASTPREC_CALL);
+    g_astparserules[BOA_ASTTOKTYP_LEFTPAREN] = boa_astparser_makerule(boa_astparser_rulegroupingorlambda, boa_astparser_ruleparsecall, BOA_ASTPREC_CALL);
+    g_astparserules[BOA_ASTTOKTYP_PLUS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_TERM);
+    g_astparserules[BOA_ASTTOKTYP_MINUS] = boa_astparser_makerule(boa_astparser_ruleunary, boa_astparser_rulebinary, BOA_ASTPREC_TERM);
+    g_astparserules[BOA_ASTTOKTYP_BANG] = boa_astparser_makerule(boa_astparser_ruleunary, boa_astparser_rulebinary, BOA_ASTPREC_IS);
+    g_astparserules[BOA_ASTTOKTYP_STAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
+    g_astparserules[BOA_ASTTOKTYP_STARSTAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
+    g_astparserules[BOA_ASTTOKTYP_SLASH] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
+    g_astparserules[BOA_ASTTOKTYP_SHARP] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
+    g_astparserules[BOA_ASTTOKTYP_BAR] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BOR);
+    g_astparserules[BOA_ASTTOKTYP_AMPERSAND] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BAND);
+    g_astparserules[BOA_ASTTOKTYP_TILDE] = boa_astparser_makerule(boa_astparser_ruleunary, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_CARET] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_BXOR);
+    g_astparserules[BOA_ASTTOKTYP_LESSLESS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_SHIFT);
+    g_astparserules[BOA_ASTTOKTYP_GREATERGREATER] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_SHIFT);
+    g_astparserules[BOA_ASTTOKTYP_PERCENT] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_FACTOR);
+    g_astparserules[BOA_ASTTOKTYP_KWIS] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_IS);
+    g_astparserules[BOA_ASTTOKTYP_NUMBER] = boa_astparser_makerule(boa_astparser_rulenumber, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWTRUE] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWFALSE] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWNULL] = boa_astparser_makerule(boa_astparser_ruleliteral, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_BANGEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
+    g_astparserules[BOA_ASTTOKTYP_EQUALEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_EQUALITY);
+    g_astparserules[BOA_ASTTOKTYP_GREATERTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    g_astparserules[BOA_ASTTOKTYP_GREATEREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    g_astparserules[BOA_ASTTOKTYP_LESSTHAN] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    g_astparserules[BOA_ASTTOKTYP_LESSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulebinary, BOA_ASTPREC_COMPARISON);
+    g_astparserules[BOA_ASTTOKTYP_STRING] = boa_astparser_makerule(boa_astparser_rulestring, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_STRTEMPLATE] = boa_astparser_makerule(boa_astparser_ruleinterpolation, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_IDENTIFIER] = boa_astparser_makerule(boa_astparser_rulevarexpr, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWNEW] = boa_astparser_makerule(boa_astparser_rulenewexpr, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_PLUSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_MINUSEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_STAREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_SLASHEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_SHARPEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_PERCENTEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_CARETEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_BAREQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_AMPERSANDEQUAL] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_ASSIGNMENT);
+    g_astparserules[BOA_ASTTOKTYP_PLUSPLUS] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_COMPOUND);
+    g_astparserules[BOA_ASTTOKTYP_MINUSMINUS] = boa_astparser_makerule(NULL, boa_astparser_rulecompound, BOA_ASTPREC_COMPOUND);
+    g_astparserules[BOA_ASTTOKTYP_AMPERSANDAMPERSAND] = boa_astparser_makerule(NULL, boa_astparser_rulelogicaland, BOA_ASTPREC_AND);
+    g_astparserules[BOA_ASTTOKTYP_BARBAR] = boa_astparser_makerule(NULL, boa_astparser_rulelogicalor, BOA_ASTPREC_OR);
+    g_astparserules[BOA_ASTTOKTYP_QUESTIONQUESTION] = boa_astparser_makerule(NULL, boa_astparser_rulenullfilter, BOA_ASTPREC_NULL);
+    g_astparserules[BOA_ASTTOKTYP_DOT] = boa_astparser_makerule(NULL, boa_astparser_ruledot, BOA_ASTPREC_CALL);
 #if 0
-        gastparserules[BOA_ASTTOKTYP_SMALLARROW] = boa_astparser_makerule(NULL, boa_astparser_ruledot, BOA_ASTPREC_CALL);
+        g_astparserules[BOA_ASTTOKTYP_SMALLARROW] = boa_astparser_makerule(NULL, boa_astparser_ruledot, BOA_ASTPREC_CALL);
 #endif
-    gastparserules[BOA_ASTTOKTYP_DOTDOT] = boa_astparser_makerule(NULL, boa_astparser_rulerange, BOA_ASTPREC_RANGE);
-    gastparserules[BOA_ASTTOKTYP_DOTDOTDOT] = boa_astparser_makerule(boa_astparser_rulevarexpr, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_LEFTBRACKET] = boa_astparser_makerule(boa_astparser_rulearray, boa_astparser_parsesubscript, BOA_ASTPREC_CALL);
-    gastparserules[BOA_ASTTOKTYP_LEFTBRACE] = boa_astparser_makerule(boa_astparser_ruleobject, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWTHIS] = boa_astparser_makerule(boa_astparser_rulethis, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWSUPER] = boa_astparser_makerule(boa_astparser_rulesuper, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_QUESTION] = boa_astparser_makerule(NULL, boa_astparser_ruleternaryorquestion, BOA_ASTPREC_EQUALITY);
-    gastparserules[BOA_ASTTOKTYP_KWREF] = boa_astparser_makerule(boa_astparser_rulereference, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_REFSYM] = boa_astparser_makerule(boa_astparser_ruleunary, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_SEMICOLON] = boa_astparser_makerule(boa_astparser_rulenothing, NULL, BOA_ASTPREC_NONE);
-    gastparserules[BOA_ASTTOKTYP_KWFUNCTION] = boa_astparser_makerule(boa_astparser_rulefunction, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_DOTDOT] = boa_astparser_makerule(NULL, boa_astparser_rulerange, BOA_ASTPREC_RANGE);
+    g_astparserules[BOA_ASTTOKTYP_DOTDOTDOT] = boa_astparser_makerule(boa_astparser_rulevarexpr, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_LEFTBRACKET] = boa_astparser_makerule(boa_astparser_rulearray, boa_astparser_parsesubscript, BOA_ASTPREC_CALL);
+    g_astparserules[BOA_ASTTOKTYP_LEFTBRACE] = boa_astparser_makerule(boa_astparser_ruleobject, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWTHIS] = boa_astparser_makerule(boa_astparser_rulethis, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWSUPER] = boa_astparser_makerule(boa_astparser_rulesuper, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_QUESTION] = boa_astparser_makerule(NULL, boa_astparser_ruleternaryorquestion, BOA_ASTPREC_EQUALITY);
+    g_astparserules[BOA_ASTTOKTYP_KWREF] = boa_astparser_makerule(boa_astparser_rulereference, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_REFSYM] = boa_astparser_makerule(boa_astparser_ruleunary, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_SEMICOLON] = boa_astparser_makerule(boa_astparser_rulenothing, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWFUNCTION] = boa_astparser_makerule(boa_astparser_rulefunction, NULL, BOA_ASTPREC_NONE);
 }
 
 const char* boa_astprint_tokopstring(int t)
@@ -10213,7 +10219,6 @@ void boa_astprint_init(BoaState* state, BoaAstPrinter* apr, BoaStream* printer, 
     apr->pstate = state;
     apr->printer = printer;
     apr->indentlevel = 0;
-    apr->nosigil = false;
     apr->fromcall = false;
 }
 
@@ -10344,11 +10349,9 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 BoaAstAssignExpr* oex;
                 oex = (BoaAstAssignExpr*)expr;
                 boa_astprint_indentprint(apr);
-                apr->nosigil = true;
                 boa_astprintdefault_printexpression(apr, oex->to);
                 boa_stream_puts(pr, " = ");
                 boa_astprintdefault_printexpression(apr, oex->value);
-                apr->nosigil = false;
             }
             break;
         case BOA_ASTEXPRTYP_CALL:
@@ -13720,12 +13723,7 @@ BoaString* boa_state_errorfmt(BoaState* state, size_t line, const char* fmt, ...
     return result;
 }
 
-void boa_state_openlibraries(BoaState* state)
-{
-    boa_corelib_installmath(state);
-    boa_corelib_installfile(state);
-    boa_corelib_installgc(state);
-}
+
 
 BoaValue boa_objfndefault_invalidconstructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -14186,7 +14184,7 @@ static BoaValue boa_util_stringutf8chars(BoaState* state, BoaValue thisval, size
     BoaArray* res;
     BoaString* os;
     BoaString* instr;
-    utf8iterator_t iter;
+    BoaUTF8Iterator iter;
     havemax = false;
     instr = boa_value_asstring(thisval);
     if(argc > 0)
@@ -16000,6 +15998,294 @@ BoaValue boa_objfnscriptvm_globalsget(BoaState* state, BoaValue instance, size_t
     return boa_value_fromobject(state->vmstate.globals);
 }
 
+void boa_classcallbackregex_oncleanup(BoaState* state, BoaUserdata* data, bool mark)
+{
+    BoaRegexData* rxdata;
+    (void)state;
+    if(mark)
+    {
+        return;
+    }
+    rxdata = ((BoaRegexData*)data->data);
+    //boa_sysmem_free(rxdata->rxctx);
+}
+
+BoaValue boa_objfnregex_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+
+    BoaString* pattern;
+    const char* strpattern;
+    BoaRegexData* data;
+    BoaClass* rxclass;
+    BoaChecker check;
+    RegexContext rx;
+    (void)argc;
+    BOA_CHECK_INIT(state, &check, "Regexp::constructor", argc, args);
+    BOA_CHECK_REQUIREARGS(&check, 1);
+    BOA_CHECK_CHECKARGTYPE(&check, 0, boa_value_isstring);
+    pattern = boa_value_asstring(args[0]);
+    strpattern = boa_string_getdata(pattern);
+    mrx_context_initctx(&rx, false);
+    if(mrx_regex_parse(&rx, strpattern, 0) != 0)
+    {
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, "failed to initiate regex context");
+    }
+    if(!boa_value_isinstance(instance))
+    {
+        rxclass = boa_value_asclass(instance);
+        instance = boa_value_fromobject(boa_object_makeinstance(state, rxclass));
+    }
+    data = (BoaRegexData*)boa_userdata_insertdata(state, instance, sizeof(BoaRegexData), NULL);
+    data->rxctx = rx;
+    return instance;
+}
+
+BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    enum { kMaxCaps = 32 };
+    int64_t ic;
+    BoaString* instr;
+    BoaRegexData* data;
+    BoaChecker check;
+    int64_t cappos[kMaxCaps+1];
+    int64_t capspan[kMaxCaps+1];
+    BOA_CHECK_INIT(state, &check, "Regexp::match", argc, args);
+    BOA_CHECK_REQUIREARGS(&check, 1);
+    BOA_CHECK_CHECKARGTYPE(&check, 0, boa_value_isstring);
+    instr = boa_value_asstring(args[0]);
+    data = (BoaRegexData*)boa_userdata_extractdata(instance);
+    memset(cappos, 0xFF, kMaxCaps);
+    memset(capspan, 0xFF, kMaxCaps);
+    ic = mrx_regex_match(&data->rxctx, boa_string_getdata(instr), 0, kMaxCaps, cappos, capspan);
+    #if 0
+        fprintf(stderr, "Regexp::match: ic=%ld\n", ic);
+    #endif
+    if(ic == -1)
+    {
+        return boa_value_makebool(false);
+    }
+    return boa_value_makenumber(true);
+}
+
+void boa_state_openstdclasses(BoaState* state)
+{
+    BoaClass* klass;
+    {
+        klass = boa_class_make(state, "Class", NULL);
+        boa_class_bindmethod(klass, "toString", boa_objfnclass_tostring);
+        boa_class_bindmethod(klass, "[]", boa_objfnclass_subscript);
+        boa_class_bindstaticmethod(klass, "toString", boa_objfnclass_tostring);
+        boa_class_bindstaticmethod(klass, "iterator", boa_objfnclass_iterator);
+        boa_class_bindstaticmethod(klass, "iteratorValue", boa_objfnclass_itervalue);
+        boa_class_bindgetsetter(klass, "super", boa_objfnclass_superget, NULL);
+        boa_class_bindstaticgetter(klass, "super", boa_objfnclass_superget);
+        boa_class_bindstaticgetter(klass, "name", boa_objfnclass_nameget);
+        state->stdclassclass = klass;
+        boa_state_setglobal(state, klass->name, boa_value_fromobject(klass));
+    }
+    {
+        klass = boa_class_make(state, "Object", NULL);
+        boa_class_inherit(klass, state->stdclassclass);
+        boa_class_bindstaticmethod(klass, "keys", boa_objfnobject_keys);
+        boa_class_bindmethod(klass, "toString", boa_objfnobject_tostring);
+        boa_class_bindmethod(klass, "dump", boa_objfnobject_dump);
+        boa_class_bindmethod(klass, "isCallable", boa_objfnobject_iscallable);
+        boa_class_bindmethod(klass, "[]", boa_objfnobject_subscript);
+        boa_class_bindmethod(klass, "iterator", boa_objfnobject_iterator);
+        boa_class_bindmethod(klass, "iteratorValue", boa_objfnobject_itervalue);
+        boa_class_bindgetsetter(klass, "class", boa_objfnobject_classget, NULL);
+        state->stdobjectclass = klass;
+        state->stdobjectclass->super = state->stdclassclass;
+    }
+    {
+        klass = boa_class_make(state, "Null", state->stdobjectclass);
+        state->stdnullclass = klass;
+    }
+    {
+        klass = boa_class_make(state, "Number", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfnnumber_constructor);
+        boa_class_bindgetsetter(klass, "chr", boa_objfnnumber_chrget, NULL);
+        boa_class_bindmethod(klass, "toString", boa_objfnnumber_tostring);
+        state->stdclassnumber = klass;
+    }
+    {
+        klass = boa_class_make(state, "String", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindstaticmethod(klass, "chr", boa_objfnstring_chr);
+        boa_class_bindstaticmethod(klass, "fromCharCode", boa_objfnstring_chr);
+        boa_class_bindstaticmethod(klass, "utf8Encode", boa_objfnstring_utf8encode);
+
+        #if 0
+        boa_class_bindmethod(klass, "-", boa_objfnstring_minus);
+        #endif
+        boa_class_bindmethod(klass, "+", boa_objfnstring_plus);
+        boa_class_bindmethod(klass, "<", boa_objfnstring_lessthan);
+        boa_class_bindmethod(klass, ">", boa_objfnstring_greaterthan);
+        boa_class_bindmethod(klass, ">=", boa_objfnstring_greaterequal);
+        boa_class_bindmethod(klass, "<=", boa_objfnstring_lessequal);
+        boa_class_bindmethod(klass, "utf8Codepoints", boa_objfnstring_utf8codepoints);
+        boa_class_bindmethod(klass, "utf8Chars", boa_objfnstring_utf8chars);
+        boa_class_bindmethod(klass, "toString", boa_objfnstring_tostring);
+        boa_class_bindmethod(klass, "toNumber", boa_objfnstring_tonumber);
+        boa_class_bindmethod(klass, "toUpperCase", boa_objfnstring_touppercase);
+        boa_class_bindmethod(klass, "upper", boa_objfnstring_touppercase);
+        boa_class_bindmethod(klass, "toLowerCase", boa_objfnstring_tolowercase);
+        boa_class_bindmethod(klass, "lower", boa_objfnstring_tolowercase);
+        boa_class_bindmethod(klass, "contains", boa_objfnstring_contains);
+        boa_class_bindmethod(klass, "startsWith", boa_objfnstring_startswith);
+        boa_class_bindmethod(klass, "endsWith", boa_objfnstring_endswith);
+        boa_class_bindmethod(klass, "replace", boa_objfnstring_replace);
+        boa_class_bindmethod(klass, "substring", boa_objfnstring_substring);
+        boa_class_bindmethod(klass, "substr", boa_objfnstring_substring);
+        boa_class_bindmethod(klass, "indexOf", boa_objfnstring_indexof);
+        boa_class_bindmethod(klass, "iterator", boa_objfnstring_iterator);
+        boa_class_bindmethod(klass, "iteratorValue", boa_objfnstring_itervalue);
+        boa_class_bindmethod(klass, "trim", boa_objfnstring_trim);
+        boa_class_bindmethod(klass, "trimLeft", boa_objfnstring_ltrim);
+        boa_class_bindmethod(klass, "trimRight", boa_objfnstring_rtrim);
+        boa_class_bindmethod(klass, "[]", boa_objfnstring_subscript);
+        boa_class_bindmethod(klass, "charAt", boa_objfnstring_charat);
+        boa_class_bindmethod(klass, "charCodeAt", boa_objfnstring_charcodeat);
+        boa_class_bindmethod(klass, "size", boa_objfnstring_lengthget);
+        boa_class_bindmethod(klass, "split", boa_objfnstring_split);
+        boa_class_bindgetsetter(klass, "length", boa_objfnstring_lengthget, NULL);
+        state->stdclassstring = klass;
+    }
+    {
+        klass = boa_class_make(state, "Bool", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindmethod(klass, "toString", boa_objfnbool_tostring);
+        state->stdclassbool = klass;
+    }
+    {
+        klass = boa_class_make(state, "Function", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindmethod(klass, "toString", boa_objfnfunction_tostring);
+        boa_class_bindgetsetter(klass, "name", boa_objfnfunction_nameget, NULL);
+        state->stdclassfunction = klass;
+    }
+    {
+        klass = boa_class_make(state, "Fiber", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfnfiber_constructor);
+        boa_class_bindmethod(klass, "run", boa_objfnfiber_run);
+        boa_class_bindmethod(klass, "try", boa_objfnfiber_try);
+        boa_class_bindgetsetter(klass, "done", boa_objfnfiber_doneget, NULL);
+        boa_class_bindgetsetter(klass, "error", boa_objfnfiber_errorget, NULL);
+        boa_class_bindstaticmethod(klass, "yield", boa_objfnfiber_yield);
+        boa_class_bindstaticmethod(klass, "abort", boa_objfnfiber_abort);
+        boa_class_bindstaticgetter(klass, "current", boa_objfnfiber_currentget);
+        state->stdclassfiber = klass;
+    }
+    {
+        klass = boa_class_make(state, "Module", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_setstaticfield(klass, "loaded", boa_value_fromobject(state->vmstate.modules));
+        boa_class_bindstaticgetter(klass, "privates", boa_objfnmodule_privatesget);
+        boa_class_bindstaticgetter(klass, "current", boa_objfnmodule_currentget);
+        boa_class_bindmethod(klass, "toString", boa_objfnmodule_tostring);
+        boa_class_bindgetsetter(klass, "name", boa_objfnmodule_nameget, NULL);
+        boa_class_bindgetsetter(klass, "privates", boa_objfnmodule_privatesget, NULL);
+        state->stdclassmodule = klass;
+    }
+    {
+        klass = boa_class_make(state, "Array", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfnarray_constructor);
+        boa_class_bindmethod(klass, "[]", boa_objfnarray_subscript);
+        boa_class_bindmethod(klass, "add", boa_objfnarray_push);
+        boa_class_bindmethod(klass, "push", boa_objfnarray_push);
+        boa_class_bindmethod(klass, "insert", boa_objfnarray_insert);
+        boa_class_bindmethod(klass, "slice", boa_objfnarray_slice);
+        boa_class_bindmethod(klass, "addAll", boa_objfnarray_addall);
+        boa_class_bindmethod(klass, "pop", boa_objfnarray_pop);
+        boa_class_bindmethod(klass, "remove", boa_objfnarray_remove);
+        boa_class_bindmethod(klass, "removeAt", boa_objfnarray_removeat);
+        boa_class_bindmethod(klass, "indexOf", boa_objfnarray_indexof);
+        boa_class_bindmethod(klass, "contains", boa_objfnarray_contains);
+        boa_class_bindmethod(klass, "includes", boa_objfnarray_contains);
+        boa_class_bindmethod(klass, "clear", boa_objfnarray_clear);
+        boa_class_bindmethod(klass, "iterator", boa_objfnarray_iterator);
+        boa_class_bindmethod(klass, "iteratorValue", boa_objfnarray_itervalue);
+        boa_class_bindmethod(klass, "forEach", boa_objfnarray_foreach);
+        boa_class_bindmethod(klass, "map", boa_objfnarray_map);
+        boa_class_bindmethod(klass, "join", boa_objfnarray_join);
+        boa_class_bindmethod(klass, "sort", boa_objfnarray_sort);
+        boa_class_bindmethod(klass, "clone", boa_objfnarray_clone);
+        boa_class_bindmethod(klass, "toString", boa_objfnarray_tostring);
+        boa_class_bindgetsetter(klass, "length", boa_objfnarray_lengthget, NULL);
+        state->stdclassarray = klass;
+    }
+    {
+        klass = boa_class_make(state, "Map", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfnmap_constructor);
+        boa_class_bindmethod(klass, "[]", boa_objfnmap_subscript);
+        boa_class_bindmethod(klass, "addAll", boa_objfnmap_addall);
+        boa_class_bindmethod(klass, "clear", boa_objfnmap_clear);
+        boa_class_bindmethod(klass, "iterator", boa_objfnmap_iterator);
+        boa_class_bindmethod(klass, "iteratorValue", boa_objfnmap_itervalue);
+        boa_class_bindmethod(klass, "forEach", boa_objfnmap_foreach);
+        boa_class_bindmethod(klass, "clone", boa_objfnmap_clone);
+        boa_class_bindmethod(klass, "toString", boa_objfnmap_tostring);
+        boa_class_bindgetsetter(klass, "length", boa_objfnmap_lengthget, NULL);
+        state->stdclassmap = klass;
+    }
+    {
+        klass = boa_class_make(state, "Range", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindmethod(klass, "iterator", boa_objfnrange_iterator);
+        boa_class_bindmethod(klass, "iteratorValue", boa_objfnrange_itervalue);
+        boa_class_bindmethod(klass, "toString", boa_objfnrange_tostring);
+        boa_class_bindgetsetter(klass, "from", boa_objfnrange_fromget, boa_objfnrange_fromset);
+        boa_class_bindgetsetter(klass, "to", boa_objfnrange_toget, boa_objfnrange_toset);
+        boa_class_bindgetsetter(klass, "length", boa_objfnrange_lengthget, NULL);
+        state->stdclassrange = klass;
+    }
+    {
+        klass = boa_class_make(state, "JSON", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindstaticmethod(klass, "stringify", boa_objfnobject_dump);        
+    }
+    {
+        klass = boa_class_make(state, "Regexp", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfnregex_constructor);
+        boa_class_bindmethod(klass, "match", boa_objfnregex_match);
+        state->stdclassregex = klass;
+    }
+    {
+        klass = boa_class_make(state, "Process", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindstaticmethod(klass, "exit", boa_objfnprocess_exit);
+        boa_class_bindstaticmethod(klass, "abort", boa_objfnprocess_abort);
+        boa_class_bindstaticmethod(klass, "kill", boa_objfnprocess_kill);
+        boa_class_bindstaticmethod(klass, "pid", boa_objfnprocess_getpid);
+        boa_class_bindstaticmethod(klass, "setenv", boa_objfnprocess_setenv);
+        boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
+        boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
+        boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
+
+    }
+    {
+        klass = boa_class_make(state, "ScriptVM", state->stdobjectclass);
+        boa_class_bindstaticmethod(klass, "getglobal", boa_objfnscriptvm_getglobal);
+        boa_class_bindstaticgetter(klass, "globals", boa_objfnscriptvm_globalsget);
+    }
+    {
+        {
+            klass = boa_class_make(state, "Exception", state->stdobjectclass);
+            boa_class_bindconstructor(klass, boa_objfnexception_constructor);
+            boa_class_bindgetsetter(klass, "message", boa_objfnexception_messageget, NULL);
+            state->exceptions.stdexception = boa_object_makeexception(state, klass);
+        }
+        {
+            klass = boa_class_make(state, "IOError", state->exceptions.stdexception->baseclass);
+            state->exceptions.stdioerror = boa_object_makeexception(state, klass);
+        }
+        {
+            klass = boa_class_make(state, "ArgumentError", state->exceptions.stdexception->baseclass);
+            state->exceptions.stdargumenterror = boa_object_makeexception(state, klass);            
+        }
+    }
+}
+
 BoaValue boa_cfn_srand(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     (void)state;
@@ -16251,217 +16537,9 @@ BoaValue boa_cfn_eval(BoaState* state, BoaValue instance, size_t argc, BoaValue*
     return boa_value_makenull();
 }
 
-void boa_state_opencorelibrary(BoaState* state)
+
+void boa_state_openglobalfuncs(BoaState* state)
 {
-    BoaClass* klass;
-    {
-        klass = boa_class_make(state, "Class", NULL);
-        boa_class_bindmethod(klass, "toString", boa_objfnclass_tostring);
-        boa_class_bindmethod(klass, "[]", boa_objfnclass_subscript);
-        boa_class_bindstaticmethod(klass, "toString", boa_objfnclass_tostring);
-        boa_class_bindstaticmethod(klass, "iterator", boa_objfnclass_iterator);
-        boa_class_bindstaticmethod(klass, "iteratorValue", boa_objfnclass_itervalue);
-        boa_class_bindgetsetter(klass, "super", boa_objfnclass_superget, NULL);
-        boa_class_bindstaticgetter(klass, "super", boa_objfnclass_superget);
-        boa_class_bindstaticgetter(klass, "name", boa_objfnclass_nameget);
-        state->stdclassclass = klass;
-        boa_state_setglobal(state, klass->name, boa_value_fromobject(klass));
-    }
-    {
-        klass = boa_class_make(state, "Object", NULL);
-        boa_class_inherit(klass, state->stdclassclass);
-        boa_class_bindstaticmethod(klass, "keys", boa_objfnobject_keys);
-        boa_class_bindmethod(klass, "toString", boa_objfnobject_tostring);
-        boa_class_bindmethod(klass, "dump", boa_objfnobject_dump);
-        boa_class_bindmethod(klass, "isCallable", boa_objfnobject_iscallable);
-        boa_class_bindmethod(klass, "[]", boa_objfnobject_subscript);
-        boa_class_bindmethod(klass, "iterator", boa_objfnobject_iterator);
-        boa_class_bindmethod(klass, "iteratorValue", boa_objfnobject_itervalue);
-        boa_class_bindgetsetter(klass, "class", boa_objfnobject_classget, NULL);
-        state->stdobjectclass = klass;
-        state->stdobjectclass->super = state->stdclassclass;
-    }
-    {
-        klass = boa_class_make(state, "Null", state->stdobjectclass);
-        state->stdnullclass = klass;
-    }
-    {
-        klass = boa_class_make(state, "Number", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfnnumber_constructor);
-        boa_class_bindgetsetter(klass, "chr", boa_objfnnumber_chrget, NULL);
-        boa_class_bindmethod(klass, "toString", boa_objfnnumber_tostring);
-        state->stdclassnumber = klass;
-    }
-    {
-        klass = boa_class_make(state, "String", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindstaticmethod(klass, "chr", boa_objfnstring_chr);
-        boa_class_bindstaticmethod(klass, "fromCharCode", boa_objfnstring_chr);
-        boa_class_bindstaticmethod(klass, "utf8Encode", boa_objfnstring_utf8encode);
-
-        #if 0
-        boa_class_bindmethod(klass, "-", boa_objfnstring_minus);
-        #endif
-        boa_class_bindmethod(klass, "+", boa_objfnstring_plus);
-        boa_class_bindmethod(klass, "<", boa_objfnstring_lessthan);
-        boa_class_bindmethod(klass, ">", boa_objfnstring_greaterthan);
-        boa_class_bindmethod(klass, ">=", boa_objfnstring_greaterequal);
-        boa_class_bindmethod(klass, "<=", boa_objfnstring_lessequal);
-        boa_class_bindmethod(klass, "utf8Codepoints", boa_objfnstring_utf8codepoints);
-        boa_class_bindmethod(klass, "utf8Chars", boa_objfnstring_utf8chars);
-        boa_class_bindmethod(klass, "toString", boa_objfnstring_tostring);
-        boa_class_bindmethod(klass, "toNumber", boa_objfnstring_tonumber);
-        boa_class_bindmethod(klass, "toUpperCase", boa_objfnstring_touppercase);
-        boa_class_bindmethod(klass, "upper", boa_objfnstring_touppercase);
-        boa_class_bindmethod(klass, "toLowerCase", boa_objfnstring_tolowercase);
-        boa_class_bindmethod(klass, "lower", boa_objfnstring_tolowercase);
-        boa_class_bindmethod(klass, "contains", boa_objfnstring_contains);
-        boa_class_bindmethod(klass, "startsWith", boa_objfnstring_startswith);
-        boa_class_bindmethod(klass, "endsWith", boa_objfnstring_endswith);
-        boa_class_bindmethod(klass, "replace", boa_objfnstring_replace);
-        boa_class_bindmethod(klass, "substring", boa_objfnstring_substring);
-        boa_class_bindmethod(klass, "substr", boa_objfnstring_substring);
-        boa_class_bindmethod(klass, "indexOf", boa_objfnstring_indexof);
-        boa_class_bindmethod(klass, "iterator", boa_objfnstring_iterator);
-        boa_class_bindmethod(klass, "iteratorValue", boa_objfnstring_itervalue);
-        boa_class_bindmethod(klass, "trim", boa_objfnstring_trim);
-        boa_class_bindmethod(klass, "trimLeft", boa_objfnstring_ltrim);
-        boa_class_bindmethod(klass, "trimRight", boa_objfnstring_rtrim);
-        boa_class_bindmethod(klass, "[]", boa_objfnstring_subscript);
-        boa_class_bindmethod(klass, "charAt", boa_objfnstring_charat);
-        boa_class_bindmethod(klass, "charCodeAt", boa_objfnstring_charcodeat);
-        boa_class_bindmethod(klass, "size", boa_objfnstring_lengthget);
-        boa_class_bindmethod(klass, "split", boa_objfnstring_split);
-        boa_class_bindgetsetter(klass, "length", boa_objfnstring_lengthget, NULL);
-        state->stdclassstring = klass;
-    }
-    {
-        klass = boa_class_make(state, "Bool", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindmethod(klass, "toString", boa_objfnbool_tostring);
-        state->stdclassbool = klass;
-    }
-    {
-        klass = boa_class_make(state, "Function", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindmethod(klass, "toString", boa_objfnfunction_tostring);
-        boa_class_bindgetsetter(klass, "name", boa_objfnfunction_nameget, NULL);
-        state->stdclassfunction = klass;
-    }
-    {
-        klass = boa_class_make(state, "Fiber", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfnfiber_constructor);
-        boa_class_bindmethod(klass, "run", boa_objfnfiber_run);
-        boa_class_bindmethod(klass, "try", boa_objfnfiber_try);
-        boa_class_bindgetsetter(klass, "done", boa_objfnfiber_doneget, NULL);
-        boa_class_bindgetsetter(klass, "error", boa_objfnfiber_errorget, NULL);
-        boa_class_bindstaticmethod(klass, "yield", boa_objfnfiber_yield);
-        boa_class_bindstaticmethod(klass, "abort", boa_objfnfiber_abort);
-        boa_class_bindstaticgetter(klass, "current", boa_objfnfiber_currentget);
-        state->stdclassfiber = klass;
-    }
-    {
-        klass = boa_class_make(state, "Module", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_setstaticfield(klass, "loaded", boa_value_fromobject(state->vmstate.modules));
-        boa_class_bindstaticgetter(klass, "privates", boa_objfnmodule_privatesget);
-        boa_class_bindstaticgetter(klass, "current", boa_objfnmodule_currentget);
-        boa_class_bindmethod(klass, "toString", boa_objfnmodule_tostring);
-        boa_class_bindgetsetter(klass, "name", boa_objfnmodule_nameget, NULL);
-        boa_class_bindgetsetter(klass, "privates", boa_objfnmodule_privatesget, NULL);
-        state->stdclassmodule = klass;
-    }
-    {
-        klass = boa_class_make(state, "Array", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfnarray_constructor);
-        boa_class_bindmethod(klass, "[]", boa_objfnarray_subscript);
-        boa_class_bindmethod(klass, "add", boa_objfnarray_push);
-        boa_class_bindmethod(klass, "push", boa_objfnarray_push);
-        boa_class_bindmethod(klass, "insert", boa_objfnarray_insert);
-        boa_class_bindmethod(klass, "slice", boa_objfnarray_slice);
-        boa_class_bindmethod(klass, "addAll", boa_objfnarray_addall);
-        boa_class_bindmethod(klass, "pop", boa_objfnarray_pop);
-        boa_class_bindmethod(klass, "remove", boa_objfnarray_remove);
-        boa_class_bindmethod(klass, "removeAt", boa_objfnarray_removeat);
-        boa_class_bindmethod(klass, "indexOf", boa_objfnarray_indexof);
-        boa_class_bindmethod(klass, "contains", boa_objfnarray_contains);
-        boa_class_bindmethod(klass, "includes", boa_objfnarray_contains);
-        boa_class_bindmethod(klass, "clear", boa_objfnarray_clear);
-        boa_class_bindmethod(klass, "iterator", boa_objfnarray_iterator);
-        boa_class_bindmethod(klass, "iteratorValue", boa_objfnarray_itervalue);
-        boa_class_bindmethod(klass, "forEach", boa_objfnarray_foreach);
-        boa_class_bindmethod(klass, "map", boa_objfnarray_map);
-        boa_class_bindmethod(klass, "join", boa_objfnarray_join);
-        boa_class_bindmethod(klass, "sort", boa_objfnarray_sort);
-        boa_class_bindmethod(klass, "clone", boa_objfnarray_clone);
-        boa_class_bindmethod(klass, "toString", boa_objfnarray_tostring);
-        boa_class_bindgetsetter(klass, "length", boa_objfnarray_lengthget, NULL);
-        state->stdclassarray = klass;
-    }
-    {
-        klass = boa_class_make(state, "Map", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfnmap_constructor);
-        boa_class_bindmethod(klass, "[]", boa_objfnmap_subscript);
-        boa_class_bindmethod(klass, "addAll", boa_objfnmap_addall);
-        boa_class_bindmethod(klass, "clear", boa_objfnmap_clear);
-        boa_class_bindmethod(klass, "iterator", boa_objfnmap_iterator);
-        boa_class_bindmethod(klass, "iteratorValue", boa_objfnmap_itervalue);
-        boa_class_bindmethod(klass, "forEach", boa_objfnmap_foreach);
-        boa_class_bindmethod(klass, "clone", boa_objfnmap_clone);
-        boa_class_bindmethod(klass, "toString", boa_objfnmap_tostring);
-        boa_class_bindgetsetter(klass, "length", boa_objfnmap_lengthget, NULL);
-        state->stdclassmap = klass;
-    }
-    {
-        klass = boa_class_make(state, "Range", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindmethod(klass, "iterator", boa_objfnrange_iterator);
-        boa_class_bindmethod(klass, "iteratorValue", boa_objfnrange_itervalue);
-        boa_class_bindmethod(klass, "toString", boa_objfnrange_tostring);
-        boa_class_bindgetsetter(klass, "from", boa_objfnrange_fromget, boa_objfnrange_fromset);
-        boa_class_bindgetsetter(klass, "to", boa_objfnrange_toget, boa_objfnrange_toset);
-        boa_class_bindgetsetter(klass, "length", boa_objfnrange_lengthget, NULL);
-        state->stdclassrange = klass;
-    }
-    {
-        klass = boa_class_make(state, "JSON", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindstaticmethod(klass, "stringify", boa_objfnobject_dump);        
-    }
-    {
-        klass = boa_class_make(state, "Process", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindstaticmethod(klass, "exit", boa_objfnprocess_exit);
-        boa_class_bindstaticmethod(klass, "abort", boa_objfnprocess_abort);
-        boa_class_bindstaticmethod(klass, "kill", boa_objfnprocess_kill);
-        boa_class_bindstaticmethod(klass, "pid", boa_objfnprocess_getpid);
-        boa_class_bindstaticmethod(klass, "setenv", boa_objfnprocess_setenv);
-        boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
-        boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
-        boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
-
-    }
-    {
-        klass = boa_class_make(state, "ScriptVM", state->stdobjectclass);
-        boa_class_bindstaticmethod(klass, "getglobal", boa_objfnscriptvm_getglobal);
-        boa_class_bindstaticgetter(klass, "globals", boa_objfnscriptvm_globalsget);
-    }
-    {
-        {
-            klass = boa_class_make(state, "Exception", state->stdobjectclass);
-            boa_class_bindconstructor(klass, boa_objfnexception_constructor);
-            boa_class_bindgetsetter(klass, "message", boa_objfnexception_messageget, NULL);
-            state->exceptions.stdexception = boa_object_makeexception(state, klass);
-        }
-        {
-            klass = boa_class_make(state, "IOError", state->exceptions.stdexception->baseclass);
-            state->exceptions.stdioerror = boa_object_makeexception(state, klass);
-        }
-        {
-            klass = boa_class_make(state, "ArgumentError", state->exceptions.stdexception->baseclass);
-            state->exceptions.stdargumenterror = boa_object_makeexception(state, klass);            
-        }
-    }
     boa_state_defnative(state, "srand", boa_cfn_srand);
     boa_state_defnative(state, "random", boa_cfn_random);
     boa_state_defnative(state, "time", boa_cfn_time);
@@ -16533,46 +16611,67 @@ void boa_bcemu_readnumber(BoaEmulatedFile* emu, BoaNumber* dest)
     *dest = result;
 }
 
-void boa_bcfile_writeuint8(FILE* hnd, uint8_t byte)
-{
-    fwrite(&byte, sizeof(uint8_t), 1, hnd);
-}
-
-void boa_bcfile_writeuint16(FILE* hnd, uint16_t byte)
+size_t boa_bcfile_writeuint8(FILE* hnd, uint8_t byte)
 {
     size_t rsz;
-    (void)rsz;
+    rsz = fwrite(&byte, sizeof(uint8_t), 1, hnd);
+    return rsz;
+}
+
+size_t boa_bcfile_writeuint16(FILE* hnd, uint16_t byte)
+{
+    size_t rsz;
     rsz = fwrite(&byte, sizeof(uint16_t), 1, hnd);
+    return rsz;
 }
 
-void boa_bcfile_writeuint32(FILE* hnd, uint32_t byte)
+size_t boa_bcfile_writeuint32(FILE* hnd, uint32_t byte)
 {
     size_t rsz;
-    (void)rsz;
     rsz = fwrite(&byte, sizeof(uint32_t), 1, hnd);
+    return rsz;
 }
 
-void boa_bcfile_writeuint64(FILE* hnd, uint64_t byte)
+size_t boa_bcfile_writeuint64(FILE* hnd, uint64_t byte)
 {
     size_t rsz;
-    (void)rsz;
     rsz = fwrite(&byte, sizeof(uint64_t), 1, hnd);
+    return rsz;
 }
 
-void boa_bcfile_writenumber(FILE* hnd, BoaNumber byte)
+size_t boa_bcfile_writenumber(FILE* hnd, BoaNumber byte)
 {
     size_t rsz;
-    (void)rsz;
     rsz = fwrite(&byte, sizeof(BoaNumber), 1, hnd);
+    return rsz;
 }
 
-void boa_bcfile_writestring(FILE* hnd, BoaString* string)
+void boa_util_writestringdata(FILE* hnd, const char* sdata, uint32_t slen)
 {
     uint8_t wch;
     uint8_t rch;
     uint32_t i;
-    boa_bcfile_writeuint32(hnd, boa_string_getlength(string));
-    for(i = 0; i < boa_string_getlength(string); i++)
+    for(i = 0; i < slen; i++)
+    {
+        rch = (uint8_t)sdata[i];
+        #if 1
+            wch = rch ^ BOA_CONFIG_BCSTRINGKEY;
+        #else
+            wch = rch;
+        #endif
+        boa_bcfile_writeuint8(hnd, wch);
+    }
+}
+
+void boa_bcfile_writestring(FILE* hnd, BoaString* string)
+{
+    uint32_t len;
+    uint32_t i;
+    uint8_t wch;
+    uint8_t rch;
+    len = boa_string_getlength(string);
+    boa_bcfile_writeuint32(hnd, len);
+    for(i = 0; i < len; i++)
     {
         rch = (uint8_t)boa_string_getat(string, i);
         #if 1
@@ -17193,10 +17292,12 @@ BoaValue boa_objfnfile_staticunlink(BoaState* state, BoaValue instance, size_t a
 BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     char ch;
+    int64_t written;
     BoaString* res;
     BoaFileData* data;
     (void)argc;
     (void)args;
+    written = 0;
     data = (BoaFileData*)boa_userdata_extractdata(instance);
     res = boa_string_makeemptystring(state, 64, false);
     while(true)
@@ -17204,6 +17305,10 @@ BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc,
         ch = boa_stream_getc(data->fdhandle);
         if(ch == EOF)
         {
+            if(written == 0)
+            {
+                goto fileiseof;
+            }
             break;
         }
         if(ch == '\n')
@@ -17211,8 +17316,14 @@ BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc,
             break;
         }
         boa_string_appendbyte(res, ch);
+        written++;
     }
-    return boa_value_fromobject(res);
+    //if(written > 0)
+    {
+        return boa_value_fromobject(res);
+    }
+    fileiseof:
+    return boa_value_makenull();
 }
 
 BoaValue boa_objfndirectory_exists(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
@@ -17413,6 +17524,14 @@ void boa_corelib_installgc(BoaState* state)
     boa_class_bindstaticgetter(klass, "nextRound", boa_objfngc_nextround);
     boa_class_bindstaticmethod(klass, "trigger", boa_objfngc_trigger);
 }
+
+void boa_state_openstdlibs(BoaState* state)
+{
+    boa_corelib_installmath(state);
+    boa_corelib_installfile(state);
+    boa_corelib_installgc(state);
+}
+
 
 BoaValue boa_objfnmath_abs(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -17643,9 +17762,7 @@ void boa_corelib_installmath(BoaState* state)
 bool boa_fiber_ensureframes(BoaState* state, BoaFiber* fiber)
 {
     size_t incsize;
-    size_t oldsize;
     size_t inccap;
-    (void)oldsize;
     if(fiber == NULL)
     {
         boa_vm_raisefatalerror(state, "no Fiber to run on");
@@ -17654,7 +17771,6 @@ bool boa_fiber_ensureframes(BoaState* state, BoaFiber* fiber)
     if(fiber->framecount + 1 > fiber->framecapacity)
     {
         inccap = (fiber->framecapacity * 2);
-        oldsize = (sizeof(BoaCallFrame) * fiber->framecapacity);
         incsize = (sizeof(BoaCallFrame) * inccap);
         fiber->framevals = (BoaCallFrame*)boa_sysmem_realloc(fiber->framevals, incsize);
         if(fiber->framevals == NULL)
@@ -18725,8 +18841,9 @@ BoaState* boa_state_make()
     boa_astparser_init(state, (BoaAstParser*)state->activeparser);
     state->activeemitter = (BoaAstEmitter*)boa_sysmem_malloc(sizeof(BoaAstEmitter));
     boa_emitter_init(state, state->activeemitter);
-    boa_state_opencorelibrary(state);
-    boa_state_openlibraries(state);
+    boa_state_openstdclasses(state);
+    boa_state_openstdlibs(state);
+    boa_state_openglobalfuncs(state);
     {
         #if 0
             boa_state_setglobal(state, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
@@ -19251,10 +19368,8 @@ bool boa_vm_raiseerror(BoaState* state, const char* format, ...)
 BoaValue boa_vm_raiseexception(BoaState* state, BoaException* exclass, const char* format, ...)
 {
     va_list args;
-    bool result;
-    (void)result;
     va_start(args, format);
-    result = boa_vm_raiseerrorva(state, exclass, format, args);
+    boa_vm_raiseerrorva(state, exclass, format, args);
     va_end(args);
     return boa_value_makenull();
 }
@@ -21376,7 +21491,7 @@ static void boa_repl_freeline(linocontext_t* lictx, char* line)
     lino_context_freeline(lictx, line);
 }
 
-size_t boa_repl_makeresultname(char* buf, int level)
+size_t boa_repl_makevarname(char* buf, int level)
 {
     return sprintf(buf, "$%d", level);
 }
@@ -21386,7 +21501,7 @@ const char* boa_repl_setresultvar(BoaState* state, int level, BoaValue val)
     size_t len;
     BoaString* str;
     char buf[128];
-    len = boa_repl_makeresultname(buf, level);
+    len = boa_repl_makevarname(buf, level);
     str = boa_string_copylen(state, buf, len);
     boa_state_setglobal(state, str, val);
     return boa_string_getdata(str);
@@ -21652,6 +21767,7 @@ int main(int argc, char* argv[], char** envp)
     optprs_init(&options, argc, argv, &cli);
     options.permute = 0;
     optprs_add(&options, on_flag, "help", 'h', OPTPARSE_NONE, "this help");
+    optprs_add(&options, on_flag, "compileto", 'o', OPTPARSE_REQUIRED, "compile input script file to <val>");
     optprs_add(&options, on_flag, "dump", 'd', OPTPARSE_NONE, "dump instructions");
     optprs_add(&options, on_flag, "ast", 'a', OPTPARSE_NONE, "dump AST");
     optprs_add(&options, on_flag, "eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code");

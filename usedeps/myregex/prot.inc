@@ -1,0 +1,21 @@
+/* main.c */
+static inline void mrx_guts_doinvert(int *macn, RegexToken *token);
+static inline void mrx_guts_cleartoken(RegexToken *token);
+static inline bool mrx_guts_pushtoken(RegexContext *ctx, RegexToken *token, int64_t tokenslen, int16_t *k, int *macn);
+static inline void mrx_guts_setmasktoken(RegexToken *token, int bc);
+static inline void mrx_guts_setmaskall(RegexToken *token, int *macn);
+static inline void mrx_context_initctx(RegexContext *ctx, bool onstack);
+void mrx_context_destroy(RegexContext *ctx);
+void mrx_context_seterror(RegexContext *ctx, const char *fmt, ...);
+static inline int mrx_util_isquantchar(int c);
+static inline int mrx_regex_parse(RegexContext *ctx, const char *pattern, int32_t flags);
+static inline bool mrx_guts_checkmask(RegexToken *tokens, int K, int byte);
+static inline bool mrx_guts_rwnddosave(RegexContext *ctx, int i, int k, int isdummy, uint16_t *stn, int stszm, uint64_t rngmin, uint64_t rngmax, RegexMState *rws, uint32_t *qgs, uint32_t *qgstate);
+static inline int mrx_guts_rwndorabort(RegexContext *ctx, uint16_t *stn, uint64_t *rngmin, uint64_t *rngmax, uint64_t *i, uint32_t *k, uint8_t *justrewinded, RegexMState *rws, uint32_t *qgs, uint32_t *qgstate);
+static inline bool _REGEX_CHECK_IS_W(uint64_t *wmask, int byte);
+static inline int64_t mrx_regex_match(RegexContext *ctx, const char *text, size_t starti, uint16_t capslots, int64_t *cappos, int64_t *capspan);
+static inline void mrx_guts_printcsmart(int c);
+static inline void mrx_regex_printtokens(RegexToken *tokens);
+int myprintf(const char *fmt, ...);
+void testify(void);
+int main(void);

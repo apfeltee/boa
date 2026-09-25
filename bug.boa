@@ -1,6 +1,14 @@
 
-fh = File.open("stuff.txt", "wb")
+rx = Regexp('^\s*#')
+fh = File.open("Makefile", "rb")
 println(`fh = ${fh}`)
-fh.write("blah")
+
+while((line = fh.readLine()) != null)
+{
+    if(rx.match(line))
+    {
+        println(`line = ${line}`)
+    }
+}
 println("after print?\n")
 //fh.close()
