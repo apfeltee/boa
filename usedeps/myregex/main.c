@@ -35,7 +35,7 @@ void testify(void)
 {
     PCRE2_SIZE erroroffset;
     PCRE2_SIZE* ovector;
-    RegexContext ctx;
+    MRXContext ctx;
     bool has_possessive;
     clock_t start;
     const char* slowest_my_regex;
@@ -440,7 +440,7 @@ void testify(void)
             memset(cap_pos, 0xFF, sizeof(cap_pos));
             memset(cap_span, 0xFF, sizeof(cap_span));
 
-            match_len = mrx_regex_match(&ctx, text, 0, 16, cap_pos, cap_span);
+            match_len = mrx_regex_match(&ctx, text, strlen(text), 0, 16, cap_pos, cap_span);
 
             assert(match_len != -3);
                 t = (clock() - start) / 1000000.0;
@@ -502,7 +502,7 @@ void testify(void)
     assert(!e);
     memset(cap_pos, 0xFF, sizeof(cap_pos));
     memset(cap_span, 0xFF, sizeof(cap_span));
-    matchlen = mrx_regex_match(&ctx, "aaaaaabbbabaqa", 0, 5, cap_pos, cap_span);
+    matchlen = mrx_regex_match(&ctx, "aaaaaabbbabaqa", strlen("aaaaaabbbabaqa"), 0, 5, cap_pos, cap_span);
     myprintf("Match length: %zd\n", matchlen);
     for(i = 0; i < 5; i++)
         myprintf("Capture %d: %zd plus %zd\n", i, cap_pos[i], cap_span[i]);
@@ -517,7 +517,7 @@ void testify(void)
         start = clock();
         for(i = 0; i < 1000000; i++)
         {
-            matchlen = mrx_regex_match(&ctx, "3.1415926535", 0, 0, 0, 0);
+            matchlen = mrx_regex_match(&ctx, "3.1415926535", strlen("3.1415926535"), 0, 0, 0, 0);
             assert(matchlen == 12);
             a = 0;
             /* force the loop to not be optimized away */

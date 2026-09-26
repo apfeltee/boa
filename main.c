@@ -1615,7 +1615,7 @@ struct BoaFileData
 struct BoaRegexData
 {
     BoaInstance innerobject;
-    RegexContext rxctx;
+    MRXContext rxctx;
 };
 
 struct BoaUTF8Iterator
@@ -16018,7 +16018,7 @@ BoaValue boa_objfnregex_constructor(BoaState* state, BoaValue instance, size_t a
     BoaRegexData* data;
     BoaClass* rxclass;
     BoaChecker check;
-    RegexContext rx;
+    MRXContext rx;
     (void)argc;
     BOA_CHECK_INIT(state, &check, "Regexp::constructor", argc, args);
     BOA_CHECK_REQUIREARGS(&check, 1);
@@ -16061,7 +16061,8 @@ BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, B
     memset(cappos, 0xFF, sizeof(cappos));
     memset(capspan, 0xFF, sizeof(capspan));
     textstr = boa_string_getdata(instr);
-    matchcnt = mrx_regex_match(&data->rxctx, textstr, 0, kMaxCaps, cappos, capspan);
+    textlen = boa_string_getlength(instr);
+    matchcnt = mrx_regex_match(&data->rxctx, textstr, textlen, 0, kMaxCaps, cappos, capspan);
     #if 1
         fprintf(stderr, "Regexp::match: matchcnt=%ld\n", matchcnt);
     #endif

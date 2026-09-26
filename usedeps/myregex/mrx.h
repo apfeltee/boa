@@ -2,7 +2,7 @@
 #pragma once
 
 /************
- 
+
     REMIMU: SINGLE HEADER C/C++ REGEX LIBRARY
 
     Compatible with C99 and C++11 and later standards. Uses backtracking and relatively standard regex syntax.
@@ -13,25 +13,25 @@ FUNCTIONS
 
     //  Returns 0 on success, or -1 on invalid or unsupported regex, or -2 on not enough tokens given to parse regex.
     MRX_INLINE int mrx_regex_parse(
-        RegexContext* ctx,
+        MRXContext* ctx,
         //  Regex pattern to parse. Must be null-terminated.
-        const char * pattern,       
+        const char * pattern,
         //  Output buffer of tokencount regex tokens
-        RegexToken * tokens,
+        MRXToken * tokens,
         //  Maximum allowed number of tokens to write
         int16_t * tokencount,
         // Optional bitflags.
         int32_t flags
-        
+
     )
-    
+
     // Returns match length, or -1 on no match, or -2 on out of memory, or -3 ifthe regex is invalid.
     MRX_INLINE int64_t mrx_regex_match(
-        RegexContext* ctx,
-        // Parsed regex to match against text.
-        const RegexToken * tokens,
+        MRXContext* ctx,
+        // Parsed regex to match against textstr.
+        const MRXToken * tokens,
         // Text to match against tokens.
-        const char * text,
+        const char * textstr,
         // index value to match at.
         size_t starti,
         // Number of allowed capture info output slots.
@@ -40,11 +40,11 @@ FUNCTIONS
         int64_t* cappos,
         // Capture length info output buffer.
         int64_t* capspan
-    ) 
-    
+    )
+
     MRX_INLINE void mrx_regex_printtokens(
         // Regex tokens to spew to stdout, fordebugging.
-        RegexToken* tokens
+        MRXToken* tokens
     )
 
 PERFORMANCE
@@ -98,30 +98,30 @@ NOT SUPPORTED
 USAGE
 
     // minimal:
-    
-    RegexContext ctx; 
-    RegexToken tokens[1024];
+
+    MRXContext ctx;
+    MRXToken tokens[1024];
     int16_t tokencount = 1024;
     mrx_context_init(&ctx);
     int e = mrx_regex_parse(&ctx, "[0-9]+\\.[0-9]+", tokens, &tokencount, 0);
     assert(!e);
-    
+
     int64_t matchlen = mrx_regex_match(&ctx, tokens, "23.53) ", 0, 0, 0, 0);
     printf("########### return: %d\n", matchlen);
-    
+
     // with captures:
-    RegexContext ctx; 
-    RegexToken tokens[256];
+    MRXContext ctx;
+    MRXToken tokens[256];
     int16_t tokencount = sizeof(tokens)/sizeof(tokens[0]);
     mrx_context_init(&xtx);
     int e = mrx_regex_parse(&ctx, "((a)|(b))++", tokens, &tokencount, 0);
     assert(!e);
-    
+
     int64_t cappos[5];
     int64_t capspan[5];
     memset(cappos, 0xFF, sizeof(cappos));
     memset(capspan, 0xFF, sizeof(capspan));
-    
+
     int64_t matchlen = mrx_regex_match(&ctx, tokens, "aaaaaabbbabaqa", 0, 5, cappos, capspan);
     printf("Match length: %d\n", matchlen);
     for(int i = 0; i < 5; i++)
@@ -194,49 +194,48 @@ enum
     MRX_STATE_CCRANGE = 6
 };
 
-typedef struct RegexMState RegexMState;
-typedef struct RegexContext RegexContext;
-typedef struct RegexToken RegexToken;
+typedef struct MRXMatchState MRXMatchState;
+typedef struct MRXContext MRXContext;
+typedef struct MRXToken MRXToken;
 
-struct RegexMState
+struct MRXMatchState
 {
     uint32_t k;
-    uint32_t group_state; /*  quantified group temp state (e.g. number of repetitions) */
+    uint32_t groupstate; /*  quantified group temp state (e.g. number of repetitions) */
     uint32_t prev; /*  for)s, stack index of corresponding previous quantified state */
     uint64_t i;
-    uint64_t range_min;
-    uint64_t range_max;
+    uint64_t rangemin;
+    uint64_t rangemax;
 };
 
-
-struct RegexToken
+struct MRXToken
 {
     uint8_t kind;
     uint8_t mode;
-    uint16_t count_lo;
+    uint16_t countlow;
     /*  0 means no limit */
-    uint16_t count_hi;
+    uint16_t counthigh;
     /*  forgroups: mask 0 stores group-with-quantifier number (quantifiers are +, *, ?, {n}, {n,}, or {n,m}) */
     uint16_t mask[16];
     /*  from ( or ), offset in token list to matching paren. TODO: move into mask maybe */
-    int16_t pair_offset;
+    int16_t pairoffset;
 };
 
-struct RegexContext
+struct MRXContext
 {
     bool haderror;
     bool isallocated;
     size_t maxtokens;
     size_t tokencount;
     char errorbuf[1024];
-    RegexToken tokens[256];
+    MRXToken tokens[256];
 };
 
-MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t flags);
-MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t starti, uint16_t capslots, int64_t* cappos, int64_t* capspan);
-MRX_INLINE void mrx_regex_printtokens(RegexToken* tokens);
+MRX_INLINE int mrx_regex_parse(MRXContext* ctx, const char* pattern, int32_t flags);
+MRX_INLINE int64_t mrx_regex_match(MRXContext* ctx, const char* textstr, size_t textlen, size_t starti, uint16_t capslots, int64_t* cappos, int64_t* capspan);
+MRX_INLINE void mrx_regex_printtokens(MRXToken* tokens);
 
-MRX_INLINE void mrx_guts_doinvert(int* macn, RegexToken* token)
+MRX_INLINE void mrx_guts_doinvert(int* macn, MRXToken* token)
 {
     for(*macn = 0; (*macn) < 16; (*macn)++)
     {
@@ -245,14 +244,14 @@ MRX_INLINE void mrx_guts_doinvert(int* macn, RegexToken* token)
     token->mode &= ~MRX_MODE_INVERTED;
 }
 
-MRX_INLINE void mrx_guts_cleartoken(RegexToken* token)
+MRX_INLINE void mrx_guts_cleartoken(MRXToken* token)
 {
-    memset(token, 0, sizeof(RegexToken));
-    token->count_lo = 1;
-    token->count_hi = 2;
+    memset(token, 0, sizeof(MRXToken));
+    token->countlow = 1;
+    token->counthigh = 2;
 }
 
-MRX_INLINE bool mrx_guts_pushtoken(RegexContext* ctx, RegexToken* token, int64_t tokenslen, int16_t* k, int* macn)
+MRX_INLINE bool mrx_guts_pushtoken(MRXContext* ctx, MRXToken* token, int64_t tokenslen, int16_t* k, int* macn)
 {
     if((*k) == 0 || ctx->tokens[(*k) - 1].kind != token->kind || (token->kind != MRX_KIND_BOUND && token->kind != MRX_KIND_NBOUND))
     {
@@ -271,12 +270,12 @@ MRX_INLINE bool mrx_guts_pushtoken(RegexContext* ctx, RegexToken* token, int64_t
     return true;
 }
 
-MRX_INLINE void mrx_guts_setmasktoken(RegexToken* token, int bc)
+MRX_INLINE void mrx_guts_setmasktoken(MRXToken* token, int bc)
 {
     token->mask[((uint8_t)(bc)) >> 4] |= 1 << ((uint8_t)(bc) & 0xF);
 }
 
-MRX_INLINE void mrx_guts_setmaskall(RegexToken* token, int* macn)
+MRX_INLINE void mrx_guts_setmaskall(MRXToken* token, int* macn)
 {
     for((*macn) = 0; (*macn) < 16; (*macn)++)
     {
@@ -284,7 +283,7 @@ MRX_INLINE void mrx_guts_setmaskall(RegexToken* token, int* macn)
     }
 }
 
-MRX_INLINE void mrx_context_initctx(RegexContext* ctx, bool onstack)
+MRX_INLINE void mrx_context_initctx(MRXContext* ctx, bool onstack)
 {
     ctx->isallocated = (onstack ? false : true);
     ctx->haderror = false;
@@ -293,10 +292,10 @@ MRX_INLINE void mrx_context_initctx(RegexContext* ctx, bool onstack)
 }
 
 #if 0
-MRX_INLINE RegexContext* mrx_context_init(RegexToken* tokens, size_t maxtokens)
+MRX_INLINE MRXContext* mrx_context_init(MRXToken* tokens, size_t maxtokens)
 {
-    RegexContext* ctx;
-    ctx = (RegexContext*)boa_sysmem_malloc(sizeof(RegexContext));
+    MRXContext* ctx;
+    ctx = (MRXContext*)boa_sysmem_malloc(sizeof(MRXContext));
     if(ctx == NULL)
     {
         return NULL;
@@ -306,18 +305,18 @@ MRX_INLINE RegexContext* mrx_context_init(RegexToken* tokens, size_t maxtokens)
 }
 #endif
 
-void mrx_context_destroy(RegexContext* ctx)
+void mrx_context_destroy(MRXContext* ctx)
 {
     if(!ctx->isallocated)
     {
         return;
     }
-    #if 0
+#if 0
     boa_sysmem_free(ctx);
-    #endif
+#endif
 }
 
-void mrx_context_seterror(RegexContext* ctx, const char* fmt, ...)
+void mrx_context_seterror(MRXContext* ctx, const char* fmt, ...)
 {
     va_list va;
     ctx->haderror = true;
@@ -329,8 +328,7 @@ void mrx_context_seterror(RegexContext* ctx, const char* fmt, ...)
 
 MRX_INLINE int mrx_util_isquantchar(int c)
 {
-    return (c == '{' || c == '}' || c == '[' || c == ']' || c == '-' || c == '(' || c == ')' || c == '|' || c == '^' || c == '$' || c == '*' || c == '+'
-            || c == '?' || c == ':' || c == '.' || c == '/' || c == '\\');
+    return (c == '{' || c == '}' || c == '[' || c == ']' || c == '-' || c == '(' || c == ')' || c == '|' || c == '^' || c == '$' || c == '*' || c == '+' || c == '?' || c == ':' || c == '.' || c == '/' || c == '\\');
 }
 
 /*
@@ -343,9 +341,9 @@ MRX_INLINE int mrx_util_isquantchar(int c)
   Sets tokencount to zero ifa regex is not created but no error happened (e.g. empty pattern).
   Flags: Not yet used.
   SAFETY: Pattern must be null-terminated.
-  SAFETY: tokens buffer must have at least the input tokencount number of RegexToken objects. They are allowed to be uninitialized.
+  SAFETY: tokens buffer must have at least the input tokencount number of MRXToken objects. They are allowed to be uninitialized.
 */
-MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t flags)
+MRX_INLINE int mrx_regex_parse(MRXContext* ctx, const char* pattern, int32_t flags)
 {
     int escstate;
     int state;
@@ -373,7 +371,7 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
     int balance;
     ptrdiff_t found;
     uint16_t m[16];
-    RegexToken token;
+    MRXToken token;
     tokenslen = ctx->maxtokens;
     patternlen = strlen(pattern);
     if(ctx->maxtokens == 0)
@@ -394,8 +392,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
     (this allows the matcher to not need to have a special root-level alternation operator case)
     */
     token.kind = MRX_KIND_OPEN;
-    token.count_lo = 0;
-    token.count_hi = 0;
+    token.countlow = 0;
+    token.counthigh = 0;
     parencount = 0;
     for(i = 0; i < patternlen; i++)
     {
@@ -406,22 +404,22 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
             if(c == '?')
             {
                 /* first non-allowed amount */
-                token.count_lo = 0;
-                token.count_hi = 2;
+                token.countlow = 0;
+                token.counthigh = 2;
                 continue;
             }
             else if(c == '+')
             {
                 /* unlimited */
-                token.count_lo = 1;
-                token.count_hi = 0;
+                token.countlow = 1;
+                token.counthigh = 0;
                 continue;
             }
             else if(c == '*')
             {
                 /* unlimited */
-                token.count_lo = 0;
-                token.count_hi = 0;
+                token.countlow = 0;
+                token.counthigh = 0;
                 continue;
             }
             else if(c == '{')
@@ -446,11 +444,11 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                         }
                         i += 1;
                     }
-                    token.count_lo = val;
-                    token.count_hi = val + 1;
+                    token.countlow = val;
+                    token.counthigh = val + 1;
                     if(pattern[i] == ',')
                     {
-                        token.count_hi = 0; /*  unlimited */
+                        token.counthigh = 0; /*  unlimited */
                         i += 1;
 
                         if(pattern[i] >= '0' && pattern[i] <= '9')
@@ -470,10 +468,10 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                             }
                             if(val2 < val)
                             {
-                                mrx_context_seterror(ctx,"quantifier range is backwards");
+                                mrx_context_seterror(ctx, "quantifier range is backwards");
                                 return -1; /*  unsupported length */
                             }
-                            token.count_hi = val2 + 1;
+                            token.counthigh = val2 + 1;
                         }
                     }
                     if(pattern[i] == '}')
@@ -640,8 +638,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                     parencount += 1;
                     state = MRX_STATE_NORMAL;
                     token.kind = MRX_KIND_OPEN;
-                    token.count_lo = 0;
-                    token.count_hi = 1;
+                    token.countlow = 0;
+                    token.counthigh = 1;
                     if(pattern[i + 1] == '?' && pattern[i + 2] == ':')
                     {
                         token.kind = MRX_KIND_NCOPEN;
@@ -657,8 +655,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                         state = MRX_STATE_NORMAL;
                         token.kind = MRX_KIND_NCOPEN;
                         token.mode = MRX_MODE_POSSESSIVE;
-                        token.count_lo = 1;
-                        token.count_hi = 2;
+                        token.countlow = 1;
+                        token.counthigh = 2;
                         i += 2;
                     }
                 }
@@ -704,8 +702,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                         mrx_context_seterror(ctx, "difference too large");
                         return -1; /*  too long */
                     }
-                    token.pair_offset = -diff;
-                    ctx->tokens[found].pair_offset = diff;
+                    token.pairoffset = -diff;
+                    ctx->tokens[found].pairoffset = diff;
                     /*  phantom group foratomic group emulation */
                     if(ctx->tokens[found].mode == MRX_MODE_POSSESSIVE)
                     {
@@ -715,8 +713,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                         }
                         token.kind = MRX_KIND_CLOSE;
                         token.mode = MRX_MODE_POSSESSIVE;
-                        token.pair_offset = -diff - 2;
-                        ctx->tokens[found - 1].pair_offset = diff + 2;
+                        token.pairoffset = -diff - 2;
+                        ctx->tokens[found - 1].pairoffset = diff + 2;
                     }
                 }
                 else if(c == '?' || c == '+' || c == '*' || c == '{')
@@ -823,8 +821,7 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
                     escc = (n1 << 4) | n0;
                     i += 2;
                 }
-                else if(c == '{' || c == '}' || c == '[' || c == ']' || c == '-' || c == '(' || c == ')' || c == '|' || c == '^' || c == '$' || c == '*'
-                        || c == '+' || c == '?' || c == ':' || c == '.' || c == '/' || c == '\\')
+                else if(c == '{' || c == '}' || c == '[' || c == ']' || c == '-' || c == '(' || c == ')' || c == '|' || c == '^' || c == '$' || c == '*' || c == '+' || c == '?' || c == ':' || c == '.' || c == '/' || c == '\\')
                 {
                     escc = c;
                 }
@@ -953,8 +950,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
     }
     /*  add invisible non-capturing group specifier */
     token.kind = MRX_KIND_CLOSE;
-    token.count_lo = 1;
-    token.count_hi = 2;
+    token.countlow = 1;
+    token.counthigh = 2;
     if(!mrx_guts_pushtoken(ctx, &token, tokenslen, &k, &macn))
     {
         return -2;
@@ -965,8 +962,8 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
     {
         return -2;
     }
-    ctx->tokens[0].pair_offset = k - 2;
-    ctx->tokens[k - 2].pair_offset = -(k - 2);
+    ctx->tokens[0].pairoffset = k - 2;
+    ctx->tokens[k - 2].pairoffset = -(k - 2);
     ctx->tokencount = k;
     /*  copy quantifiers from )s to (s (so (s know whether they're optional) */
     /*  also take the opportunity to smuggle "quantified group index" into the mask field forthe ) */
@@ -976,9 +973,9 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
         if(ctx->tokens[k2].kind == MRX_KIND_CLOSE)
         {
             ctx->tokens[k2].mask[0] = n++;
-            k3 = k2 + ctx->tokens[k2].pair_offset;
-            ctx->tokens[k3].count_lo = ctx->tokens[k2].count_lo;
-            ctx->tokens[k3].count_hi = ctx->tokens[k2].count_hi;
+            k3 = k2 + ctx->tokens[k2].pairoffset;
+            ctx->tokens[k3].countlow = ctx->tokens[k2].countlow;
+            ctx->tokens[k3].counthigh = ctx->tokens[k2].counthigh;
             ctx->tokens[k3].mask[0] = n++;
             ctx->tokens[k3].mode = ctx->tokens[k2].mode;
             /* if(n > 65535) */
@@ -1029,7 +1026,7 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
             }
             if(ctx->tokens[k2].kind == MRX_KIND_OR)
             {
-                ctx->tokens[k2].pair_offset = diff;
+                ctx->tokens[k2].pairoffset = diff;
             }
             else
             {
@@ -1040,66 +1037,55 @@ MRX_INLINE int mrx_regex_parse(RegexContext* ctx, const char* pattern, int32_t f
     return 0;
 }
 
-
 /*  NOTE: undef'd later */
-MRX_INLINE bool mrx_guts_checkmask(RegexToken* tokens, int K, int byte)
+MRX_INLINE bool mrx_guts_checkmask(MRXToken* tokens, int k, int byte)
 {
-    return (!!(tokens[K].mask[((uint8_t)byte) >> 4] & (1 << ((uint8_t)byte & 0xF))));
+    return (!!(tokens[k].mask[((uint8_t)byte) >> 4] & (1 << ((uint8_t)byte & 0xF))));
 }
 
-MRX_INLINE bool mrx_guts_rwnddosave(RegexContext* ctx, int i, int k, int isdummy, uint16_t* stn, int stszm, uint64_t rngmin, uint64_t rngmax, RegexMState* rws, uint32_t* qgs, uint32_t* qgstate)
+MRX_INLINE bool mrx_guts_rwnddosave(MRXContext* ctx, int i, int k, int isdummy, uint16_t* stn, int stszm, uint64_t rngmin, uint64_t rngmax, MRXMatchState* rws, uint32_t* qgs, const uint32_t* qgstate)
+{
+    MRXMatchState s;
+    if((*stn) >= stszm)
     {
-        RegexMState s;
-        if((*stn) >= stszm)
-        {
-            mrx_context_seterror(ctx, "out of backtracking room. returning");
-            return false;
-        }
-        memset(&s, 0, sizeof(RegexMState));
-        s.i = i;
-        s.k = k;
-        s.range_min = rngmin;
-        s.range_max = rngmax;
-        s.prev = 0;
-        if(isdummy)
-        {
-            s.prev = 0xFAC7;
-        }
-        else if(ctx->tokens[s.k].kind == MRX_KIND_CLOSE)
-        {
-            s.group_state = qgstate[ctx->tokens[s.k].mask[0]];
-            s.prev = qgs[ctx->tokens[s.k].mask[0]];
-            qgs[ctx->tokens[s.k].mask[0]] = (*stn);
-        }
-        rws[(*stn)++] = s;
-        return true;
+        mrx_context_seterror(ctx, "out of backtracking room. returning");
+        return false;
+    }
+    memset(&s, 0, sizeof(MRXMatchState));
+    s.i = i;
+    s.k = k;
+    s.rangemin = rngmin;
+    s.rangemax = rngmax;
+    s.prev = 0;
+    if(isdummy)
+    {
+        s.prev = 0xFAC7;
+    }
+    else if(ctx->tokens[s.k].kind == MRX_KIND_CLOSE)
+    {
+        s.groupstate = qgstate[ctx->tokens[s.k].mask[0]];
+        s.prev = qgs[ctx->tokens[s.k].mask[0]];
+        qgs[ctx->tokens[s.k].mask[0]] = (*stn);
+    }
+    rws[(*stn)++] = s;
+    return true;
+}
+
+#define mrx_guts_macrwnddosavedummy(k)                                                                                         \
+    if(!mrx_guts_rwnddosave(ctx, i, k, 1, &stackn, stacksizemax, rngmin, rngmax, rewindstack, qgroupstack, qgroupstate)) \
+    {                                                                                                                          \
+        return -2;                                                                                                             \
     }
 
-#define mrx_guts_macrwnddosavedummy(K) \
-    if(!mrx_guts_rwnddosave(ctx, i, K, 1, &stackn, stacksizemax, range_min, range_max, rewindstack, qgroupstack, qgroupstate)) \
-    { \
-        return -2; \
-    }
-
-#define mrx_guts_macrwnddosave(K) \
-    if(!mrx_guts_rwnddosave(ctx, i, K, 0, &stackn, stacksizemax, range_min, range_max, rewindstack, qgroupstack, qgroupstate)) \
-    { \
-        return -2; \
+#define mrx_guts_macrwnddosave(k)                                                                                              \
+    if(!mrx_guts_rwnddosave(ctx, i, k, 0, &stackn, stacksizemax, rngmin, rngmax, rewindstack, qgroupstack, qgroupstate)) \
+    {                                                                                                                          \
+        return -2;                                                                                                             \
     }
 
 /*  Returns 0 if a rewind state was popped (the match should continue from it).
  * Returns -1 if the rewind stack was empty (the caller should return -1 for no match). */
-MRX_INLINE int mrx_guts_rwndorabort(
-    RegexContext* ctx,
-    uint16_t* stn,
-    uint64_t* rngmin,
-    uint64_t* rngmax,
-    uint64_t* i,
-    uint32_t* k,
-    uint8_t* justrewinded,
-    RegexMState* rws,
-    uint32_t* qgs,
-    uint32_t* qgstate)
+MRX_INLINE int mrx_guts_rwndorabort(MRXContext* ctx, uint16_t* stn, uint64_t* rmin, uint64_t* rmax, uint64_t* i, uint32_t* k, uint8_t* jrwnd, MRXMatchState* rws, uint32_t* qgs, uint32_t* qgstate)
 {
     if((*stn) == 0)
     {
@@ -1110,15 +1096,15 @@ MRX_INLINE int mrx_guts_rwndorabort(
     {
         (*stn) -= 1;
     }
-    (*justrewinded) = 1;
-    (*rngmin) = rws[(*stn)].range_min;
-    (*rngmax) = rws[(*stn)].range_max;
+    (*jrwnd) = 1;
+    (*rmin) = rws[(*stn)].rangemin;
+    (*rmax) = rws[(*stn)].rangemax;
     assert(rws[(*stn)].i <= (*i));
     (*i) = rws[(*stn)].i;
     (*k) = rws[(*stn)].k;
     if(ctx->tokens[(*k)].kind == MRX_KIND_CLOSE)
     {
-        qgstate[ctx->tokens[(*k)].mask[0]] = rws[(*stn)].group_state;
+        qgstate[ctx->tokens[(*k)].mask[0]] = rws[(*stn)].groupstate;
         qgs[ctx->tokens[(*k)].mask[0]] = rws[(*stn)].prev;
     }
     /*  the -= 1 is because of the k++ in the forloop */
@@ -1126,29 +1112,28 @@ MRX_INLINE int mrx_guts_rwndorabort(
     return 0;
 }
 
-MRX_INLINE bool _REGEX_CHECK_IS_W(uint64_t* wmask, int byte)
+MRX_INLINE bool _REGEX_CHECK_IS_W(const uint64_t* wmask, int byte)
 {
     return (!!(wmask[((uint8_t)byte) >> 4] & (1 << ((uint8_t)byte & 0xF))));
 }
 
 /*  Returns match length iftext starts with a regex match.
-* Returns -1 ifthe text doesn't start with a regex match.
-* Returns -2 ifthe matcher ran out of memory or the regex is too complex.
-* Returns -3 ifthe regex is somehow invalid.
-* The first capslots capture positions and spans (lengths) will be written to cappos and capspan. If zero, will not be written to.
-* SAFETY: The text variable must be null-terminated, and starti must be the index of a character within the string or its null terminator.
-* SAFETY: Tokens array must be terminated by a MRX_KIND_END token (done by default by mrx_regex_parse).
-* SAFETY: Partial capture data may be written even ifthe match fails.
-*/
+ * Returns -1 ifthe textstr doesn't start with a regex match.
+ * Returns -2 ifthe matcher ran out of memory or the regex is too complex.
+ * Returns -3 ifthe regex is somehow invalid.
+ * The first capslots capture positions and spans (lengths) will be written to cappos and capspan. If zero, will not be written to.
+ * SAFETY: The textstr variable must be null-terminated, and starti must be the index of a character within the string or its null terminator.
+ * SAFETY: Tokens array must be terminated by a MRX_KIND_END token (done by default by mrx_regex_parse).
+ * SAFETY: Partial capture data may be written even ifthe match fails.
+ */
 
-MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t starti, uint16_t capslots, int64_t* cappos, int64_t* capspan)
+MRX_INLINE int64_t mrx_regex_match(MRXContext* ctx, const char* textstr, size_t textlen, size_t starti, uint16_t capslots, int64_t* cappos, int64_t* capspan)
 {
     enum
     {
         stacksizemax = 1024,
         auxstatssize = 1024
     };
-
     int kind;
     size_t n;
     uint64_t tokenslen;
@@ -1156,8 +1141,8 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
     uint16_t caps;
     uint16_t stackn;
     uint64_t i;
-    uint64_t range_min;
-    uint64_t range_max;
+    uint64_t rngmin;
+    uint64_t rngmax;
     uint8_t justrewinded;
     size_t iterlimit;
     uint64_t origk;
@@ -1178,7 +1163,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
     /* location of most recent corresponding ) on stack. 0 means nowhere */
     uint32_t qgroupstack[auxstatssize];
     uint16_t qgroupcapindex[auxstatssize];
-    RegexMState rewindstack[stacksizemax];
+    MRXMatchState rewindstack[stacksizemax];
 
     if(capslots > auxstatssize)
     {
@@ -1193,7 +1178,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
         if(ctx->tokens[k].kind == MRX_KIND_OPEN && caps < capslots)
         {
             qgroupcapindex[ctx->tokens[k].mask[0]] = caps;
-            qgroupcapindex[ctx->tokens[k + ctx->tokens[k].pair_offset].mask[0]] = caps;
+            qgroupcapindex[ctx->tokens[k + ctx->tokens[k].pairoffset].mask[0]] = caps;
             cappos[caps] = -1;
             capspan[caps] = -1;
             caps += 1;
@@ -1215,8 +1200,8 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
     tokenslen = k;
     stackn = 0;
     i = starti;
-    range_min = 0;
-    range_max = 0;
+    rngmin = 0;
+    rngmax = 0;
     justrewinded = 0;
     /* used in boundary anchor checker */
     memset(wmask, 0, sizeof(wmask));
@@ -1238,56 +1223,80 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
         {
             if(i != 0)
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
             continue;
         }
         else if(ctx->tokens[k].kind == MRX_KIND_DOLLAR)
         {
-            if(text[i] != 0)
+            if(i < textlen)
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
             continue;
         }
         else if(ctx->tokens[k].kind == MRX_KIND_BOUND)
         {
-            if(i == 0 && !_REGEX_CHECK_IS_W(wmask, text[i]))
+            if(i == 0 && !_REGEX_CHECK_IS_W(wmask, textstr[i]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
-            else if(i != 0 && text[i] == 0 && !_REGEX_CHECK_IS_W(wmask, text[i - 1]))
+            else if(i != 0 && (i >= textlen) && !_REGEX_CHECK_IS_W(wmask, textstr[i - 1]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
-            else if(i != 0 && text[i] != 0 && _REGEX_CHECK_IS_W(wmask, text[i - 1]) == _REGEX_CHECK_IS_W(wmask, text[i]))
+            else if(i != 0 && (i < textlen) && _REGEX_CHECK_IS_W(wmask, textstr[i - 1]) == _REGEX_CHECK_IS_W(wmask, textstr[i]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
         }
         else if(ctx->tokens[k].kind == MRX_KIND_NBOUND)
         {
-            if(i == 0 && _REGEX_CHECK_IS_W(wmask, text[i]))
+            if(i == 0 && _REGEX_CHECK_IS_W(wmask, textstr[i]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
-            else if(i != 0 && text[i] == 0 && _REGEX_CHECK_IS_W(wmask, text[i - 1]))
+            else if(i != 0 && (i >= textlen) && _REGEX_CHECK_IS_W(wmask, textstr[i - 1]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
-            else if(i != 0 && text[i] != 0 && _REGEX_CHECK_IS_W(wmask, text[i - 1]) != _REGEX_CHECK_IS_W(wmask, text[i]))
+            else if(i != 0 && (i < textlen) && _REGEX_CHECK_IS_W(wmask, textstr[i - 1]) != _REGEX_CHECK_IS_W(wmask, textstr[i]))
             {
-                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                {
+                    return -1;
+                }
             }
         }
         else
         {
             /* deliberately unmatchable token (e.g. a{0}, a{0,0}) */
-            if(ctx->tokens[k].count_hi == 1)
+            if(ctx->tokens[k].counthigh == 1)
             {
                 if(ctx->tokens[k].kind == MRX_KIND_OPEN || ctx->tokens[k].kind == MRX_KIND_NCOPEN)
                 {
-                    k += ctx->tokens[k].pair_offset;
+                    k += ctx->tokens[k].pairoffset;
                 }
                 else
                 {
@@ -1303,17 +1312,17 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                     /* qgroupstate[ctx->tokens[k].mask[0]] = i; */
 
                     /*  ifwe're lazy and the min length is 0, we need to try the non-group case first */
-                    if((ctx->tokens[k].mode & MRX_MODE_LAZY) && (ctx->tokens[k].count_lo == 0 || qgroupacceptszero[ctx->tokens[k + ctx->tokens[k].pair_offset].mask[0]]))
+                    if((ctx->tokens[k].mode & MRX_MODE_LAZY) && (ctx->tokens[k].countlow == 0 || qgroupacceptszero[ctx->tokens[k + ctx->tokens[k].pairoffset].mask[0]]))
                     {
-                        range_min = 0;
-                        range_max = 0;
+                        rngmin = 0;
+                        rngmax = 0;
                         mrx_guts_macrwnddosave(k);
-                        k += ctx->tokens[k].pair_offset; /*  automatic += 1 will put us past the matching ) */
+                        k += ctx->tokens[k].pairoffset; /*  automatic += 1 will put us past the matching ) */
                     }
                     else
                     {
-                        range_min = 1;
-                        range_max = 0;
+                        rngmin = 1;
+                        rngmax = 0;
                         mrx_guts_macrwnddosave(k);
                     }
                 }
@@ -1321,12 +1330,12 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                 {
                     justrewinded = 0;
                     origk = k;
-                    if(range_min != 0)
+                    if(rngmin != 0)
                     {
-                        k += range_min;
+                        k += rngmin;
                         if(ctx->tokens[k - 1].kind == MRX_KIND_OR)
                         {
-                            k += ctx->tokens[k - 1].pair_offset - 1;
+                            k += ctx->tokens[k - 1].pairoffset - 1;
                         }
                         else if(ctx->tokens[k - 1].kind == MRX_KIND_OPEN || ctx->tokens[k - 1].kind == MRX_KIND_NCOPEN)
                         {
@@ -1339,7 +1348,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                         if(ctx->tokens[k].kind == MRX_KIND_CLOSE)
                         {
                             /*  do nothing and continue on ifwe don't need this group */
-                            if(ctx->tokens[k].count_lo == 0 || qgroupacceptszero[ctx->tokens[k].mask[0]])
+                            if(ctx->tokens[k].countlow == 0 || qgroupacceptszero[ctx->tokens[k].mask[0]])
                             {
                                 qgroupstate[ctx->tokens[k].mask[0]] = 0;
                                 if(!(ctx->tokens[k].mode & MRX_MODE_LAZY))
@@ -1351,7 +1360,10 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                             /*  otherwise go to the last point before the group */
                             else
                             {
-                                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                                {
+                                    return -1;
+                                }
                                 continue;
                             }
                         }
@@ -1359,14 +1371,14 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                         assert(ctx->tokens[k].kind == MRX_KIND_OR);
                     }
                     kdiff = k - origk;
-                    range_min = kdiff + 1;
+                    rngmin = kdiff + 1;
                     mrx_guts_macrwnddosave(k - kdiff);
                 }
             }
             else if(ctx->tokens[k].kind == MRX_KIND_CLOSE)
             {
                 /*  unquantified */
-                if(ctx->tokens[k].count_lo == 1 && ctx->tokens[k].count_hi == 2)
+                if(ctx->tokens[k].countlow == 1 && ctx->tokens[k].counthigh == 2)
                 {
                     /*  forcaptures */
                     capindex = qgroupcapindex[ctx->tokens[k].mask[0]];
@@ -1381,25 +1393,28 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                     if(!justrewinded)
                     {
                         prev = qgroupstack[ctx->tokens[k].mask[0]];
-                        range_max = ctx->tokens[k].count_hi;
-                        range_max -= 1;
-                        range_min = qgroupacceptszero[ctx->tokens[k].mask[0]] ? 0 : ctx->tokens[k].count_lo;
-                        /* assert(qgroupstate[ctx->tokens[k + ctx->tokens[k].pair_offset].mask[0]] <= i); */
+                        rngmax = ctx->tokens[k].counthigh;
+                        rngmax -= 1;
+                        rngmin = qgroupacceptszero[ctx->tokens[k].mask[0]] ? 0 : ctx->tokens[k].countlow;
+                        /* assert(qgroupstate[ctx->tokens[k + ctx->tokens[k].pairoffset].mask[0]] <= i); */
                         /* if(prev) assert(rewindstack[prev].i <= i); */
                         /*  minimum requirement not yet met */
-                        if(qgroupstate[ctx->tokens[k].mask[0]] + 1 < range_min)
+                        if(qgroupstate[ctx->tokens[k].mask[0]] + 1 < rngmin)
                         {
                             qgroupstate[ctx->tokens[k].mask[0]] += 1;
                             mrx_guts_macrwnddosave(k);
-                            k += ctx->tokens[k].pair_offset; /*  back to start of group */
+                            k += ctx->tokens[k].pairoffset; /*  back to start of group */
                             k -= 1; /*  ensure we actually hit the group node next and not the node after it */
                             continue;
                         }
                         /*  maximum allowance exceeded */
-                        else if(ctx->tokens[k].count_hi != 0 && qgroupstate[ctx->tokens[k].mask[0]] + 1 > range_max)
+                        else if(ctx->tokens[k].counthigh != 0 && qgroupstate[ctx->tokens[k].mask[0]] + 1 > rngmax)
                         {
-                            range_max -= 1;
-                            if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                            rngmax -= 1;
+                            if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                            {
+                                return -1;
+                            }
                             continue;
                         }
 
@@ -1410,7 +1425,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                         {
                             /*  find matching open paren */
                             n = stackn - 1;
-                            while(n > 0 && rewindstack[n].k != k + ctx->tokens[k].pair_offset)
+                            while(n > 0 && rewindstack[n].k != k + ctx->tokens[k].pairoffset)
                             {
                                 n -= 1;
                             }
@@ -1425,9 +1440,12 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                         if((forcezero || (prev != 0 && (uint32_t)rewindstack[prev].i == (uint32_t)i))) /*   && qgroupstate[ctx->tokens[k].mask[0]] > 0 */
                         {
                             qgroupacceptszero[ctx->tokens[k].mask[0]] = 1;
-                            if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
-                            /* range_max = qgroupstate[ctx->tokens[k].mask[0]]; */
-                            /* range_min = 0; */
+                            if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                            {
+                                return -1;
+                            }
+                            /* rngmax = qgroupstate[ctx->tokens[k].mask[0]]; */
+                            /* rngmin = 0; */
                         }
                         else if(ctx->tokens[k].mode & MRX_MODE_LAZY) /*  lazy */
                         {
@@ -1445,7 +1463,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                                 /*  special case forfirst, only rewind to (, not to ) */
                                 if(qgroupstate[ctx->tokens[k].mask[0]] == 0)
                                 {
-                                    k2 = k + ctx->tokens[k].pair_offset;
+                                    k2 = k + ctx->tokens[k].pairoffset;
                                 }
                                 if(stackn == 0)
                                 {
@@ -1462,11 +1480,11 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                                 }
                             }
                             /*  continue to next match ifsane */
-                            if((uint32_t)qgroupstate[ctx->tokens[k + ctx->tokens[k].pair_offset].mask[0]] < (uint32_t)i)
+                            if((uint32_t)qgroupstate[ctx->tokens[k + ctx->tokens[k].pairoffset].mask[0]] < (uint32_t)i)
                             {
                                 qgroupstate[ctx->tokens[k].mask[0]] += 1;
                                 mrx_guts_macrwnddosave(k);
-                                k += ctx->tokens[k].pair_offset; /*  back to start of group */
+                                k += ctx->tokens[k].pairoffset; /*  back to start of group */
                                 k -= 1; /*  ensure we actually hit the group node next and not the node after it */
                             }
                         }
@@ -1479,17 +1497,20 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                             /*  lazy rewind: need to try matching the group again */
                             mrx_guts_macrwnddosavedummy(k);
                             qgroupstack[ctx->tokens[k].mask[0]] = stackn;
-                            k += ctx->tokens[k].pair_offset; /*  back to start of group */
+                            k += ctx->tokens[k].pairoffset; /*  back to start of group */
                             k -= 1; /*  ensure we actually hit the group node next and not the node after it */
                         }
                         else
                         {
                             /*  greedy. ifwe're going to go outside the acceptable range, rewind */
                             /* uint64_t oldi = i; */
-                            if(qgroupstate[ctx->tokens[k].mask[0]] < range_min && !qgroupacceptszero[ctx->tokens[k].mask[0]])
+                            if(qgroupstate[ctx->tokens[k].mask[0]] < rngmin && !qgroupacceptszero[ctx->tokens[k].mask[0]])
                             {
                                 /* i = oldi; */
-                                if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                                if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                                {
+                                    return -1;
+                                }
                             }
                             /*  otherwise continue on to past the group */
                             else
@@ -1508,7 +1529,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
             }
             else if(ctx->tokens[k].kind == MRX_KIND_OR)
             {
-                k += ctx->tokens[k].pair_offset;
+                k += ctx->tokens[k].pairoffset;
                 k -= 1;
             }
             else if(ctx->tokens[k].kind == MRX_KIND_NORMAL)
@@ -1518,37 +1539,40 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                     ntcnt = 0;
                     /*  do whatever the obligatory minimum amount of matching is */
                     oldi = i;
-                    while(ntcnt < ctx->tokens[k].count_lo && text[i] != 0 && mrx_guts_checkmask(ctx->tokens, k, text[i]))
+                    while(ntcnt < ctx->tokens[k].countlow && (i < textlen) && mrx_guts_checkmask(ctx->tokens, k, textstr[i]))
                     {
                         i += 1;
                         ntcnt += 1;
                     }
-                    if(ntcnt < ctx->tokens[k].count_lo)
+                    if(ntcnt < ctx->tokens[k].countlow)
                     {
                         i = oldi;
-                        if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                        if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                        {
+                            return -1;
+                        }
                         continue;
                     }
                     if(ctx->tokens[k].mode & MRX_MODE_LAZY)
                     {
-                        range_min = ntcnt;
-                        range_max = ctx->tokens[k].count_hi - 1;
+                        rngmin = ntcnt;
+                        rngmax = ctx->tokens[k].counthigh - 1;
                         mrx_guts_macrwnddosave(k);
                     }
                     else
                     {
-                        hiclimit = ctx->tokens[k].count_hi;
+                        hiclimit = ctx->tokens[k].counthigh;
                         if(hiclimit == 0)
                         {
                             hiclimit = ~hiclimit;
                         }
-                        range_min = ntcnt;
-                        while(text[i] != 0 && mrx_guts_checkmask(ctx->tokens, k, text[i]) && ntcnt + 1 < hiclimit)
+                        rngmin = ntcnt;
+                        while((i < textlen) && mrx_guts_checkmask(ctx->tokens, k, textstr[i]) && ntcnt + 1 < hiclimit)
                         {
                             i += 1;
                             ntcnt += 1;
                         }
-                        range_max = ntcnt;
+                        rngmax = ntcnt;
                         if(!(ctx->tokens[k].mode & MRX_MODE_POSSESSIVE))
                         {
                             mrx_guts_macrwnddosave(k);
@@ -1560,33 +1584,39 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
                     justrewinded = 0;
                     if(ctx->tokens[k].mode & MRX_MODE_LAZY)
                     {
-                        rangelimit = range_max;
+                        rangelimit = rngmax;
                         if(rangelimit == 0)
                         {
                             rangelimit = ~rangelimit;
                         }
-                        if(mrx_guts_checkmask(ctx->tokens, k, text[i]) && text[i] != 0 && range_min < rangelimit)
+                        if(mrx_guts_checkmask(ctx->tokens, k, textstr[i]) && (i < textlen) && rngmin < rangelimit)
                         {
                             i += 1;
-                            range_min += 1;
+                            rngmin += 1;
                             mrx_guts_macrwnddosave(k);
                         }
                         else
                         {
-                            if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                            if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                            {
+                                return -1;
+                            }
                         }
                     }
                     else
                     {
-                        if(range_max > range_min)
+                        if(rngmax > rngmin)
                         {
                             i -= 1;
-                            range_max -= 1;
+                            rngmax -= 1;
                             mrx_guts_macrwnddosave(k);
                         }
                         else
                         {
-                            if(mrx_guts_rwndorabort(ctx, &stackn, &range_min, &range_max, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0) return -1;
+                            if(mrx_guts_rwndorabort(ctx, &stackn, &rngmin, &rngmax, &i, &k, &justrewinded, rewindstack, qgroupstate, qgroupstack) != 0)
+                            {
+                                return -1;
+                            }
                         }
                     }
                 }
@@ -1609,7 +1639,7 @@ MRX_INLINE int64_t mrx_regex_match(RegexContext* ctx, const char* text, size_t s
         fflush(stdout);
         for(n = 0; n < stackn; n++)
         {
-            RegexMState s = rewindstack[n];
+            MRXMatchState s = rewindstack[n];
             kind = ctx->tokens[s.k].kind;
             if(kind == MRX_KIND_OPEN || kind == MRX_KIND_CLOSE)
             {
@@ -1652,7 +1682,7 @@ MRX_INLINE void mrx_guts_printcsmart(int c)
     }
 }
 
-MRX_INLINE void mrx_regex_printtokens(RegexToken* tokens)
+MRX_INLINE void mrx_regex_printtokens(MRXToken* tokens)
 {
     int c;
     int k;
@@ -1705,11 +1735,10 @@ MRX_INLINE void mrx_regex_printtokens(RegexToken* tokens)
         for(int i = 0; i < 16; i++)
             printf("%04x", tokens[k].mask[i]);
         */
-        printf("\t{%d,%d}\t(%d)\n", tokens[k].count_lo, tokens[k].count_hi - 1, tokens[k].pair_offset);
+        printf("\t{%d,%d}\t(%d)\n", tokens[k].countlow, tokens[k].counthigh - 1, tokens[k].pairoffset);
         if(tokens[k].kind == MRX_KIND_END)
         {
             break;
         }
     }
 }
-
