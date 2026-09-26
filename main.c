@@ -24,7 +24,6 @@
 #include "usedeps/myregex/mrx.h"
 
 #define BOA_CONFIG_USELINO 1
-#define BOA_CONFIG_USEMEMPOOL 1
 
 #if !defined(BOA_INLINE)
     #if defined(__muccdebug__)
@@ -216,10 +215,7 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #endif
 
 #include "optparse.h"
-
-#if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-    #include "allocator.h"
-#endif
+#include "allocator.h"
 
 #if defined(BOA_CONFIG_USELINO) && (BOA_CONFIG_USELINO == 1)
     #include "lino.h"
@@ -726,6 +722,7 @@ typedef struct BoaFSDirReader BoaFSDirReader;
 typedef struct BoaFSDirItem BoaFSDirItem;
 typedef struct BoaException BoaException;
 typedef struct BoaUTF8Iterator BoaUTF8Iterator;
+typedef struct BoaMemPoolContext BoaMemPoolContext;
 
 
 typedef void (*BoaErrorFn)(BoaState* state, const char* message, bool);
@@ -1173,6 +1170,8 @@ struct BoaConstStrings
 
 struct BoaConfig
 {
+    /* use memory pool? defaults to true. can be toggled with '-m' / '--usemalloc' */
+    bool usemempool;
     /* should the AST be dumped? */
     bool dumpast;
     /* should the interpreter stop after dumping the AST? */
@@ -1650,6 +1649,12 @@ struct BoaChecker
     BoaValue* args;
 };
 
+struct BoaMemPoolContext
+{
+    BoaConfig* config;
+    void* mspctx;
+};
+
 
 #include "prot.inc"
 
@@ -1681,71 +1686,85 @@ struct BoaChecker
     }
 
 
+/* if any global variables need to be declared, declare them here. */
 jmp_buf g_vmglobaljumpbuf = {};
-#if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-    /* if any global variables need to be declared, declare them here. */
-    static void* g_mspcontext;
-#endif
+static BoaMemPoolContext g_mspcontext;
 
-void boa_sysmem_poolinit()
+void boa_sysmem_poolinit(BoaConfig* cfg)
 {
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        g_mspcontext = mempool_createpool();
-    #endif
+    g_mspcontext.config = cfg;
+    g_mspcontext.mspctx = NULL;
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
+        g_mspcontext.mspctx = mempool_createpool();
+    }
 }
 
 void boa_sysmem_pooldestroy()
 {
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        mempool_destroypool(g_mspcontext);
-    #endif
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
+        mempool_destroypool(g_mspcontext.mspctx);
+    }
 }
 
 void* boa_sysmem_malloc(size_t sz)
 {
     void* p;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        p = (void*)mempool_usermalloc(g_mspcontext, sz);
-    #else
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
+        p = (void*)mempool_usermalloc(g_mspcontext.mspctx, sz);
+    }
+    else
+    {
         p = (void*)malloc(sz);
-    #endif
+    }
     return p;
 }
 
 void* boa_sysmem_realloc(void* p, size_t nsz)
 {
     void* retp;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
         if(p == NULL)
         {
             return boa_sysmem_malloc(nsz);
         }
-        retp = (void*)mempool_userrealloc(g_mspcontext, p, nsz);
-    #else
+        retp = (void*)mempool_userrealloc(g_mspcontext.mspctx, p, nsz);
+    }
+    else
+    {
         retp = (void*)realloc(p, nsz);
-    #endif
+    }
     return retp;
 }
 
 void* boa_sysmem_calloc(size_t count, size_t typsize)
 {
     void* p;
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        p = (void*)mempool_usermalloc(g_mspcontext, (count * typsize));
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
+        p = (void*)mempool_usermalloc(g_mspcontext.mspctx, (count * typsize));
         memset(p, 0, (count * typsize));
-    #else
+    }
+    else
+    {
         p = (void*)calloc(count, typsize);
-    #endif
+    }
     return p;
 }
 
 void boa_sysmem_free(void* ptr)
 {
-    #if defined(BOA_CONFIG_USEMEMPOOL) && (BOA_CONFIG_USEMEMPOOL == 1)
-        mempool_userfree(g_mspcontext, ptr);
-    #else
+    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    {
+        mempool_userfree(g_mspcontext.mspctx, ptr);
+    }
+    else
+    {
         free(ptr);
-    #endif
+    }
 }
 
 static bool fslib_diropen(BoaFSDirReader* rd, const char* path)
@@ -16028,7 +16047,7 @@ BoaValue boa_objfnregex_constructor(BoaState* state, BoaValue instance, size_t a
     mrx_context_initctx(&rx, false);
     if(mrx_regex_parse(&rx, strpattern, 0) != 0)
     {
-        return boa_vm_raiseexception(state, state->exceptions.stdexception, "failed to initiate regex context");
+        return boa_vm_raiseexception(state, state->exceptions.stdexception, rx.errorbuf);
     }
     if(!boa_value_isinstance(instance))
     {
@@ -16044,6 +16063,7 @@ BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, B
 {
     enum { kMaxCaps = 32 };
     int64_t ic; 
+    int64_t textlen;
     int64_t matchcnt;
     const char* textstr;
     BoaArray* arr;
@@ -18784,10 +18804,19 @@ void boa_state_defaultprinterrmsgerror(BoaState* state, const char* message, boo
     }
 }
 
-BoaState* boa_state_make()
+void boa_state_setdefaultconfig(BoaState* state)
 {
-    BoaState* state;
-    state = (BoaState*)boa_sysmem_malloc(sizeof(BoaState));
+    state->config.usemempool = true;
+    state->config.dumpast = false;
+    state->config.traceexecution = false;
+    state->config.traceinstsonly = false;
+    state->config.isreplmode = false;
+    state->config.havedesttrace = false;
+    state->config.quitafterdump = false;
+}
+
+void boa_state_make(BoaState* state, BoaConfig* cfg)
+{
     state->stdclassclass = NULL;
     state->stdobjectclass = NULL;
     state->stdnullclass = NULL;
@@ -18809,12 +18838,15 @@ BoaState* boa_state_make()
     state->rootcount = 0;
     state->rootcapacity = 0;
     state->lastmodule = NULL;
-    state->config.dumpast = false;
-    state->config.traceexecution = false;
-    state->config.traceinstsonly = false;
-    state->config.isreplmode = false;
-    state->config.havedesttrace = false;
-    state->config.quitafterdump = false;
+    if(cfg != NULL)
+    {
+        state->config = *cfg;
+    }
+    else
+    {
+        boa_state_setdefaultconfig(state);
+    }
+    boa_sysmem_poolinit(&state->config);
     state->streamstdout = boa_stream_makeio(stdout, false);
     state->streamstdout->shouldflush = true;
     state->streamstderr = boa_stream_makeio(stderr, false);
@@ -18865,7 +18897,6 @@ BoaState* boa_state_make()
             boa_state_setglobal(state, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
         #endif
     }
-    return state;
 }
 
 int64_t boa_state_destroy(BoaState* state)
@@ -18890,7 +18921,6 @@ int64_t boa_state_destroy(BoaState* state)
     boa_sysmem_free(state->activeemitter);
     boa_free_vm(state);
     amount = state->bytesallocated;
-    boa_sysmem_free(state);
     return amount;
 }
 
@@ -21678,7 +21708,7 @@ static void boa_cli_showusage(char* argv[], optcontext_t* ox, bool fail)
 typedef struct BoaCliOptions BoaCliOptions;
 struct BoaCliOptions
 {
-    BoaState* pstate;
+    BoaConfig* cfg;
     bool wasusage;
     bool dumpbccode;
     char* source;
@@ -21708,7 +21738,7 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
     }
     else if(co == 'a')
     {
-        cli->pstate->config.dumpast = true;
+        cli->cfg->dumpast = true;
     }
     else if(co == 'd')
     {
@@ -21724,15 +21754,19 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
     }
     else if(co == 'q')
     {
-        cli->pstate->config.quitafterdump = true;
+        cli->cfg->quitafterdump = true;
     }
     else if(co == 't')
     {
-        cli->pstate->config.traceexecution = true;
+        cli->cfg->traceexecution = true;
     }
     else if(co == 'i')
     {
-        cli->pstate->config.traceinstsonly = true;
+        cli->cfg->traceinstsonly = true;
+    }
+    else if(co == 'm')
+    {
+        cli->cfg->usemempool = false;
     }
     else if(co == 'T')
     {
@@ -21742,8 +21776,8 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
             fprintf(stderr, "cannot open trace destination file '%s' for writing\n", ox->optarg);
             return false;
         }
-        cli->pstate->config.desttrace = boa_stream_makeio(tmpfh, true);
-        cli->pstate->config.havedesttrace = true;
+        cli->cfg->desttrace = boa_stream_makeio(tmpfh, true);
+        cli->cfg->havedesttrace = true;
     }
     return true;
 }
@@ -21754,35 +21788,41 @@ int main(int argc, char* argv[], char** envp)
     char *arg;
     const char* filename;
     const char* climdname;
+    BoaState statestack;
+    BoaConfig config;
     optcontext_t options;
     #if defined(BOA_CONFIG_USELINO) && (BOA_CONFIG_USELINO == 1)
     linocontext_t lictx;
     #endif
+    
     BoaCliOptions cli;
     BoaState* state;
     BoaArray* argarray;
     BoaModule* module;
+    state = &statestack;
+    memset(&config, 0, sizeof(BoaConfig));    
+    memset(&cli, 0, sizeof(BoaCliOptions));
+    config.usemempool = true;
+    config.dumpast = false;
+    config.traceexecution = false;
+    config.traceinstsonly = false;
+    config.isreplmode = false;
+    config.havedesttrace = false;
+    config.quitafterdump = false;
     #if defined(BOA_OSPLATFORM_ISWINNT) || defined(_MSC_VER)
         _setmode(fileno(stdin), _O_BINARY);
         _setmode(fileno(stdout), _O_BINARY);
         _setmode(fileno(stderr), _O_BINARY);
     #endif
-    memset(&cli, 0, sizeof(BoaCliOptions));
     cli.result = BOA_STATUS_OK;
     cli.source = NULL;
-    boa_sysmem_poolinit();
-    state = boa_state_make();
-    if(state == NULL)
-    {
-        fprintf(stderr, "failed to create state\n");
-        return 0;
-    }
-    cli.pstate = state;
+    cli.cfg = &config;
     cli.dumpbccode = false;
     cli.bytecodefile = NULL;
     optprs_init(&options, argc, argv, &cli);
     options.permute = 0;
     optprs_add(&options, on_flag, "help", 'h', OPTPARSE_NONE, "this help");
+    optprs_add(&options, on_flag, "usemalloc", 'm', OPTPARSE_NONE, "use plain malloc/free instead of memory pool");
     optprs_add(&options, on_flag, "compileto", 'o', OPTPARSE_REQUIRED, "compile input script file to <val>");
     optprs_add(&options, on_flag, "dump", 'd', OPTPARSE_NONE, "dump instructions");
     optprs_add(&options, on_flag, "ast", 'a', OPTPARSE_NONE, "dump AST");
@@ -21799,6 +21839,8 @@ int main(int argc, char* argv[], char** envp)
     {
         goto endmain;
     }
+    boa_state_make(&statestack, &config);
+
     boa_cli_parseenv(state, envp);
     if(cli.bytecodefile != NULL)
     {
