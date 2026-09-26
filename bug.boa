@@ -3,11 +3,23 @@ rx = Regexp('^\s*#')
 fh = File.open("Makefile", "rb")
 println(`fh = ${fh}`)
 
-while((line = fh.readLine()) != null)
+
+/*
+some funky bug in qemu-riscv64 prevents detection of EOF for some reason
+*/
+var maxlines = 50;
+var count = 0;
+while(true)
 {
-    if(rx.match(line))
+    var line = fh.readLine();
+    count++
+    if(line == null || count == maxlines)
     {
-        println(`line = ${line}`)
+        break;
+    }
+    if(rx.match(line) != null)
+    {
+        println(`matched line = (${line.length}) ${line}`);
     }
 }
 println("after print?\n")

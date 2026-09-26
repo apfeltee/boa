@@ -62,7 +62,7 @@
     #define MEMPOOL_TARGET_GENERIC
 #else
     #if defined(__linux__)
-        #if defined(__SDCC)
+        #if defined(__SDCC) || defined(__riscv)
             #define MEMPOOL_TARGET_GENERIC
         #else
             #define MEMPOOL_TARGET_LINUX

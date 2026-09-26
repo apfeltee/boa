@@ -3335,7 +3335,7 @@ const char* boa_utf8iter_getchar(BoaUTF8Iterator* iter)
 {
     uint8_t i;
     const char* pointer;
-    static char str[10];
+    static char str[16];
     str[0] = '\0';
     if(iter == NULL)
     {
@@ -16043,8 +16043,12 @@ BoaValue boa_objfnregex_constructor(BoaState* state, BoaValue instance, size_t a
 BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     enum { kMaxCaps = 32 };
-    int64_t ic;
+    int64_t ic; 
+    int64_t matchcnt;
+    const char* textstr;
+    BoaArray* arr;
     BoaString* instr;
+    BoaString* sub;
     BoaRegexData* data;
     BoaChecker check;
     int64_t cappos[kMaxCaps+1];
@@ -16054,17 +16058,28 @@ BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, B
     BOA_CHECK_CHECKARGTYPE(&check, 0, boa_value_isstring);
     instr = boa_value_asstring(args[0]);
     data = (BoaRegexData*)boa_userdata_extractdata(instance);
-    memset(cappos, 0xFF, kMaxCaps);
-    memset(capspan, 0xFF, kMaxCaps);
-    ic = mrx_regex_match(&data->rxctx, boa_string_getdata(instr), 0, kMaxCaps, cappos, capspan);
-    #if 0
-        fprintf(stderr, "Regexp::match: ic=%ld\n", ic);
+    memset(cappos, 0xFF, sizeof(cappos));
+    memset(capspan, 0xFF, sizeof(capspan));
+    textstr = boa_string_getdata(instr);
+    matchcnt = mrx_regex_match(&data->rxctx, textstr, 0, kMaxCaps, cappos, capspan);
+    #if 1
+        fprintf(stderr, "Regexp::match: matchcnt=%ld\n", matchcnt);
     #endif
-    if(ic == -1)
+    if(matchcnt == -1)
     {
-        return boa_value_makebool(false);
+        return boa_value_makenull();
     }
-    return boa_value_makenumber(true);
+    arr = boa_array_make(state);
+    for(ic=0; ic<matchcnt; ic++)
+    {
+        if((cappos[ic] == -1))
+        {
+            continue;
+        }
+        sub = boa_string_copylen(state, &textstr[cappos[ic]], capspan[ic]);
+        boa_array_push(arr, boa_value_fromobject(sub));
+    }
+    return boa_value_fromobject(arr);
 }
 
 void boa_state_openstdclasses(BoaState* state)
@@ -17307,23 +17322,23 @@ BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc,
         {
             if(written == 0)
             {
-                goto fileiseof;
+                return boa_value_makenull();
             }
             break;
         }
         if(ch == '\n')
         {
+            written++;
             break;
         }
         boa_string_appendbyte(res, ch);
         written++;
     }
-    //if(written > 0)
+    if(written == 0)
     {
-        return boa_value_fromobject(res);
+        return boa_value_makenull();
     }
-    fileiseof:
-    return boa_value_makenull();
+    return boa_value_fromobject(res);
 }
 
 BoaValue boa_objfndirectory_exists(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
