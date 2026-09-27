@@ -1171,7 +1171,8 @@ struct BoaConstStrings
 struct BoaConfig
 {
     /* use memory pool? defaults to true. can be toggled with '-m' / '--usemalloc' */
-    bool usemempool;
+    bool mempooldisable;
+    bool mempoolforcegeneric;
     /* should the AST be dumped? */
     bool dumpast;
     /* should the interpreter stop after dumping the AST? */
@@ -1694,15 +1695,15 @@ void boa_sysmem_poolinit(BoaConfig* cfg)
 {
     g_mspcontext.config = cfg;
     g_mspcontext.mspctx = NULL;
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
-        g_mspcontext.mspctx = mempool_createpool();
+        g_mspcontext.mspctx = mempool_createpool(g_mspcontext.config->mempoolforcegeneric);
     }
 }
 
 void boa_sysmem_pooldestroy()
 {
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
         mempool_destroypool(g_mspcontext.mspctx);
     }
@@ -1711,7 +1712,7 @@ void boa_sysmem_pooldestroy()
 void* boa_sysmem_malloc(size_t sz)
 {
     void* p;
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
         p = (void*)mempool_usermalloc(g_mspcontext.mspctx, sz);
     }
@@ -1725,7 +1726,7 @@ void* boa_sysmem_malloc(size_t sz)
 void* boa_sysmem_realloc(void* p, size_t nsz)
 {
     void* retp;
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
         if(p == NULL)
         {
@@ -1743,7 +1744,7 @@ void* boa_sysmem_realloc(void* p, size_t nsz)
 void* boa_sysmem_calloc(size_t count, size_t typsize)
 {
     void* p;
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
         p = (void*)mempool_usermalloc(g_mspcontext.mspctx, (count * typsize));
         memset(p, 0, (count * typsize));
@@ -1757,7 +1758,7 @@ void* boa_sysmem_calloc(size_t count, size_t typsize)
 
 void boa_sysmem_free(void* ptr)
 {
-    if(BOA_LIKELY(g_mspcontext.config->usemempool))
+    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
     {
         mempool_userfree(g_mspcontext.mspctx, ptr);
     }
@@ -18806,7 +18807,8 @@ void boa_state_defaultprinterrmsgerror(BoaState* state, const char* message, boo
 
 void boa_state_setdefaultconfig(BoaState* state)
 {
-    state->config.usemempool = true;
+    state->config.mempooldisable = false;
+    state->config.mempoolforcegeneric = false;
     state->config.dumpast = false;
     state->config.traceexecution = false;
     state->config.traceinstsonly = false;
@@ -21766,7 +21768,11 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
     }
     else if(co == 'm')
     {
-        cli->cfg->usemempool = false;
+        cli->cfg->mempooldisable = true;
+    }
+    else if(co == 'M')
+    {
+        cli->cfg->mempoolforcegeneric = true;
     }
     else if(co == 'T')
     {
@@ -21794,7 +21800,6 @@ int main(int argc, char* argv[], char** envp)
     #if defined(BOA_CONFIG_USELINO) && (BOA_CONFIG_USELINO == 1)
     linocontext_t lictx;
     #endif
-    
     BoaCliOptions cli;
     BoaState* state;
     BoaArray* argarray;
@@ -21802,7 +21807,7 @@ int main(int argc, char* argv[], char** envp)
     state = &statestack;
     memset(&config, 0, sizeof(BoaConfig));    
     memset(&cli, 0, sizeof(BoaCliOptions));
-    config.usemempool = true;
+    config.mempooldisable = false;
     config.dumpast = false;
     config.traceexecution = false;
     config.traceinstsonly = false;
@@ -21823,6 +21828,7 @@ int main(int argc, char* argv[], char** envp)
     options.permute = 0;
     optprs_add(&options, on_flag, "help", 'h', OPTPARSE_NONE, "this help");
     optprs_add(&options, on_flag, "usemalloc", 'm', OPTPARSE_NONE, "use plain malloc/free instead of memory pool");
+    optprs_add(&options, on_flag, "forcegeneric", 'M', OPTPARSE_NONE, "unless '-m' is specified, force mempool to use generic mode");
     optprs_add(&options, on_flag, "compileto", 'o', OPTPARSE_REQUIRED, "compile input script file to <val>");
     optprs_add(&options, on_flag, "dump", 'd', OPTPARSE_NONE, "dump instructions");
     optprs_add(&options, on_flag, "ast", 'a', OPTPARSE_NONE, "dump AST");
