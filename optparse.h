@@ -68,12 +68,9 @@ struct optflag_t
 {
     const char* longname;
     int shortname;
-    optcallback_t callback;
     optargtype_t argtype;
     const char* helptext;
 };
-
-
 
 struct optcontext_t
 {
@@ -88,6 +85,7 @@ struct optcontext_t
     int subopt;
     int restargc;
     int knowncount;
+    optcallback_t callback;
     char* restargv[1024];
     optflag_t knownflags[1024];
 };
@@ -95,7 +93,7 @@ struct optcontext_t
 /**
  * Initializes the parser state.
  */
-static void optprs_init(optcontext_t* ox, int argc, char** argv, void* userptr)
+static void optprs_init(optcontext_t* ox, int argc, char** argv, void* userptr, optcallback_t callback)
 {
     memset(ox, 0, sizeof(optcontext_t));
     ox->userptr = userptr; 
@@ -108,7 +106,7 @@ static void optprs_init(optcontext_t* ox, int argc, char** argv, void* userptr)
     ox->errmsg[0] = '\0';
     ox->restargc = 0;
     ox->knowncount = 0;
-    
+    ox->callback = callback;
 }
 
 static int optprs_nextshortflag(optcontext_t* ox, const char* optstring);
@@ -519,12 +517,11 @@ static char* optprs_nextpositional(optcontext_t* ox)
     return option;
 }
 
-static bool optprs_add(optcontext_t* ox, optcallback_t callback, const char* longname, int shortname, optargtype_t argtype, const char* helptext)
+static bool optprs_add(optcontext_t* ox, const char* longname, int shortname, optargtype_t argtype, const char* helptext)
 {
     optflag_t flag;
     flag.shortname = shortname;
     flag.longname = longname;
-    flag.callback = callback;
     flag.argtype = argtype;
     flag.helptext = helptext,
     ox->knownflags[ox->knowncount] = flag;
@@ -541,9 +538,9 @@ static bool optprs_run(optcontext_t* ox)
     while ((opt = optprs_nextlongflag(ox, ox->knownflags, &longindex)) != -1)
     {
         flag = &ox->knownflags[longindex];
-        if(!flag->callback(ox, flag, ox->userptr))
+        if(!ox->callback(ox, flag, ox->userptr))
         {
-                break;
+            break;
         }
     }
     while(true)

@@ -61,7 +61,6 @@
 int __dso_handle = 0;
 #endif
 
-
 #if defined(__STRICT_ANSI__)
 char *strdup(const char *s);
 char *strndup(const char* s, size_t n);
@@ -70,7 +69,6 @@ char *strndupa(const char* s, size_t n);
 void* memccpy(void* dest, const void* src, int c, size_t n);
 int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #endif
-
 
 #if defined(__unix__) || defined(__linux__)
     #define BOA_OSPLATFORM_ISUNIXLIKE 1
@@ -96,8 +94,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #if !defined(OSLIB_CONF_OSPATHSIZE)
     #define OSLIB_CONF_OSPATHSIZE 1024
 #endif
-
-
 
 #if defined(BOA_OSPLATFORM_LINUX)
     #undef BOA_CONFIG_PLATFORMNAME
@@ -128,7 +124,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 #if !defined(BOA_CONFIG_ARCHBITS)
     #define BOA_CONFIG_ARCHBITS 32
 #endif
-
 
 #ifndef S_IREAD
     #define S_IREAD     (0400)
@@ -282,7 +277,6 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 
 #define BOA_BIT_SETBIT(number, n) number |= (1UL << (n))
 #define BOA_BIT_ISSET(number, n) ((((number) >> (n)) & 1U) != 0)
-
 
 #define boa_vmexec_pushgc(state, allow) \
     { \
@@ -723,7 +717,7 @@ typedef struct BoaFSDirItem BoaFSDirItem;
 typedef struct BoaException BoaException;
 typedef struct BoaUTF8Iterator BoaUTF8Iterator;
 typedef struct BoaMemPoolContext BoaMemPoolContext;
-
+typedef struct BoaChecker BoaChecker;
 
 typedef void (*BoaErrorFn)(BoaState* state, const char* message, bool);
 typedef BoaAstExpression* (*BoaParsePrefixFn)(BoaAstParser*, bool);
@@ -732,11 +726,8 @@ typedef void (*BoaCleanupFn)(BoaState*, BoaUserdata*, bool);
 typedef BoaValue (*BoaOnMapSetFn)(BoaState*, BoaMap*, BoaString*, BoaValue*);
 typedef BoaValue (*BoaOnMapGetFn)(BoaState*, BoaMap*, BoaString*, BoaValue*);
 typedef BoaValue (*BoaNativeFunctionFn)(BoaState*, BoaValue, size_t, BoaValue*);
-
-typedef struct BoaChecker BoaChecker;
-
 typedef bool(*BoaValueIsFN)(BoaValue);
-
+typedef void (*BoaAstCallback)(BoaAstPrinter*, BoaDynListExpr*);
 
 struct BoaFSStat
 {
@@ -805,9 +796,6 @@ struct BoaStream
     BoaStrBuffer desthndstring;
     FILE* desthndfile;
 };
-
-typedef void (*BoaAstCallback)(BoaAstPrinter*, BoaDynListExpr*);
-
 
 struct BoaAstPrinter
 {
@@ -1656,7 +1644,6 @@ struct BoaMemPoolContext
     void* mspctx;
 };
 
-
 #include "prot.inc"
 
 #if defined(__GNUC__)
@@ -1686,16 +1673,17 @@ struct BoaMemPoolContext
         } \
     }
 
-
 /* if any global variables need to be declared, declare them here. */
 jmp_buf g_vmglobaljumpbuf = {};
 static BoaMemPoolContext g_mspcontext;
+BOA_FORCEINLINE size_t boa_string_getlength(BoaString* string);
+BOA_FORCEINLINE char* boa_string_getdata(BoaString* string);
 
 void boa_sysmem_poolinit(BoaConfig* cfg)
 {
     g_mspcontext.config = cfg;
     g_mspcontext.mspctx = NULL;
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         g_mspcontext.mspctx = mempool_createpool(g_mspcontext.config->mempoolforcegeneric);
     }
@@ -1703,7 +1691,7 @@ void boa_sysmem_poolinit(BoaConfig* cfg)
 
 void boa_sysmem_pooldestroy()
 {
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         mempool_destroypool(g_mspcontext.mspctx);
     }
@@ -1712,7 +1700,7 @@ void boa_sysmem_pooldestroy()
 void* boa_sysmem_malloc(size_t sz)
 {
     void* p;
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         p = (void*)mempool_usermalloc(g_mspcontext.mspctx, sz);
     }
@@ -1726,7 +1714,7 @@ void* boa_sysmem_malloc(size_t sz)
 void* boa_sysmem_realloc(void* p, size_t nsz)
 {
     void* retp;
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         if(p == NULL)
         {
@@ -1744,7 +1732,7 @@ void* boa_sysmem_realloc(void* p, size_t nsz)
 void* boa_sysmem_calloc(size_t count, size_t typsize)
 {
     void* p;
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         p = (void*)mempool_usermalloc(g_mspcontext.mspctx, (count * typsize));
         memset(p, 0, (count * typsize));
@@ -1758,7 +1746,7 @@ void* boa_sysmem_calloc(size_t count, size_t typsize)
 
 void boa_sysmem_free(void* ptr)
 {
-    if(BOA_LIKELY(g_mspcontext.config->mempooldisable == false))
+    if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         mempool_userfree(g_mspcontext.mspctx, ptr);
     }
@@ -2728,7 +2716,7 @@ bool boa_strbuf_appendstrnlowercase(BoaStrBuffer* sb, const char* str, size_t le
     plength = str + len;
     for(; str < plength; str++, to++)
     {
-        *to = tolower(*str);
+        *to = boa_util_chartolower(*str);
     }
     sb->length += len;
     data[sb->length] = '\0';
@@ -2747,7 +2735,7 @@ bool boa_strbuf_appendstrnuppercase(BoaStrBuffer* sb, const char* str, size_t le
     end = str + len;
     for(; str < end; str++, to++)
     {
-        *to = toupper(*str);
+        *to = boa_util_chartoupper(*str);
     }
     sb->length += len;
     data[sb->length] = '\0';
@@ -2809,7 +2797,7 @@ void boa_strbuf_touppercase(BoaStrBuffer* sb)
     end = data + sb->length;
     for(pos = data; pos < end; pos++)
     {
-        *pos = (char)toupper(*pos);
+        *pos = (char)boa_util_chartoupper(*pos);
     }
 }
 
@@ -2822,7 +2810,7 @@ void boa_strbuf_tolowercase(BoaStrBuffer* sb)
     end = data + sb->length;
     for(pos = data; pos < end; pos++)
     {
-        *pos = (char)tolower(*pos);
+        *pos = (char)boa_util_chartolower(*pos);
     }
 }
 
@@ -3384,7 +3372,7 @@ const char* boa_utf8iter_getchar(BoaUTF8Iterator* iter)
     return str;
 }
 
-int boa_util_stringutfgetcountdecode(uint8_t byte)
+int boa_util_utfchargetcountdecode(uint8_t byte)
 {
     if((byte & 0xc0) == 0x80)
     {
@@ -3405,7 +3393,7 @@ int boa_util_stringutfgetcountdecode(uint8_t byte)
     return 1;
 }
 
-int boa_util_stringutfgetcountencode(int value)
+int boa_util_utfchargetcountencode(int value)
 {
     if(value <= 0x7f)
     {
@@ -3426,7 +3414,7 @@ int boa_util_stringutfgetcountencode(int value)
     return 0;
 }
 
-int boa_util_utf8numbytes(int value, uint8_t* destbytes)
+int boa_util_utfcharwritebytes(int value, uint8_t* destbytes)
 {
     if(value <= 0x7f)
     {
@@ -3464,7 +3452,7 @@ int boa_util_utf8numbytes(int value, uint8_t* destbytes)
     return 0;
 }
 
-int boa_util_stringutfdecode(const uint8_t* bytes, uint32_t length)
+int boa_util_utfstrdecode(const uint8_t* bytes, uint32_t length)
 {
     int value;
     uint32_t remainingbytes;
@@ -3508,22 +3496,22 @@ int boa_util_stringutfdecode(const uint8_t* bytes, uint32_t length)
     return value;
 }
 
-int boa_util_isutfbyte(int c)
+int boa_util_utfcharisutfbyte(int c)
 {
     return (((c) & 0xC0) != 0x80);
 }
 
-int boa_util_stringutfucharoffset(const char* str, int index)
+int boa_util_utfstrfindoffset(const char* str, int index)
 {
     int offset;
     offset = 0;
     while(index > 0 && str[offset])
     {
-        if(!boa_util_isutfbyte(str[++offset]))
+        if(!boa_util_utfcharisutfbyte(str[++offset]))
         {
-            if(!boa_util_isutfbyte(str[++offset]))
+            if(!boa_util_utfcharisutfbyte(str[++offset]))
             {
-                if(!boa_util_isutfbyte(str[++offset]))
+                if(!boa_util_utfcharisutfbyte(str[++offset]))
                 {
                     ++offset;
                 }
@@ -3535,7 +3523,7 @@ int boa_util_stringutfucharoffset(const char* str, int index)
 }
 
 /* returns the number of bytes contained in a unicode character */
-int boa_util_utf8bytelength(int value)
+int boa_util_utfcharbytelength(int value)
 {
     if(value < 0)
     {
@@ -3560,12 +3548,12 @@ int boa_util_utf8bytelength(int value)
     return 0;
 }
 
-char* boa_util_utf8encode(unsigned int code, size_t* dlen)
+char* boa_util_utfstrencode(unsigned int code, size_t* dlen)
 {
     int count;
     char* chars;
     *dlen = 0;
-    count = boa_util_utf8bytelength((int)code);
+    count = boa_util_utfcharbytelength((int)code);
     if(BOA_LIKELY(count > 0))
     {
         *dlen = count;
@@ -3617,16 +3605,26 @@ char* boa_util_utf8encode(unsigned int code, size_t* dlen)
     return NULL;
 }
 
-void boa_util_stringchangecase(char* instr, size_t inlen, int (*func)(int))
+int boa_util_chartolower(int c)
+{
+    return tolower(c);
+}
+
+int boa_util_chartoupper(int c)
+{
+    return toupper(c);
+}
+
+void boa_util_strchangecase(const char* instr, size_t inlen, char* deststr, int (*func)(int))
 {
     size_t i;
     for(i = 0; i < inlen; i++)
     {
-        instr[i] = func(instr[i]);
+        deststr[i] = func(instr[i]);
     }
 }
 
-static int boa_util_findfirstpos(const char* str, size_t len, int ch)
+static int boa_util_strfindfirstchar(const char* str, size_t len, int ch)
 {
     size_t i;
     for(i=0; i<len; i++)
@@ -3637,6 +3635,59 @@ static int boa_util_findfirstpos(const char* str, size_t len, int ch)
         }
     }
     return -1;
+}
+
+static int boa_util_strcasecmp(const char* s1, const char* s2)
+{
+    const char *cm;
+    static const char chrmap[] = {
+        '\000', '\001', '\002', '\003', '\004', '\005', '\006', '\007',
+        '\010', '\011', '\012', '\013', '\014', '\015', '\016', '\017',
+        '\020', '\021', '\022', '\023', '\024', '\025', '\026', '\027',
+        '\030', '\031', '\032', '\033', '\034', '\035', '\036', '\037',
+        '\040', '\041', '\042', '\043', '\044', '\045', '\046', '\047',
+        '\050', '\051', '\052', '\053', '\054', '\055', '\056', '\057',
+        '\060', '\061', '\062', '\063', '\064', '\065', '\066', '\067',
+        '\070', '\071', '\072', '\073', '\074', '\075', '\076', '\077',
+        '\100', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+        '\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+        '\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+        '\170', '\171', '\172', '\133', '\134', '\135', '\136', '\137',
+        '\140', '\141', '\142', '\143', '\144', '\145', '\146', '\147',
+        '\150', '\151', '\152', '\153', '\154', '\155', '\156', '\157',
+        '\160', '\161', '\162', '\163', '\164', '\165', '\166', '\167',
+        '\170', '\171', '\172', '\173', '\174', '\175', '\176', '\177',
+        '\200', '\201', '\202', '\203', '\204', '\205', '\206', '\207',
+        '\210', '\211', '\212', '\213', '\214', '\215', '\216', '\217',
+        '\220', '\221', '\222', '\223', '\224', '\225', '\226', '\227',
+        '\230', '\231', '\232', '\233', '\234', '\235', '\236', '\237',
+        '\240', '\241', '\242', '\243', '\244', '\245', '\246', '\247',
+        '\250', '\251', '\252', '\253', '\254', '\255', '\256', '\257',
+        '\260', '\261', '\262', '\263', '\264', '\265', '\266', '\267',
+        '\270', '\271', '\272', '\273', '\274', '\275', '\276', '\277',
+        '\300', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+        '\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+        '\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+        '\370', '\371', '\372', '\333', '\334', '\335', '\336', '\337',
+        '\340', '\341', '\342', '\343', '\344', '\345', '\346', '\347',
+        '\350', '\351', '\352', '\353', '\354', '\355', '\356', '\357',
+        '\360', '\361', '\362', '\363', '\364', '\365', '\366', '\367',
+        '\370', '\371', '\372', '\373', '\374', '\375', '\376', '\377',
+    };
+    cm = chrmap;
+	while (cm[(int)*s1] == cm[(int)*s2++])
+    {
+		if (*s1++ == '\0')
+        {
+            return(0);
+        }
+	}
+    return(cm[(int)*s1] - cm[(int)*--s2]);
+}
+
+bool boa_util_strcaseequal(const char* s1, const char* s2)
+{
+    return (boa_util_strcasecmp(s1, s2) == 0);
 }
 
 char* boa_util_readhandle(FILE* hnd, size_t* dlen)
@@ -3701,8 +3752,6 @@ char* boa_util_readfile(const char* filename, size_t* dlen)
     fclose(fh);
     return b;
 }
-
-
 
 char* boa_util_dupstring(const char* string)
 {
@@ -4351,7 +4400,6 @@ const char* boa_value_valtypename(BoaValue val)
     return boa_value_valtypefromtype(val.type);
 }
 
-
 const char* boa_value_typenamefromfn(BoaValueIsFN fn)
 {
     #define iftypefn(name, vtyp, callthat) \
@@ -4364,7 +4412,6 @@ const char* boa_value_typenamefromfn(BoaValueIsFN fn)
         }
     #define iftypefnval(name, vtyp) iftypefn(name, vtyp, boa_value_valtypefromtype)
     #define iftypefnobj(name, vtyp) iftypefn(name, vtyp, boa_value_objtypename)
-
         iftypefnval(boa_value_isfalsy, BOA_VALTYPE_BOOL);
         iftypefnval(boa_value_isbool, BOA_VALTYPE_BOOL);
         iftypefnval(boa_value_isnull, BOA_VALTYPE_NULL);
@@ -4384,8 +4431,6 @@ const char* boa_value_typenamefromfn(BoaValueIsFN fn)
         iftypefnobj(boa_value_isreference, BOA_OBJTYPE_REFERENCE);
         iftypefnobj(boa_value_isexception, BOA_OBJTYPE_EXCEPTION);
         iftypefnobj(boa_value_iscallablefunction, BOA_OBJTYPE_CALLABLEFUNCTION);
-
-
     #undef iftypefn
     #undef iftypefnval
     #undef iftypefnobj
@@ -5656,7 +5701,6 @@ bool boa_stream_printf(BoaStream* pr, const char* fmt, ...)
     return b;
 }
 
-
 BoaString* boa_stream_takestring(BoaState* state, BoaStream* pr)
 {
     BoaString* os;
@@ -6418,7 +6462,7 @@ size_t boa_string_utflength(BoaString* string)
     sdata = boa_string_getdata(string);
     for(i=0; i < slen;)
     {
-        i += boa_util_stringutfgetcountdecode(sdata[i]);
+        i += boa_util_utfchargetcountdecode(sdata[i]);
         length++;
     }
     return length;
@@ -6436,7 +6480,7 @@ int boa_string_codepointcodeat(BoaState* state, BoaString* string, uint32_t inde
     {
         return 0;
     }
-    codepoint = boa_util_stringutfdecode((uint8_t*)sdata + index, slen - index);
+    codepoint = boa_util_utfstrdecode((uint8_t*)sdata + index, slen - index);
     if(codepoint == -1)
     {
         return sdata[index];
@@ -6455,7 +6499,7 @@ BoaString* boa_string_codepointstringat(BoaState* state, BoaString* string, uint
     {
         return NULL;
     }
-    codepoint = boa_util_stringutfdecode((uint8_t*)sdata + index, slen - index);
+    codepoint = boa_util_utfstrdecode((uint8_t*)sdata + index, slen - index);
     if(codepoint == -1)
     {
         char bytes[2];
@@ -6470,9 +6514,9 @@ BoaString* boa_string_fromcodepoint(BoaState* state, int value)
 {
     uint8_t length;
     BoaString* res;
-    length = boa_util_stringutfgetcountencode(value);
+    length = boa_util_utfchargetcountencode(value);
     res = boa_string_makeemptystring(state, length, false);
-    boa_util_utf8numbytes(value, (uint8_t*)boa_string_getdata(res));
+    boa_util_utfcharwritebytes(value, (uint8_t*)boa_string_getdata(res));
     boa_string_setlength(res, length);
     return res;
 }
@@ -6490,17 +6534,17 @@ BoaString* boa_string_fromrange(BoaState* state, BoaString* source, int start, u
     length = 0;
     for(i = 0; i < count; i++)
     {
-        length += boa_util_stringutfgetcountdecode(from[start + i]);
+        length += boa_util_utfchargetcountdecode(from[start + i]);
     }
     res = boa_string_makeemptystring(state, length, false);
     to = (uint8_t*)boa_string_getdata(res);
     for(i = 0; i < count; i++)
     {
         index = start + i;
-        codepoint = boa_util_stringutfdecode(from + index, boa_string_getlength(source) - index);
+        codepoint = boa_util_utfstrdecode(from + index, boa_string_getlength(source) - index);
         if(codepoint != -1)
         {
-            to += boa_util_utf8numbytes(codepoint, to);
+            to += boa_util_utfcharwritebytes(codepoint, to);
         }
     }
     boa_string_setlength(res, length);
@@ -7147,7 +7191,6 @@ void boa_state_defnative(BoaState* state, const char* name, BoaNativeFunctionFn 
     boa_map_setvalue(state->vmstate.globals, boa_value_asstring(boa_state_peekroot(state, 1)), boa_state_peekroot(state, 0));
     boa_state_poproots(state, 2);
 }
-
 
 void boa_ast_destroyparamlist(BoaState* state, BoaDynListParam* parameters)
 {
@@ -8597,7 +8640,7 @@ BoaAstExpression* boa_astparser_parseblock(BoaAstParser* prs)
             boa_astparser_ignorelinefeeds(prs);
             continue;
         }
-        boa_dynlistexpr_push(&expr->statements, boa_astparser_parsestmt(prs));
+        boa_dynlistexpr_push(&expr->statements, boa_astparser_parsestatement(prs));
         boa_astparser_ignorelinefeeds(prs);
         boa_astparser_match(prs, BOA_ASTTOKTYP_SEMICOLON);
         boa_astparser_ignorelinefeeds(prs);
@@ -8632,6 +8675,10 @@ BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence prece
     prefixrule = rule->prefix;
     if(prefixrule == NULL)
     {
+        if(!err)
+        {
+            return NULL;
+        }
         /* todo: file start */
         prevnewline = ((previous.start != NULL) && (*previous.start == '\n'));
         parserprevnewline = ((prs->previoustoken.start != NULL) && (*prs->previoustoken.start == '\n'));
@@ -8730,7 +8777,7 @@ void boa_astparser_parseparams(BoaAstParser* prs, BoaDynListParam* parameters)
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
         {
             haddefault = true;
-            defval = boa_astparser_parseexpr(prs);
+            defval = boa_astparser_parseexpression(prs);
         }
         else if(haddefault)
         {
@@ -8786,7 +8833,7 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
             haddefault = boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL);
             if(haddefault)
             {
-                defvalue = boa_astparser_parseexpr(prs);
+                defvalue = boa_astparser_parseexpression(prs);
             }
             boa_astparser_ignorelinefeeds(prs);
             boa_dynlistparam_push(&lambda->parameters, boa_astparser_makeparameter(firstargstart, firstarglength, 0, defvalue));
@@ -8808,7 +8855,7 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
                     defval = NULL;
                     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
                     {
-                        defval = boa_astparser_parseexpr(prs);
+                        defval = boa_astparser_parseexpression(prs);
                         haddefault = true;
                     }
                     else if(haddefault)
@@ -8839,7 +8886,7 @@ BoaAstExpression* boa_astparser_rulegroupingorlambda(BoaAstParser* prs, bool can
             boa_astparser_advance(prs);
         }
     }
-    expr = boa_astparser_parseexpr(prs);
+    expr = boa_astparser_parseexpression(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "')' after grouping expression");
     return expr;
 }
@@ -8857,7 +8904,7 @@ BoaAstExpression* boa_astparser_ruleparsecall(BoaAstParser* prs, BoaAstExpressio
     boa_astparser_ignorelinefeeds(prs);
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTPAREN))
     {
-        e = boa_astparser_parseexpr(prs);
+        e = boa_astparser_parseexpression(prs);
         boa_dynlistexpr_push(&expr->callargs, e);
         boa_astparser_ignorelinefeeds(prs);
         if(!boa_astparser_match(prs, BOA_ASTTOKTYP_COMMA))
@@ -8910,7 +8957,7 @@ BoaAstExpression* boa_astparser_ruleunary(BoaAstParser* prs, bool canassign)
         refexp = boa_ast_makerefexpr(line, targetexpr);
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
         {
-            return (BoaAstExpression*)boa_ast_makeassignexpr(line, (BoaAstExpression*)refexp, boa_astparser_parseexpr(prs));
+            return (BoaAstExpression*)boa_ast_makeassignexpr(line, (BoaAstExpression*)refexp, boa_astparser_parseexpression(prs));
         }
         return (BoaAstExpression*)refexp;
     }
@@ -9093,7 +9140,7 @@ BoaAstExpression* boa_astparser_ruleinterpolation(BoaAstParser* prs, bool canass
                 boa_dynlistexpr_push(&expr->expressions, (BoaAstExpression*)boa_ast_makeliteralexpr(prs->previoustoken.line, tval));
             }
         }
-        innerexpr = boa_astparser_parseexpr(prs);
+        innerexpr = boa_astparser_parseexpression(prs);
         boa_dynlistexpr_push(&expr->expressions, innerexpr);
     } while(boa_astparser_match(prs, BOA_ASTTOKTYP_STRTEMPLATE));
     boa_astparser_consume(prs, BOA_ASTTOKTYP_STRING, "end of template string");
@@ -9120,7 +9167,7 @@ BoaAstExpression* boa_astparser_rulearray(BoaAstParser* prs, bool canassign)
     while(!boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACKET))
     {
         boa_astparser_ignorelinefeeds(prs);
-        boa_dynlistexpr_push(&array->exvalues, boa_astparser_parseexpr(prs));
+        boa_dynlistexpr_push(&array->exvalues, boa_astparser_parseexpression(prs));
         boa_astparser_ignorelinefeeds(prs);
         if(!boa_astparser_match(prs, BOA_ASTTOKTYP_COMMA))
         {
@@ -9165,7 +9212,7 @@ BoaAstExpression* boa_astparser_ruleobject(BoaAstParser* prs, bool canassign)
         boa_astparser_ignorelinefeeds(prs);
         boa_astparser_consume(prs, BOA_ASTTOKTYP_COLON, "':' after key string");
         boa_astparser_ignorelinefeeds(prs);
-        boa_dynlistexpr_push(&object->objexvalues, boa_astparser_parseexpr(prs));
+        boa_dynlistexpr_push(&object->objexvalues, boa_astparser_parseexpression(prs));
         if(!boa_astparser_match(prs, BOA_ASTTOKTYP_COMMA))
         {
             break;
@@ -9212,7 +9259,7 @@ BoaAstExpression* boa_astparser_parsevarexprbase(BoaAstParser* prs, bool canassi
     }
     if(canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpr(prs));
+        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpression(prs));
     }
     return expr;
 }
@@ -9248,7 +9295,7 @@ BoaAstExpression* boa_astparser_ruledot(BoaAstParser* prs, BoaAstExpression* pre
     length = prs->previoustoken.length;
     if(!ignored && canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makesetexpr(line, previous, name, length, boa_astparser_parseexpr(prs), true);
+        return (BoaAstExpression*)boa_ast_makesetexpr(line, previous, name, length, boa_astparser_parseexpression(prs), true);
     }
     expr = (BoaAstExpression*)boa_ast_makegetexpr(line, previous, name, length, false, ignored, true);
     if(!ignored && boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTBRACKET))
@@ -9263,7 +9310,7 @@ BoaAstExpression* boa_astparser_rulerange(BoaAstParser* prs, BoaAstExpression* p
     size_t line;
     (void)canassign;
     line = prs->previoustoken.line;
-    return (BoaAstExpression*)boa_ast_makerangeexpr(line, previous, boa_astparser_parseexpr(prs));
+    return (BoaAstExpression*)boa_ast_makerangeexpr(line, previous, boa_astparser_parseexpression(prs));
 }
 
 BoaAstExpression* boa_astparser_ruleternaryorquestion(BoaAstParser* prs, BoaAstExpression* previous, bool canassign)
@@ -9280,9 +9327,9 @@ BoaAstExpression* boa_astparser_ruleternaryorquestion(BoaAstParser* prs, BoaAstE
         boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, ignored ? "property name after <->>" : "property name after <.>");
         return (BoaAstExpression*)boa_ast_makegetexpr(line, previous, prs->previoustoken.start, prs->previoustoken.length, true, ignored, true);
     }
-    ifbranch = boa_astparser_parseexpr(prs);
+    ifbranch = boa_astparser_parseexpression(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_COLON, "':' after expression");
-    elsebranch = boa_astparser_parseexpr(prs);
+    elsebranch = boa_astparser_parseexpression(prs);
     return (BoaAstExpression*)boa_ast_maketernaryexpr(line, previous, ifbranch, elsebranch);
 }
 
@@ -9292,7 +9339,7 @@ BoaAstExpression* boa_astparser_parsesubscript(BoaAstParser* prs, BoaAstExpressi
     BoaAstExpression* index;
     BoaAstExpression* expr;
     line = prs->previoustoken.line;
-    index = boa_astparser_parseexpr(prs);
+    index = boa_astparser_parseexpression(prs);
     boa_astparser_ignorelinefeeds(prs);
     boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTBRACKET, "']' after subscript");
     expr = (BoaAstExpression*)boa_ast_makesubscriptexpr(line, previous, index);
@@ -9302,7 +9349,7 @@ BoaAstExpression* boa_astparser_parsesubscript(BoaAstParser* prs, BoaAstExpressi
     }
     else if(canassign && boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpr(prs));
+        return (BoaAstExpression*)boa_ast_makeassignexpr(prs->previoustoken.line, expr, boa_astparser_parseexpression(prs));
     }
     return expr;
 }
@@ -9367,15 +9414,86 @@ BoaAstExpression* boa_astparser_rulereference(BoaAstParser* prs, bool canassign)
     expr = boa_ast_makerefexpr(line, boa_astparser_parseprec(prs, BOA_ASTPREC_CALL, false));
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        return (BoaAstExpression*)boa_ast_makeassignexpr(line, (BoaAstExpression*)expr, boa_astparser_parseexpr(prs));
+        return (BoaAstExpression*)boa_ast_makeassignexpr(line, (BoaAstExpression*)expr, boa_astparser_parseexpression(prs));
     }
     return (BoaAstExpression*)expr;
 }
 
-BoaAstExpression* boa_astparser_parseexpr(BoaAstParser* prs)
+
+BoaAstExpression* boa_astparser_parsestatement(BoaAstParser* prs)
 {
+    BoaAstExpression* expr;
+    if(setjmp(g_parserjumpbuffer))
+    {
+        return NULL;
+    }
     boa_astparser_ignorelinefeeds(prs);
-    return boa_astparser_parseprec(prs, BOA_ASTPREC_ASSIGNMENT, true);
+    if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWVAR) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWCONST))
+    {
+        return boa_astparser_parsevardecl(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCLASS))
+    {
+        return boa_astparser_parseclass(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWIF))
+    {
+        return boa_astparser_parseif(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWSWITCH))
+    {
+        return boa_astparser_parseswitch(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWTRY))
+    {
+        return boa_astparser_parsetry(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWTHROW))
+    {
+        return boa_astparser_parsethrow(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWFOR))
+    {
+        return boa_astparser_parsefor(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWWHILE))
+    {
+        return boa_astparser_parsewhile(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCONTINUE))
+    {
+        return (BoaAstExpression*)boa_ast_makecontinuestmt(prs->previoustoken.line);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWBREAK))
+    {
+        return (BoaAstExpression*)boa_ast_makebreakstmt(prs->previoustoken.line);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWFUNCTION) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWEXPORT))
+    {
+        return boa_astparser_parsefunction(prs);
+    }
+    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWRETURN))
+    {
+        return boa_astparser_parsereturn(prs);
+    }
+    expr = boa_astparser_parseexpression(prs);
+    if(expr == NULL)
+    {
+        return NULL;
+    }
+    return (BoaAstExpression*)boa_ast_makeexprstmt(prs->previoustoken.line, expr);
+}
+
+BoaAstExpression* boa_astparser_parseexpression(BoaAstParser* prs)
+{
+    BoaAstExpression* expr;
+    boa_astparser_ignorelinefeeds(prs);
+    expr = boa_astparser_parseprec(prs, BOA_ASTPREC_ASSIGNMENT, true);
+    if(expr != NULL)
+    {
+        return expr;
+    }
+    return NULL;
 }
 
 BoaAstExpression* boa_astparser_parsevardecl(BoaAstParser* prs)
@@ -9393,7 +9511,7 @@ BoaAstExpression* boa_astparser_parsevardecl(BoaAstParser* prs)
     length = prs->previoustoken.length;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_EQUAL))
     {
-        init = boa_astparser_parseexpr(prs);
+        init = boa_astparser_parseexpression(prs);
     }
     return (BoaAstExpression*)boa_ast_makevardeclstmt(line, name, length, init, constant);
 }
@@ -9447,7 +9565,7 @@ BoaAstExpression* boa_astparser_parsethrow(BoaAstParser* prs)
     size_t line;
     BoaAstExpression* exvalue;
     line = prs->previoustoken.line;
-    exvalue = boa_astparser_parseexpr(prs);
+    exvalue = boa_astparser_parseexpression(prs);
     return (BoaAstExpression*)boa_ast_makethrowstmt(line, exvalue);
 }
 
@@ -9465,7 +9583,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
     line = prs->previoustoken.line;
     invert = boa_astparser_match(prs, BOA_ASTTOKTYP_BANG);
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
-    condition = boa_astparser_parseexpr(prs);
+    condition = boa_astparser_parseexpression(prs);
     if(hadparen)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)>");
@@ -9493,7 +9611,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
             }
             invert = boa_astparser_match(prs, BOA_ASTTOKTYP_BANG);
             hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
-            e = boa_astparser_parseexpr(prs);
+            e = boa_astparser_parseexpression(prs);
             if(hadparen)
             {
                 boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)>");
@@ -9532,7 +9650,7 @@ BoaAstExpression* boa_astparser_parseswitch(BoaAstParser* prs)
     BoaAstSwitchExpr* switchexpr;
     line = prs->previoustoken.line;
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
-    condition = boa_astparser_parseexpr(prs);
+    condition = boa_astparser_parseexpression(prs);
     if(hadparen)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)> after switch condition");
@@ -9546,7 +9664,7 @@ BoaAstExpression* boa_astparser_parseswitch(BoaAstParser* prs)
         casecond = NULL;
         if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCASE))
         {
-            casecond = boa_astparser_parseexpr(prs);
+            casecond = boa_astparser_parseexpression(prs);
             boa_astparser_consume(prs, BOA_ASTTOKTYP_COLON, "<:> after case expression");
         }
         else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWDEFAULT))
@@ -9564,7 +9682,7 @@ BoaAstExpression* boa_astparser_parseswitch(BoaAstParser* prs)
               !boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE) &&
               !boa_astparser_check(prs, BOA_ASTTOKTYP_EOF))
         {
-            boa_dynlistexpr_push(&bodyblock->statements, boa_astparser_parsestmt(prs));
+            boa_dynlistexpr_push(&bodyblock->statements, boa_astparser_parsestatement(prs));
             boa_astparser_ignorelinefeeds(prs);
         }
         boa_dynlistexpr_push(&switchexpr->caseconditions, casecond);
@@ -9595,7 +9713,7 @@ BoaAstExpression* boa_astparser_parsefor(BoaAstParser* prs)
         }
         else
         {
-            init = boa_astparser_parseexpr(prs);
+            init = boa_astparser_parseexpression(prs);
         }
     }
     cstyle = !boa_astparser_match(prs, BOA_ASTTOKTYP_KWIN);
@@ -9604,13 +9722,13 @@ BoaAstExpression* boa_astparser_parsefor(BoaAstParser* prs)
     if(cstyle)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_SEMICOLON, "<;>");
-        condition = boa_astparser_check(prs, BOA_ASTTOKTYP_SEMICOLON) ? NULL : boa_astparser_parseexpr(prs);
+        condition = boa_astparser_check(prs, BOA_ASTTOKTYP_SEMICOLON) ? NULL : boa_astparser_parseexpression(prs);
         boa_astparser_consume(prs, BOA_ASTTOKTYP_SEMICOLON, "<;>");
-        increment = boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTPAREN) ? NULL : boa_astparser_parseexpr(prs);
+        increment = boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTPAREN) ? NULL : boa_astparser_parseexpression(prs);
     }
     else
     {
-        condition = boa_astparser_parseexpr(prs);
+        condition = boa_astparser_parseexpression(prs);
         if(var == NULL)
         {
             boa_astparser_failfmt(prs, "for-loops using in-iteration must declare a new variable");
@@ -9633,7 +9751,7 @@ BoaAstExpression* boa_astparser_parsewhile(BoaAstParser* prs)
     BoaAstExpression* body;
     line = prs->previoustoken.line;
     hadparen = boa_astparser_match(prs, BOA_ASTTOKTYP_LEFTPAREN);
-    condition = boa_astparser_parseexpr(prs);
+    condition = boa_astparser_parseexpression(prs);
     if(hadparen)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)>");
@@ -9731,7 +9849,7 @@ BoaAstExpression* boa_astparser_parsereturn(BoaAstParser* prs)
     BoaAstExpression* expr = NULL;
     if(!boa_astparser_check(prs, BOA_ASTTOKTYP_SEMICOLON) && !boa_astparser_check(prs, BOA_ASTTOKTYP_RIGHTBRACE) && !boa_astparser_check(prs, BOA_ASTTOKTYP_EOF))
     {
-        expr = boa_astparser_parseexpr(prs);
+        expr = boa_astparser_parseexpression(prs);
     }
     return (BoaAstExpression*)boa_ast_makereturnstmt(line, expr);
 }
@@ -9958,70 +10076,6 @@ void boa_astparser_sync(BoaAstParser* prs)
     }
 }
 
-BoaAstExpression* boa_astparser_parsestmt(BoaAstParser* prs)
-{
-    BoaAstExpression* expr;
-    if(setjmp(g_parserjumpbuffer))
-    {
-        return NULL;
-    }
-    boa_astparser_ignorelinefeeds(prs);
-    if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWVAR) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWCONST))
-    {
-        return boa_astparser_parsevardecl(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCLASS))
-    {
-        return boa_astparser_parseclass(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWIF))
-    {
-        return boa_astparser_parseif(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWSWITCH))
-    {
-        return boa_astparser_parseswitch(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWTRY))
-    {
-        return boa_astparser_parsetry(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWTHROW))
-    {
-        return boa_astparser_parsethrow(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWFOR))
-    {
-        return boa_astparser_parsefor(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWWHILE))
-    {
-        return boa_astparser_parsewhile(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCONTINUE))
-    {
-        return (BoaAstExpression*)boa_ast_makecontinuestmt(prs->previoustoken.line);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWBREAK))
-    {
-        return (BoaAstExpression*)boa_ast_makebreakstmt(prs->previoustoken.line);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWFUNCTION) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWEXPORT))
-    {
-        return boa_astparser_parsefunction(prs);
-    }
-    else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWRETURN))
-    {
-        return boa_astparser_parsereturn(prs);
-    }
-    expr = boa_astparser_parseexpr(prs);
-    if(expr == NULL)
-    {
-        return NULL;
-    }
-    return (BoaAstExpression*)boa_ast_makeexprstmt(prs->previoustoken.line, expr);
-}
-
 BoaAstExpression* boa_astparser_parsestmtorblock(BoaAstParser* prs)
 {
     boa_astparser_ignorelinefeeds(prs);
@@ -10030,7 +10084,7 @@ BoaAstExpression* boa_astparser_parsestmtorblock(BoaAstParser* prs)
         boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "<{> before block");
         return boa_astparser_parseblock(prs);
     }
-    return boa_astparser_parsestmt(prs);
+    return boa_astparser_parsestatement(prs);
 }
 
 BoaAstExpression* boa_astparser_parsedecl(BoaAstParser* prs)
@@ -10042,7 +10096,7 @@ BoaAstExpression* boa_astparser_parsedecl(BoaAstParser* prs)
     }
     else
     {
-        expr = boa_astparser_parsestmt(prs);
+        expr = boa_astparser_parsestatement(prs);
     }
     return expr;
 }
@@ -13349,6 +13403,7 @@ int64_t boa_vmutil_getsbx(uint64_t instruction)
 void boa_debug_disasmodrecursive(BoaState* state, BoaStream* pr, BoaFuncScript* function, const char* source, BoaTable* disassembled)
 {
     size_t i;
+    BoaValue val;
     if(function == NULL)
     {
         return;
@@ -13361,7 +13416,7 @@ void boa_debug_disasmodrecursive(BoaState* state, BoaStream* pr, BoaFuncScript* 
     boa_debug_disaschunk(pr, &function->chunk, boa_string_getdata(function->name), source);
     for(i = 0; i < function->chunk.constantlist.listcount; i++)
     {
-        BoaValue val = function->chunk.constantlist.listitems[i];
+        val = function->chunk.constantlist.listitems[i];
         if(boa_value_isfuncscript(val))
         {
             boa_debug_disasmodrecursive(state, pr, boa_value_asfuncscript(val), source, disassembled);
@@ -13398,6 +13453,7 @@ void boa_debug_disaschunk(BoaStream* pr, BoaChunk* chunk, const char* name, cons
 {
     size_t i;
     size_t offset;
+    BoaValue value;
     BoaDynListVal* list;
     list = &chunk->constantlist;
     boa_stream_printf(pr, "CHUNK %s {\n", name);
@@ -13408,7 +13464,7 @@ void boa_debug_disaschunk(BoaStream* pr, BoaChunk* chunk, const char* name, cons
         boa_stream_resetcolor(pr);
         for(i = 0; i < list->listcount; i++)
         {
-            BoaValue value = list->listitems[i];
+            value = list->listitems[i];
             boa_stream_printf(pr, "% 4ld ", i);
             boa_debug_printconst(pr, value);
             boa_stream_printf(pr, "\n");
@@ -13434,7 +13490,8 @@ void boa_debug_disaschunk(BoaStream* pr, BoaChunk* chunk, const char* name, cons
 
 void boa_debug_callbackprintabcinstr(BoaStream* pr, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13443,7 +13500,8 @@ void boa_debug_callbackprintabcinstr(BoaStream* pr, BoaOpCode opc, uint64_t inst
 
 void boa_debug_callbackprintabxinstr(BoaStream* pr, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13452,7 +13510,8 @@ void boa_debug_callbackprintabxinstr(BoaStream* pr, BoaOpCode opc, uint64_t inst
 
 void boa_debug_callbackprintasbxinstr(BoaStream* pr, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13489,7 +13548,8 @@ void boa_debug_printconstorregister(BoaStream* pr, BoaChunk* chunk, uint16_t arg
 
 void boa_debug_printunaryinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13500,7 +13560,8 @@ void boa_debug_printunaryinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, ui
 
 void boa_debug_printbinaryinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13512,7 +13573,8 @@ void boa_debug_printbinaryinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, u
 
 void boa_debug_printmoveinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13523,7 +13585,8 @@ void boa_debug_printmoveinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, uin
 
 void boa_debug_printglobalinstr(BoaStream* pr, BoaChunk* chunk, BoaOpCode opc, uint64_t instruction)
 {
-    const char* name = boa_debug_opcname(opc);
+    const char* name;
+    name = boa_debug_opcname(opc);
     boa_stream_setcolor(pr, 'y');
     boa_stream_printf(pr, "%s", name);
     boa_stream_resetcolor(pr);
@@ -13604,35 +13667,19 @@ void boa_debug_disasinstr(BoaStream* pr, BoaChunk* chunk, size_t offset, const c
             boa_debug_printmoveinstr(pr, chunk, (BoaOpCode)opcode, instruction);
             break;
         case BOA_OPCODE_MATHADD:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_MATHSUBTRACT:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_MATHMULTIPLY:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_MATHDIVIDE:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
-        case BOA_OPCODE_NEGATE:
-            boa_debug_printunaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
-        case BOA_OPCODE_NOT:
-            boa_debug_printunaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_EQUAL:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_LESSTHAN:
-            boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
-            break;
         case BOA_OPCODE_LESSEQUAL:
             boa_debug_printbinaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
             break;
-        case BOA_OPCODE_GLOBALSET:
-            boa_debug_printglobalinstr(pr, chunk, (BoaOpCode)opcode, instruction);
+        case BOA_OPCODE_NEGATE:
+        case BOA_OPCODE_NOT:
+            boa_debug_printunaryinstr(pr, chunk, (BoaOpCode)opcode, instruction);
             break;
+        case BOA_OPCODE_GLOBALSET:
         case BOA_OPCODE_GLOBALGET:
             boa_debug_printglobalinstr(pr, chunk, (BoaOpCode)opcode, instruction);
             break;
@@ -13742,8 +13789,6 @@ BoaString* boa_state_errorfmt(BoaState* state, size_t line, const char* fmt, ...
     va_end(args);
     return result;
 }
-
-
 
 BoaValue boa_objfndefault_invalidconstructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -13911,10 +13956,6 @@ BoaValue boa_objfnclass_nameget(BoaState* state, BoaValue instance, size_t argc,
     return boa_value_fromobject(boa_value_asclass(instance)->name);
 }
 
-/*
- * Object
- */
-
 void boa_objfnutil_tabtoarray(BoaState* state, BoaArray* arr, BoaTable* table)
 {
     size_t i;
@@ -14081,8 +14122,6 @@ BoaValue boa_objfnobject_itervalue(BoaState* state, BoaValue instance, size_t ar
     return boa_coreutil_tableiterkey(&self->fields, index);
 }
 
-/** Number object functions */
-
 BoaValue boa_objfnnumber_constructor_actual(BoaState* state, BoaValue instance, size_t argc, BoaValue* args, bool isatoi)
 {
     BoaValue res;
@@ -14148,16 +14187,12 @@ BoaValue boa_objfnnumber_chrget(BoaState* state, BoaValue instance, size_t argc,
     return boa_value_fromobject(cs);
 }
 
-/** Bool object functions */
-
 BoaValue boa_objfnbool_tostring(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     (void)argc;
     (void)args;
     return boa_value_fromobject(boa_value_asbool(instance) ? state->strings.strtrue : state->strings.strfalse);
 }
-
-/** String object functions */
 
 BoaValue boa_objfnstring_chr(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -14189,7 +14224,7 @@ BoaValue boa_objfnstring_utf8encode(BoaState* state, BoaValue instance, size_t a
     (void)instance;
     (void)argc;
     incode = boa_value_asnumber(args[0]);
-    buf = boa_util_utf8encode(incode, &len);
+    buf = boa_util_utfstrencode(incode, &len);
     res = boa_string_take(state, buf, len);
     return boa_value_fromobject(res);
 }
@@ -14250,7 +14285,6 @@ static BoaValue boa_objfnstring_utf8codepoints(BoaState* state, BoaValue thisval
 {
     return boa_util_stringutf8chars(state, thisval, argc, args, true);
 }
-
 
 BoaValue boa_objfnstring_plus(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -14429,7 +14463,7 @@ BoaValue boa_objfnstring_touppercase(BoaState* state, BoaValue instance, size_t 
     (void)args;
     selfstr = boa_value_asstring(instance);
     copied = boa_string_clone(state, selfstr);
-    boa_util_stringchangecase(boa_string_getdata(copied), boa_string_getlength(copied), toupper);
+    boa_util_strchangecase(boa_string_getdata(copied), boa_string_getlength(copied), boa_string_getdata(copied), boa_util_chartoupper);
     return boa_value_fromobject(copied);
 }
 
@@ -14441,7 +14475,7 @@ BoaValue boa_objfnstring_tolowercase(BoaState* state, BoaValue instance, size_t 
     (void)args;
     selfstr = boa_value_asstring(instance);
     copied = boa_string_clone(state, selfstr);
-    boa_util_stringchangecase(boa_string_getdata(copied), boa_string_getlength(copied), tolower);
+    boa_util_strchangecase(boa_string_getdata(copied), boa_string_getlength(copied), boa_string_getdata(copied), boa_util_chartolower);
     return boa_value_fromobject(copied);
 }
 
@@ -14553,12 +14587,10 @@ BoaValue boa_objfnstring_splice(BoaState* state, BoaString* string, int64_t from
     {
         return boa_vm_raiseexception(state, state->exceptions.stdexception, "String.splice 'from' (%ld) is larger than 'to' (%ld)", from, to);
     }
-    from = boa_util_stringutfucharoffset(boa_string_getdata(string), from);
-    to = boa_util_stringutfucharoffset(boa_string_getdata(string), to);
+    from = boa_util_utfstrfindoffset(boa_string_getdata(string), from);
+    to = boa_util_utfstrfindoffset(boa_string_getdata(string), to);
     return boa_value_fromobject(boa_string_fromrange(state, string, from, to - from + 1));
 }
-
-
 
 BoaString* dosubstring(BoaState* state, BoaString* selfstr, size_t start, size_t end, bool likejs)
 {
@@ -14669,7 +14701,7 @@ BoaValue boa_objfnstring_charcodeat(BoaState* state, BoaValue thisval, size_t ar
             return boa_value_makenull();
         }
     }
-    cp = boa_string_codepointcodeat(state, selfstr, boa_util_stringutfucharoffset(boa_string_getdata(selfstr), index));
+    cp = boa_string_codepointcodeat(state, selfstr, boa_util_utfstrfindoffset(boa_string_getdata(selfstr), index));
     return boa_value_makenumber(cp);
 }
 
@@ -14697,7 +14729,7 @@ BoaValue boa_objfnstring_charat(BoaState* state, BoaValue thisval, size_t argc, 
             return boa_value_fromobject(state->strings.strempty);
         }
     }
-    c = boa_string_codepointstringat(state, selfstr, boa_util_stringutfucharoffset(boa_string_getdata(selfstr), index));
+    c = boa_string_codepointstringat(state, selfstr, boa_util_utfstrfindoffset(boa_string_getdata(selfstr), index));
     if(c == NULL)
     {
         return boa_value_fromobject(state->strings.strempty);
@@ -14729,7 +14761,7 @@ BoaValue boa_objfnstring_subscript(BoaState* state, BoaValue thisval, size_t arg
             return boa_value_makenull();
         }
     }
-    c = boa_string_codepointstringat(state, selfstr, boa_util_stringutfucharoffset(boa_string_getdata(selfstr), index));
+    c = boa_string_codepointstringat(state, selfstr, boa_util_utfstrfindoffset(boa_string_getdata(selfstr), index));
     return c == NULL ? boa_value_makenull() : boa_value_fromobject(c);
 }
 
@@ -14899,10 +14931,6 @@ static BoaValue boa_objfnstring_rtrim(BoaState* state, BoaValue thisval, size_t 
     return boa_value_fromobject(newstr);
 }
 
-/*
- * Function
- */
-
 BoaValue boa_objfnfunction_tostring(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     (void)argc;
@@ -14916,10 +14944,6 @@ BoaValue boa_objfnfunction_nameget(BoaState* state, BoaValue instance, size_t ar
     (void)args;
     return boa_function_getname(state, instance);
 }
-
-/*
- * Fiber
- */
 
 BoaValue boa_objfnfiber_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -15700,10 +15724,6 @@ BoaValue boa_objfnarray_lengthget(BoaState* state, BoaValue instance, size_t arg
     return boa_value_makenumber(boa_value_asarray(instance)->innerlist.listcount);
 }
 
-/*
- * Map
- */
-
 BoaValue boa_objfnmap_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaInstance* inst;
@@ -15850,10 +15870,6 @@ BoaValue boa_objfnmap_lengthget(BoaState* state, BoaValue instance, size_t argc,
     (void)args;
     return boa_value_makenumber(boa_value_asmap(instance)->innertable.htcount);
 }
-
-/*
- * Range
- */
 
 BoaValue boa_objfnrange_iterator(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -16022,17 +16038,17 @@ void boa_classcallbackregex_oncleanup(BoaState* state, BoaUserdata* data, bool m
 {
     BoaRegexData* rxdata;
     (void)state;
+    (void)rxdata;
     if(mark)
     {
         return;
     }
     rxdata = ((BoaRegexData*)data->data);
-    //boa_sysmem_free(rxdata->rxctx);
+    /* boa_sysmem_free(rxdata->rxctx);*/
 }
 
 BoaValue boa_objfnregex_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
-
     BoaString* pattern;
     const char* strpattern;
     BoaRegexData* data;
@@ -16298,7 +16314,9 @@ void boa_state_openstdclasses(BoaState* state)
         boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
         boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
         boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
-
+        #if 0
+            boa_class_bindstaticgetter(klass, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
+        #endif
     }
     {
         klass = boa_class_make(state, "ScriptVM", state->stdobjectclass);
@@ -16390,7 +16408,6 @@ BoaValue boa_cfn_println(BoaState* state, BoaValue instance, size_t argc, BoaVal
     return r;
 }
 
-
 BoaValue boa_cfn_printchar(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     char ch;
@@ -16410,9 +16427,10 @@ BoaValue boa_cfn_printchar(BoaState* state, BoaValue instance, size_t argc, BoaV
 
 void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaValue* args)
 {
+    char spec;
+    size_t argid;
     const char* fmt;
     const char* c;
-    size_t argid;
     if(argc < 1)
     {
         return;
@@ -16421,7 +16439,6 @@ void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaVal
     argid = 1;
     for(c = fmt; *c != '\0'; c++)
     {
-        char spec;
         if(*c != '%')
         {
             boa_stream_putc(strm, (int)*c);
@@ -16436,7 +16453,10 @@ void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaVal
                 {
                     BoaNumber v;
                     BoaValue str;
-                    if(argid >= argc) goto done;
+                    if(argid >= argc)
+                    {
+                        goto done;
+                    }
                     v = boa_value_asnumber(args[argid++]);
                     str = boa_string_numbertostring(state, v);
                     boa_stream_putlen(strm, boa_string_getdata(boa_value_asstring(str)), boa_string_getlength(boa_value_asstring(str)));
@@ -16445,7 +16465,10 @@ void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaVal
             case 's':
                 {
                     const char* s;
-                    if(argid >= argc) goto done;
+                    if(argid >= argc)
+                    {
+                        goto done;
+                    }
                     s = boa_string_getdata(boa_value_asstring(args[argid++]));
                     boa_stream_puts(strm, s);
                 }
@@ -16453,23 +16476,33 @@ void boa_util_printfhelper(BoaState* state, BoaStream* strm, size_t argc, BoaVal
             case 'c':
                 {
                     BoaNumber v;
-                    if(argid >= argc) goto done;
+                    if(argid >= argc)
+                    {
+                        goto done;
+                    }
                     v = boa_value_asnumber(args[argid++]);
                     boa_stream_putc(strm, (int)v);
                 }
                 break;
             case 'p':
                 {
-                    if(argid >= argc) goto done;
+                    if(argid >= argc)
+                    {
+                        goto done;
+                    }
                     boa_value_printvalue(strm, args[argid++], true);
                 }
                 break;
             case '%':
-                boa_stream_putc(strm, '%');
+                {
+                    boa_stream_putc(strm, '%');
+                }
                 break;
             default:
-                boa_stream_putc(strm, '%');
-                boa_stream_putc(strm, (int)spec);
+                {
+                    boa_stream_putc(strm, '%');
+                    boa_stream_putc(strm, (int)spec);
+                }
                 break;
         }
     }
@@ -16495,7 +16528,6 @@ BoaValue boa_cfn_sprintf(BoaState* state, BoaValue instance, size_t argc, BoaVal
     return boa_value_fromobject(str);
 }
 
-
 BoaValue boa_cfn_atoi(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     return boa_objfnnumber_constructor_actual(state, instance, argc, args, true);
@@ -16515,7 +16547,7 @@ BoaValue boa_cfn_typeof(BoaState* state, BoaValue instance, size_t argc, BoaValu
     return boa_value_fromobject(r);
 }
 
-BoaValue boa_cfn_openlibrary(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+BoaValue boa_cfn_require(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaString* name;
     (void)instance;
@@ -16574,7 +16606,6 @@ BoaValue boa_cfn_eval(BoaState* state, BoaValue instance, size_t argc, BoaValue*
     return boa_value_makenull();
 }
 
-
 void boa_state_openglobalfuncs(BoaState* state)
 {
     boa_state_defnative(state, "srand", boa_cfn_srand);
@@ -16588,9 +16619,8 @@ void boa_state_openglobalfuncs(BoaState* state)
     boa_state_defnative(state, "sprintf", boa_cfn_sprintf);
     boa_state_defnative(state, "atoi", boa_cfn_atoi);
     boa_state_defnative(state, "typeof", boa_cfn_typeof);
-    boa_state_defnative(state, "openLibrary", boa_cfn_openlibrary);
+    boa_state_defnative(state, "require", boa_cfn_require);
     boa_state_defnative(state, "eval", boa_cfn_eval);
-
 }
 
 void boa_bcemu_initfile(BoaEmulatedFile* emu, const char* source)
@@ -16746,16 +16776,6 @@ BoaString* boa_bcemu_readstring(BoaState* state, BoaEmulatedFile* emu)
     return res;
 }
 
-/*
-    BoaObject innerobject;
-    BoaChunk chunk;
-    BoaString* name;
-    size_t argcount;
-    size_t upvaluecount;
-    uint64_t maxregisters;
-    bool vararg;
-    BoaModule* module;
-*/
 void boa_bcfile_writefunction(FILE* hnd, BoaFuncScript* function)
 {
     boa_bcfile_writechunk(hnd, &function->chunk);
@@ -16781,16 +16801,6 @@ BoaFuncScript* boa_bcemu_readfunction(BoaState* state, BoaEmulatedFile* emu, Boa
     return function;
 }
 
-/*
-    size_t compiledcodecount;
-    size_t capacity;
-    uint64_t* compiledcodechunk;
-    bool haslineinfo;
-    size_t linecount;
-    size_t linecapacity;
-    uint16_t* lines;
-    BoaDynListVal constantlist;
-*/
 void boa_bcfile_writeobject(FILE* hnd, BoaObject* obj)
 {
     BoaObjType type;
@@ -17118,10 +17128,6 @@ bool boa_util_openmodeisvalid(const char* mode, size_t len)
     return false;
 }
 
-
- 
-
-
 BoaValue boa_objfnfile_constructor(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     BoaString* path;
@@ -17214,11 +17220,6 @@ BoaValue boa_objfnfile_staticcreate(BoaState* state, BoaValue instance, size_t a
     return boa_value_makenull();
 }
 
-/*
- * ==
- * File writing
- */
-
 BoaValue boa_objfnfile_writevalvalue(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     size_t i;
@@ -17254,13 +17255,6 @@ BoaValue boa_objfnfile_writevalstring(BoaState* state, BoaValue instance, size_t
     wr = boa_stream_putlen(data->fdhandle, boa_string_getdata(string), maxlen);
     return boa_value_makenumber(wr);
 }
-
-/*
- * ==
- * File reading
- */
-
-
 
 BoaValue boa_objfnfile_readallinstance(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -17373,7 +17367,6 @@ BoaValue boa_objfndirectory_exists(BoaState* state, BoaValue instance, size_t ar
     directoryname = boa_string_getdata(boa_value_asstring(args[0]));
     return boa_value_makebool(stat(directoryname, &buffer) == 0);
 }
-
 
 BoaValue boa_objfndirectory_chdir(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -17494,7 +17487,6 @@ BoaValue boa_objfndirectory_read(BoaState* state, BoaValue instance, size_t argc
         boa_state_raiseerror(state, "cannot open directory '%s'", topdname);
     }
     return boa_value_makenull();
-
 }
 
 void boa_corelib_installfile(BoaState* state)
@@ -17568,7 +17560,6 @@ void boa_state_openstdlibs(BoaState* state)
     boa_corelib_installfile(state);
     boa_corelib_installgc(state);
 }
-
 
 BoaValue boa_objfnmath_abs(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -18840,13 +18831,10 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
     state->rootcount = 0;
     state->rootcapacity = 0;
     state->lastmodule = NULL;
+    boa_state_setdefaultconfig(state);
     if(cfg != NULL)
     {
         state->config = *cfg;
-    }
-    else
-    {
-        boa_state_setdefaultconfig(state);
     }
     boa_sysmem_poolinit(&state->config);
     state->streamstdout = boa_stream_makeio(stdout, false);
@@ -18894,11 +18882,6 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
     boa_state_openstdclasses(state);
     boa_state_openstdlibs(state);
     boa_state_openglobalfuncs(state);
-    {
-        #if 0
-            boa_state_setglobal(state, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
-        #endif
-    }
 }
 
 int64_t boa_state_destroy(BoaState* state)
@@ -19497,7 +19480,6 @@ bool boa_vmexec_callcallable(BoaState* state, BoaFuncScript* function, BoaFuncCl
     }
     return true;
 }
-
 
 bool boa_vmexec_actualcallvalue(BoaState* state, size_t calleeregister, size_t argc, BoaValue alternatecallee, const char* fname)
 {
@@ -21617,7 +21599,7 @@ static void boa_cli_parseenv(BoaState* state, char** envp)
     {
         raw = envp[i];
         len = strlen(raw);
-        pos = boa_util_findfirstpos(raw, len, '=');
+        pos = boa_util_strfindfirstchar(raw, len, '=');
         if(pos == -1)
         {
             fprintf(stderr, "malformed environment string '%s'\n", raw);
@@ -21706,7 +21688,6 @@ static void boa_cli_showusage(char* argv[], optcontext_t* ox, bool fail)
     optprs_fprintusage(out, ox);
 }
 
-
 typedef struct BoaCliOptions BoaCliOptions;
 struct BoaCliOptions
 {
@@ -21768,11 +21749,22 @@ bool on_flag(optcontext_t* ox, optflag_t* flag, void* userptr)
     }
     else if(co == 'm')
     {
-        cli->cfg->mempooldisable = true;
-    }
-    else if(co == 'M')
-    {
-        cli->cfg->mempoolforcegeneric = true;
+        if(boa_util_strcaseequal(ox->optarg, "default"))
+        {
+        }
+        if(boa_util_strcaseequal(ox->optarg, "none"))
+        {
+            cli->cfg->mempooldisable = true;
+        }
+        else if(boa_util_strcaseequal(ox->optarg, "generic"))
+        {
+            cli->cfg->mempoolforcegeneric = true;
+        }
+        else
+        {
+            fprintf(stderr, "unrecognized mode '%s' for '-m'\n", ox->optarg);
+            return false;
+        }
     }
     else if(co == 'T')
     {
@@ -21824,19 +21816,18 @@ int main(int argc, char* argv[], char** envp)
     cli.cfg = &config;
     cli.dumpbccode = false;
     cli.bytecodefile = NULL;
-    optprs_init(&options, argc, argv, &cli);
+    optprs_init(&options, argc, argv, &cli, on_flag);
     options.permute = 0;
-    optprs_add(&options, on_flag, "help", 'h', OPTPARSE_NONE, "this help");
-    optprs_add(&options, on_flag, "usemalloc", 'm', OPTPARSE_NONE, "use plain malloc/free instead of memory pool");
-    optprs_add(&options, on_flag, "forcegeneric", 'M', OPTPARSE_NONE, "unless '-m' is specified, force mempool to use generic mode");
-    optprs_add(&options, on_flag, "compileto", 'o', OPTPARSE_REQUIRED, "compile input script file to <val>");
-    optprs_add(&options, on_flag, "dump", 'd', OPTPARSE_NONE, "dump instructions");
-    optprs_add(&options, on_flag, "ast", 'a', OPTPARSE_NONE, "dump AST");
-    optprs_add(&options, on_flag, "eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code");
-    optprs_add(&options, on_flag, "trace", 't', OPTPARSE_NONE, "trace execution");
-    optprs_add(&options, on_flag, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
-    optprs_add(&options, on_flag, "dest", 'T', OPTPARSE_REQUIRED, "when '-t' is specified, write trace output to file. defaults to stderr");
-    optprs_add(&options, on_flag, "quit", 'q', OPTPARSE_NONE, "when dumping flags (like '-a' or '-d') are specified, quit immediately after");
+    optprs_add(&options, "help", 'h', OPTPARSE_NONE, "this help");
+    optprs_add(&options, "memory", 'm', OPTPARSE_REQUIRED, "specify type of memory handling (default, generic, none)");
+    optprs_add(&options, "compileto", 'o', OPTPARSE_REQUIRED, "compile input script file to <val>");
+    optprs_add(&options, "dump", 'd', OPTPARSE_NONE, "dump instructions");
+    optprs_add(&options, "ast", 'a', OPTPARSE_NONE, "dump AST");
+    optprs_add(&options, "eval", 'e', OPTPARSE_REQUIRED, "evaluate a single line of code");
+    optprs_add(&options, "trace", 't', OPTPARSE_NONE, "trace execution");
+    optprs_add(&options, "instsonly", 'i', OPTPARSE_NONE, "when '-t' is specified, trace instructions only, skipping printing values");
+    optprs_add(&options, "dest", 'T', OPTPARSE_REQUIRED, "when '-t' is specified, write trace output to file. defaults to stderr");
+    optprs_add(&options, "quit", 'q', OPTPARSE_NONE, "when dumping flags (like '-a' or '-d') are specified, quit immediately after");
     if(!optprs_run(&options))
     {
         goto endmain;
