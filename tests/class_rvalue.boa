@@ -1,0 +1,52 @@
+// A class expression can carry a name, and keeps it.
+var Point = class Point2 {
+    constructor(x, y) { this.x = x; this.y = y }
+    sum() { return this.x + this.y }
+}
+println(Point.name) // Expected: Point2
+println(Point.super.name) // Expected: Object
+println(Point(3, 4).sum()) // Expected: 7
+println(new Point(3, 4).sum()) // Expected: 7
+
+// The name on a class expression is optional.
+var Anon = class {
+    greet() { return "hello" }
+}
+println(Anon.name.startsWith("anonymous class :")) // Expected: true
+println(Anon().greet()) // Expected: hello
+println(class { greet() { return "inline" } }().greet()) // Expected: inline
+
+// Class expressions support static fields.
+var Greeter = class {
+    static var greeting = "hi"
+    greet() { return Greeter.greeting }
+}
+println(new Greeter().greet()) // Expected: hi
+
+// A class expression can inherit from a named class.
+class Base {
+    describe() { return "base" }
+}
+class Named : Base {
+    describe() { return "named>" + super.describe() }
+}
+var Derived = class : Base {
+    describe() { return "anon>" + super.describe() }
+}
+var Mixed = class Mixed2 : Named {
+    describe() { return "mixed>" + super.describe() }
+}
+println(new Named().describe()) // Expected: named>base
+println(new Derived().describe()) // Expected: anon>base
+println(new Mixed().describe()) // Expected: mixed>named>base
+
+// Class expressions are values, so they can be produced by a block or an if.
+function pick(flag) {
+    return if (flag) { class Yes { v() { return "yes" } } } else { class No { v() { return "no" } } }
+}
+println(pick(true)().v()) // Expected: yes
+println(pick(false)().v()) // Expected: no
+
+// A class expression stored in an object field still works as a class.
+var types = { point: class { make() { return "made" } } }
+println(types.point().make()) // Expected: made

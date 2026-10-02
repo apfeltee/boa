@@ -1,0 +1,43 @@
+// A block expression evaluates to the value of its trailing expression.
+var a = { 1 + 2 }
+println(a) // Expected: 3
+
+println({ var q = 3; q * q }) // Expected: 9
+
+// Locals declared in a block are visible inside it, but do not leak out.
+{ var hidden = 99; println(hidden) } // Expected: 99
+
+// A block with no trailing expression evaluates to null.
+println({ var x = 1; } == null) // Expected: true
+
+// An empty pair of braces is still an empty object, for backwards compatibility.
+println({} == null) // Expected: false
+println({}.length == null) // Expected: true
+
+// Block values can hold loops and other control flow.
+var b = {
+    var total = 0
+    for (var i = 0; i < 5; i++) {
+        total = total + i
+    }
+    total
+}
+println(b) // Expected: 10
+
+// Block values nest.
+println({ { 2 * 3 } }) // Expected: 6
+
+// Functions are hoisted inside a block, and can recurse through the block's scope.
+var fact = {
+    function fac(n) { return n <= 1 ? 1 : n * fac(n - 1) }
+    fac
+}
+println(fact(5)) // Expected: 120
+
+// A block value can be an argument.
+println([1, 2, 3].map((v) => v * 2)) // Expected: [2, 4, 6]
+
+// A block value can be the target of a member lookup.
+var cfg = { server: { host: "localhost", port: 80 } }
+println(cfg.server.host) // Expected: localhost
+println(cfg.server["port"]) // Expected: 80

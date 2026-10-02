@@ -1,0 +1,42 @@
+// An if expression evaluates to the value of the branch that is taken.
+var c = 5
+println(if (c > 10) { "big" } else { "small" }) // Expected: small
+println(if (c > 3) { "big" } else { "small" }) // Expected: big
+
+// else if chains work, and a chain with no match is null.
+println(if (false) { 1 } else if (false) { 2 } else { 3 }) // Expected: 3
+println(if (false) { 1 } else if (true) { 2 } else { 3 }) // Expected: 2
+println(if (false) { 1 } else if (false) { 2 }) // Expected: null
+
+// Branches that are blocks without a trailing expression are null too.
+println(if (c) { println("side effect") }) // Expected: null
+// Expected: side effect
+
+// An if expression can be used wherever any other value can.
+println(if (c) { "yes" } else { "no" } == "yes") // Expected: true
+println(if (c) { 2 } else { 3 } * 10) // Expected: 20
+var t = if (c) { "taken" } else { "skipped" }
+println(t) // Expected: taken
+
+// if expressions nest, including inside their own condition.
+println(if (if (c) { true } else { false }) { 1 } else { 2 }) // Expected: 1
+println(if (c) { if (c > 1) { "outer>inner" } else { "outer" } } else { "no" }) // Expected: outer>inner
+
+// A trailing if statement inside a block yields the block's value.
+println({ if (c > 3) { "trailing if" } else { "nope" } }) // Expected: trailing if
+
+// if expressions respect early exit out of a block.
+function firsteven(n) {
+    return { if (n % 2 == 0) { n } else { null } }
+}
+println(firsteven(4)) // Expected: 4
+println(firsteven(5)) // Expected: null
+
+// Statement-level if is unchanged.
+if (c > 10) {
+    println("bad")
+} else if (c > 3) {
+    println("good") // Expected: good
+} else {
+    println("bad")
+}

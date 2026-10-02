@@ -1,0 +1,35 @@
+// Braces that look like key/value pairs are object literals...
+var o = { a: 1, "b c": 2 }
+println(o.a) // Expected: 1
+println(o["b c"]) // Expected: 2
+println(o.a + o["b c"]) // Expected: 3
+
+var nested = { x: { y: { z: 7 } } }
+println(nested.x.y.z) // Expected: 7
+
+var arrays = { list: [1, 2, 3] }
+println(arrays.list) // Expected: [1, 2, 3]
+
+var trailing = { a: 1, b: 2, }
+println(trailing.a + trailing.b) // Expected: 3
+
+// ...even when the braces hold a single key with a nested brace as its value.
+var deep = { a: { b: { c: { d: "end" } } } }
+println(deep.a.b.c.d) // Expected: end
+
+// An empty pair of braces is an empty object, not an empty block.
+println({} == null) // Expected: false
+println({ var q = 1; } == null) // Expected: true
+
+// Braces that do not look like key/value pairs are blocks with a value.
+println({ 1 + 1 }) // Expected: 2
+println({ 5 }) // Expected: 5
+
+// Object literals and block values are interchangeable wherever a value fits.
+function takes(o) { return o.a }
+println(takes({ a: 9 })) // Expected: 9
+var list = [{ a: 1 }, { a: 2 }]
+println(list[1].a) // Expected: 2
+
+// A block whose body is a bare expression still holds locals.
+println({ var k = 2; k * 21 }) // Expected: 42

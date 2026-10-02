@@ -9224,6 +9224,91 @@ BoaAstExpression* boa_astparser_ruleobject(BoaAstParser* prs, bool canassign)
     return (BoaAstExpression*)object;
 }
 
+/* Speculatively scan for object notation ('{ key: value (, key: value)* }'),
+   so that a '{' expression can also be used as a code block. The lexer is passed
+   in by value and is thus left untouched. */
+static bool boa_astparser_scanobjectnotation(BoaAstLexer* lex, BoaAstToken token)
+{
+    size_t depth;
+    depth = 0;
+    for(;;)
+    {
+        while(token.type == BOA_ASTTOKTYP_LINEFEED)
+        {
+            token = boa_astlex_scantoken(lex);
+        }
+        /* an empty object is still object notation */
+        if(token.type == BOA_ASTTOKTYP_RIGHTBRACE)
+        {
+            return depth == 0;
+        }
+        if(token.type != BOA_ASTTOKTYP_IDENTIFIER && token.type != BOA_ASTTOKTYP_STRING)
+        {
+            return false;
+        }
+        token = boa_astlex_scantoken(lex);
+        while(token.type == BOA_ASTTOKTYP_LINEFEED)
+        {
+            token = boa_astlex_scantoken(lex);
+        }
+        if(token.type != BOA_ASTTOKTYP_COLON)
+        {
+            return false;
+        }
+        /* now skip the value, tracking nesting so that the ',' and '}' that
+           end this pair can be told apart from the ones of nested structures */
+        for(;;)
+        {
+            token = boa_astlex_scantoken(lex);
+            if(token.type == BOA_ASTTOKTYP_EOF || token.type == BOA_ASTTOKTYP_ERROR)
+            {
+                return false;
+            }
+            if(depth == 0 && (token.type == BOA_ASTTOKTYP_COMMA || token.type == BOA_ASTTOKTYP_RIGHTBRACE))
+            {
+                break;
+            }
+            switch(token.type)
+            {
+                case BOA_ASTTOKTYP_LEFTBRACE:
+                case BOA_ASTTOKTYP_LEFTPAREN:
+                case BOA_ASTTOKTYP_LEFTBRACKET:
+                    depth++;
+                    break;
+                case BOA_ASTTOKTYP_RIGHTBRACE:
+                case BOA_ASTTOKTYP_RIGHTPAREN:
+                case BOA_ASTTOKTYP_RIGHTBRACKET:
+                    depth--;
+                    break;
+                default:
+                    break;
+            }
+        }
+        if(token.type == BOA_ASTTOKTYP_RIGHTBRACE)
+        {
+            return true;
+        }
+        /* step over the ',' and expect another key */
+        token = boa_astlex_scantoken(lex);
+    }
+}
+
+bool boa_astparser_braceisobject(BoaAstParser* prs)
+{
+    BoaAstLexer lex;
+    lex = *(prs->pstate->activelexer);
+    return boa_astparser_scanobjectnotation(&lex, prs->currenttoken);
+}
+
+BoaAstExpression* boa_astparser_rulebrace(BoaAstParser* prs, bool canassign)
+{
+    if(boa_astparser_braceisobject(prs))
+    {
+        return boa_astparser_ruleobject(prs, canassign);
+    }
+    return boa_astparser_parseblock(prs);
+}
+
 BoaAstExpression* boa_astparser_parsevarexprbase(BoaAstParser* prs, bool canassign, bool isnew)
 {
     bool hadargs;
@@ -9434,7 +9519,7 @@ BoaAstExpression* boa_astparser_parsestatement(BoaAstParser* prs)
     }
     else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCLASS))
     {
-        return boa_astparser_parseclass(prs);
+        return boa_astparser_parseclass(prs, false);
     }
     else if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWIF))
     {
@@ -9963,7 +10048,7 @@ BoaAstExpression* boa_astparser_parsemethod(BoaAstParser* prs, bool isstatic)
     return (BoaAstExpression*)method;
 }
 
-BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs)
+BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs, bool optionalname)
 {
     size_t line;
     bool isstatic;
@@ -9984,8 +10069,16 @@ BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs)
     {
         boa_astparser_consume(prs, BOA_ASTTOKTYP_KWCLASS, "<class> after <static>");
     }
-    boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "class name after <class>");
-    name = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
+    if(optionalname && !boa_astparser_check(prs, BOA_ASTTOKTYP_IDENTIFIER))
+    {
+        /* anonymous class, still needs a name for the class registry */
+        name = (BoaString*)boa_value_asobject(boa_string_valformat(prs->pstate, "anonymous class :#", (BoaNumber)line));
+    }
+    else
+    {
+        boa_astparser_consume(prs, BOA_ASTTOKTYP_IDENTIFIER, "class name after <class>");
+        name = boa_string_copylen(prs->pstate, prs->previoustoken.start, prs->previoustoken.length);
+    }
     super = NULL;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_COLON) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWEXTENDS))
     {
@@ -10041,6 +10134,18 @@ BoaAstExpression* boa_astparser_parseclass(BoaAstParser* prs)
     return (BoaAstExpression*)klass;
 }
 
+BoaAstExpression* boa_astparser_ruleclass(BoaAstParser* prs, bool canassign)
+{
+    (void)canassign;
+    return boa_astparser_parseclass(prs, true);
+}
+
+BoaAstExpression* boa_astparser_ruleif(BoaAstParser* prs, bool canassign)
+{
+    (void)canassign;
+    return boa_astparser_parseif(prs);
+}
+
 void boa_astparser_sync(BoaAstParser* prs)
 {
     prs->panicmode = false;
@@ -10092,7 +10197,7 @@ BoaAstExpression* boa_astparser_parsedecl(BoaAstParser* prs)
     BoaAstExpression* expr = NULL;
     if(boa_astparser_match(prs, BOA_ASTTOKTYP_KWCLASS) || boa_astparser_match(prs, BOA_ASTTOKTYP_KWSTATIC))
     {
-        expr = boa_astparser_parseclass(prs);
+        expr = boa_astparser_parseclass(prs, false);
     }
     else
     {
@@ -10192,7 +10297,9 @@ void boa_astparser_setuprules()
     g_astparserules[BOA_ASTTOKTYP_DOTDOT] = boa_astparser_makerule(NULL, boa_astparser_rulerange, BOA_ASTPREC_RANGE);
     g_astparserules[BOA_ASTTOKTYP_DOTDOTDOT] = boa_astparser_makerule(boa_astparser_rulevarexpr, NULL, BOA_ASTPREC_NONE);
     g_astparserules[BOA_ASTTOKTYP_LEFTBRACKET] = boa_astparser_makerule(boa_astparser_rulearray, boa_astparser_parsesubscript, BOA_ASTPREC_CALL);
-    g_astparserules[BOA_ASTTOKTYP_LEFTBRACE] = boa_astparser_makerule(boa_astparser_ruleobject, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_LEFTBRACE] = boa_astparser_makerule(boa_astparser_rulebrace, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWCLASS] = boa_astparser_makerule(boa_astparser_ruleclass, NULL, BOA_ASTPREC_NONE);
+    g_astparserules[BOA_ASTTOKTYP_KWIF] = boa_astparser_makerule(boa_astparser_ruleif, NULL, BOA_ASTPREC_NONE);
     g_astparserules[BOA_ASTTOKTYP_KWTHIS] = boa_astparser_makerule(boa_astparser_rulethis, NULL, BOA_ASTPREC_NONE);
     g_astparserules[BOA_ASTTOKTYP_KWSUPER] = boa_astparser_makerule(boa_astparser_rulesuper, NULL, BOA_ASTPREC_NONE);
     g_astparserules[BOA_ASTTOKTYP_QUESTION] = boa_astparser_makerule(NULL, boa_astparser_ruleternaryorquestion, BOA_ASTPREC_EQUALITY);
@@ -11213,7 +11320,9 @@ void boa_emitter_scopeend(BoaAstEmitter* emt)
     emt->compiler->scopedepth--;
     ccx = emt->compiler;
     locals = &ccx->locals;
-    while(locals->listcount > 0 && locals->listitems[locals->listcount - 1].depth > ccx->scopedepth)
+    /* locals that are still being initialized (depth is UINT16_MAX) belong to an
+       enclosing declaration, so they must survive the ending of a nested scope */
+    while(locals->listcount > 0 && locals->listitems[locals->listcount - 1].depth > ccx->scopedepth && locals->listitems[locals->listcount - 1].depth != UINT16_MAX)
     {
         local = &locals->listitems[locals->listcount - 1];
         if(local->captured)
@@ -11370,7 +11479,10 @@ int boa_emitter_resolveupvalue(BoaAstEmitter* emt, BoaAstCompiler* ccx, const ch
     local = boa_emitter_resolvelocal(emt, (BoaAstCompiler*)ccx->enclosing, name, length, line);
     if(local != -1)
     {
-        ((BoaAstCompiler*)ccx->enclosing)->locals.listitems[local].captured = true; local = local;
+        /* the index must be the register, because the VM reads it straight
+           out of the register window of the enclosing frame */
+        ((BoaAstCompiler*)ccx->enclosing)->locals.listitems[local].captured = true;
+        local = (int)((BoaAstCompiler*)ccx->enclosing)->locals.listitems[local].reg;
         return boa_emitter_addupvalue(emt, ccx, local, line, true);
     }
     upvalue = boa_emitter_resolveupvalue(emt, (BoaAstCompiler*)ccx->enclosing, name, length, line);
@@ -11593,6 +11705,146 @@ bool boa_emitter_emitparams(BoaAstEmitter* emt, BoaDynListParam* parameters, siz
         }
     }
     return false;
+}
+
+/* Pre-declare the functions of a block as locals, so that they can refer to
+   themselves (and each other) regardless of the order they appear in. */
+void boa_emitter_emitblockhoistfunctions(BoaAstEmitter* emt, BoaAstExpression* blockexpr)
+{
+    size_t i;
+    BoaDynListExpr* statements;
+    statements = &((BoaAstBlockExpr*)blockexpr)->statements;
+    for(i = 0; i < statements->listcount; i++)
+    {
+        if(statements->listitems[i] != NULL && statements->listitems[i]->type == BOA_ASTEXPRTYP_FUNCTION)
+        {
+            BoaAstFunctionExpr* fexpr = (BoaAstFunctionExpr*)statements->listitems[i];
+            bool isexport = fexpr->exported;
+            bool isprivate = !isexport && emt->compiler->enclosing == NULL && emt->compiler->scopedepth == 0;
+            bool local = !(isexport || isprivate);
+            if(local)
+            {
+                uint16_t r = boa_emitter_reserveregister(emt);
+                int idx = boa_emitter_addlocal(emt, fexpr->name, fexpr->length, blockexpr->line, false, r);
+                boa_emitter_marklocalinit(emt, idx);
+            }
+        }
+    }
+}
+
+/* Emit a code block as an rvalue: the value of its trailing expression
+   statement becomes the value of the block, otherwise the value is null. */
+void boa_emitter_emitblockvalue(BoaAstEmitter* emt, BoaAstExpression* topexpr, uint64_t reg)
+{
+    size_t i;
+    bool endedscope;
+    bool hasvalue;
+    BoaDynListExpr* statements;
+    statements = &((BoaAstBlockExpr*)topexpr)->statements;
+    boa_emitter_scopebegin(emt);
+    boa_emitter_emitblockhoistfunctions(emt, topexpr);
+    endedscope = false;
+    hasvalue = false;
+    for(i = 0; i < statements->listcount; i++)
+    {
+        if(i == statements->listcount - 1 && statements->listitems[i] != NULL)
+        {
+            BoaAstExprType lasttype = statements->listitems[i]->type;
+            if(lasttype == BOA_ASTEXPRTYP_EXPRESSION)
+            {
+                boa_emitter_emitexpr(emt, ((BoaAstExprStmtExpr*)statements->listitems[i])->exvalue, reg);
+                hasvalue = true;
+                break;
+            }
+            if(lasttype == BOA_ASTEXPRTYP_IF || lasttype == BOA_ASTEXPRTYP_BLOCK || lasttype == BOA_ASTEXPRTYP_CLASS)
+            {
+                boa_emitter_emitexpr(emt, statements->listitems[i], reg);
+                hasvalue = true;
+                break;
+            }
+        }
+        if(boa_emitter_emitstmt(emt, statements->listitems[i]))
+        {
+            endedscope = true;
+            break;
+        }
+    }
+    if(!endedscope)
+    {
+        if(!hasvalue)
+        {
+            boa_emitter_emitabc(emt, topexpr->line, BOA_OPCODE_LOADNULL, reg, 0, 0);
+        }
+        boa_emitter_scopeend(emt);
+    }
+}
+
+/* Emit a class definition into an already reserved register (or into 'reg' when
+   the class itself is the value of the enclosing expression). */
+void boa_emitter_emitclassdef(BoaAstEmitter* emt, BoaAstExpression* topexpr, uint64_t classreg)
+{
+    BoaAstVarDeclExpr* var;
+    BoaAstClassExpr* classexpr;
+    BoaAstExpression* s;
+    BoaString* oldclassname;
+    size_t i;
+    size_t superlocal;
+    int nameconst;
+    int fieldnameconst;
+    uint16_t reg;
+    uint16_t b;
+    uint16_t constidx;
+    bool hasparent;
+    bool oldclasshassuper;
+    uint32_t oldclassregister;
+    classexpr = (BoaAstClassExpr*)topexpr;
+    hasparent = classexpr->parent != NULL;
+    b = 0;
+    oldclassname = emt->classname;
+    oldclasshassuper = emt->classhassuper;
+    oldclassregister = emt->classregister;
+    emt->classname = classexpr->name;
+    if(hasparent)
+    {
+        constidx = boa_emitter_addconst(emt, topexpr->line, boa_value_fromobject(classexpr->parent));
+        b = boa_emitter_reserveregister(emt);
+        boa_emitter_emitabx(emt, topexpr->line, BOA_OPCODE_GLOBALGET, b, constidx);
+    }
+    nameconst = boa_emitter_addconst(emt, emt->lastline, boa_value_fromobject(classexpr->name));
+    emt->classregister = (uint32_t)classreg;
+    boa_emitter_emitabc(emt, topexpr->line, BOA_OPCODE_CLASSMAKE, nameconst, hasparent ? b + 1 : 0, classreg);
+    if(hasparent)
+    {
+        boa_emitter_freeregister(emt, b);
+        emt->classhassuper = true;
+        boa_emitter_scopebegin(emt);
+        superlocal = boa_emitter_addlocal(emt, boa_string_getdata(emt->pstate->strings.strsuper), boa_string_getlength(emt->pstate->strings.strsuper), emt->lastline, false, boa_emitter_reserveregister(emt));
+        boa_emitter_marklocalinit(emt, superlocal);
+    }
+    for(i = 0; i < classexpr->staticfields.listcount; i++)
+    {
+        s = classexpr->staticfields.listitems[i];
+        if(s->type == BOA_ASTEXPRTYP_VARDECL)
+        {
+            var = (BoaAstVarDeclExpr*)s;
+            reg = boa_emitter_reserveregister(emt);
+            boa_emitter_emitexpr(emt, var->init, reg);
+            fieldnameconst = boa_emitter_addconst(emt, topexpr->line, boa_value_fromobject(boa_string_copylen(emt->pstate, var->name, var->length)));
+            boa_emitter_emitabc(emt, s->line, BOA_OPCODE_CLASSPUTFIELDSTATIC, classreg, fieldnameconst, reg);
+            boa_emitter_freeregister(emt, reg);
+        }
+        else
+        {
+            boa_emitter_emitstmt(emt, s);
+        }
+    }
+    if(hasparent)
+    {
+        boa_emitter_scopeend(emt);
+    }
+    emt->classname = oldclassname;
+    emt->classhassuper = oldclasshassuper;
+    emt->classregister = oldclassregister;
 }
 
 void boa_emitter_emitexprfull(BoaAstEmitter* emt, BoaAstExpression* topexpr, uint64_t reg, bool ignored);
@@ -12344,6 +12596,80 @@ void boa_emitter_emitexprfull(BoaAstEmitter* emt, BoaAstExpression* topexpr, uin
             emt->emitreference = old;
             break;
         }
+        case BOA_ASTEXPRTYP_BLOCK:
+        {
+            boa_emitter_emitblockvalue(emt, topexpr, reg);
+            break;
+        }
+        case BOA_ASTEXPRTYP_IF:
+        {
+            BoaAstIfExpr* ifexpr;
+            BoaAstExpression* e;
+            uint64_t nextjump;
+            uint64_t* endjumps;
+            size_t i;
+            size_t condbranchskip;
+            size_t ifskip;
+            size_t endjumpcount;
+            size_t start;
+            uint16_t condreg;
+            uint16_t elseifcondreg;
+            ifexpr = (BoaAstIfExpr*)topexpr;
+            condreg = boa_emitter_reserveregister(emt);
+            boa_emitter_emitexpr(emt, ifexpr->condition, condreg);
+            condbranchskip = boa_emitter_emittmp(emt);
+            boa_emitter_freeregister(emt, condreg);
+            start = emt->chunk->compiledcodecount;
+            boa_emitter_emitblockvalue(emt, ifexpr->branchif, reg);
+            /* the taken if-branch must jump over the else part */
+            ifskip = boa_emitter_emittmp(emt);
+            boa_emitter_patchinstr(emt, condbranchskip, BOA_REG_FORMABXINST(BOA_OPCODE_JUMPIFFALSE, condreg, (int64_t)emt->chunk->compiledcodecount - start));
+            endjumpcount = ifexpr->branchelseiflist == NULL ? 0 : ifexpr->branchelseiflist->listcount;
+            endjumps = (uint64_t*)boa_sysmem_malloc(endjumpcount * sizeof(uint64_t));
+            if(ifexpr->branchelseiflist != NULL)
+            {
+                for(i = 0; i < ifexpr->branchelseiflist->listcount; i++)
+                {
+                    e = ifexpr->elseifcondlist->listitems[i];
+                    if(e == NULL)
+                    {
+                        continue;
+                    }
+                    elseifcondreg = boa_emitter_reserveregister(emt);
+                    boa_emitter_emitexpr(emt, e, elseifcondreg);
+                    nextjump = boa_emitter_emittmp(emt);
+                    boa_emitter_freeregister(emt, elseifcondreg);
+                    boa_emitter_emitblockvalue(emt, ifexpr->branchelseiflist->listitems[i], reg);
+                    endjumps[i] = boa_emitter_emittmp(emt);
+                    boa_emitter_patchinstr(emt, nextjump, BOA_REG_FORMABXINST(BOA_OPCODE_JUMPIFFALSE, elseifcondreg, (int64_t)emt->chunk->compiledcodecount - nextjump - 1));
+                }
+            }
+            if(ifexpr->branchelse)
+            {
+                boa_emitter_emitblockvalue(emt, ifexpr->branchelse, reg);
+            }
+            else
+            {
+                /* no branch was taken, so the value is null */
+                boa_emitter_emitabc(emt, topexpr->line, BOA_OPCODE_LOADNULL, reg, 0, 0);
+            }
+            boa_emitter_patchinstr(emt, ifskip, BOA_REG_FORMASBXINST(BOA_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - ifskip - 1));
+            for(i = 0; i < endjumpcount; i++)
+            {
+                if(ifexpr->elseifcondlist->listitems[i] == NULL)
+                {
+                    continue;
+                }
+                boa_emitter_patchinstr(emt, endjumps[i], BOA_REG_FORMASBXINST(BOA_OPCODE_JUMP, 0, (int64_t)emt->chunk->compiledcodecount - endjumps[i] - 1));
+            }
+            boa_sysmem_free(endjumps);
+            break;
+        }
+        case BOA_ASTEXPRTYP_CLASS:
+        {
+            boa_emitter_emitclassdef(emt, topexpr, reg);
+            break;
+        }
         default:
         {
             boa_emitter_raiseerror(emt, topexpr->line, "unknown expression with id <%i>", (int)topexpr->type);
@@ -12391,22 +12717,7 @@ bool boa_emitter_emitstmt(BoaAstEmitter* emt, BoaAstExpression* topexpr)
             bool endedscope;
             statements = &((BoaAstBlockExpr*)topexpr)->statements;
             endedscope = false;
-            for(i = 0; i < statements->listcount; i++)
-            {
-                if(statements->listitems[i] != NULL && statements->listitems[i]->type == BOA_ASTEXPRTYP_FUNCTION)
-                {
-                    BoaAstFunctionExpr* fexpr = (BoaAstFunctionExpr*)statements->listitems[i];
-                    bool isexport = fexpr->exported;
-                    bool isprivate = !isexport && emt->compiler->enclosing == NULL && emt->compiler->scopedepth == 0;
-                    bool local = !(isexport || isprivate);
-                    if(local)
-                    {
-                        uint16_t r = boa_emitter_reserveregister(emt);
-                        int idx = boa_emitter_addlocal(emt, fexpr->name, fexpr->length, topexpr->line, false, r);
-                        boa_emitter_marklocalinit(emt, idx);
-                    }
-                }
-            }
+            boa_emitter_emitblockhoistfunctions(emt, topexpr);
             for(i = 0; i < statements->listcount; i++)
             {
                 if(boa_emitter_emitstmt(emt, statements->listitems[i]))
@@ -12999,64 +13310,10 @@ bool boa_emitter_emitstmt(BoaAstEmitter* emt, BoaAstExpression* topexpr)
         }
         case BOA_ASTEXPRTYP_CLASS:
         {
-            BoaAstVarDeclExpr* var;
-            BoaAstClassExpr* classexpr;
-            BoaAstExpression* s;
-            size_t i;
-            size_t superlocal;
-            int nameconst;
-            int fieldnameconst;
-            uint16_t reg;
-            uint16_t b;
-            uint16_t constidx;
-            uint8_t classregister;
-            bool hasparent;
-            classexpr = (BoaAstClassExpr*)topexpr;
-            hasparent = classexpr->parent != NULL;
-            b = 0;
-            emt->classname = classexpr->name;
-            if(hasparent)
-            {
-                constidx = boa_emitter_addconst(emt, topexpr->line, boa_value_fromobject(classexpr->parent));
-                b = boa_emitter_reserveregister(emt);
-                boa_emitter_emitabx(emt, topexpr->line, BOA_OPCODE_GLOBALGET, b, constidx);
-            }
-            nameconst = boa_emitter_addconst(emt, emt->lastline, boa_value_fromobject(classexpr->name));
+            uint16_t classregister;
             classregister = boa_emitter_reserveregister(emt);
-            emt->classregister = classregister;
-            boa_emitter_emitabc(emt, topexpr->line, BOA_OPCODE_CLASSMAKE, nameconst, hasparent ? b + 1 : 0, classregister);
-            if(hasparent)
-            {
-                boa_emitter_freeregister(emt, b);
-                emt->classhassuper = true;
-                boa_emitter_scopebegin(emt);
-                superlocal = boa_emitter_addlocal(emt, boa_string_getdata(emt->pstate->strings.strsuper), boa_string_getlength(emt->pstate->strings.strsuper), emt->lastline, false, boa_emitter_reserveregister(emt));
-                boa_emitter_marklocalinit(emt, superlocal);
-            }
-            for(i = 0; i < classexpr->staticfields.listcount; i++)
-            {
-                s = classexpr->staticfields.listitems[i];
-                if(s->type == BOA_ASTEXPRTYP_VARDECL)
-                {
-                    var = (BoaAstVarDeclExpr*)s;
-                    reg = boa_emitter_reserveregister(emt);
-                    boa_emitter_emitexpr(emt, var->init, reg);
-                    fieldnameconst = boa_emitter_addconst(emt, topexpr->line, boa_value_fromobject(boa_string_copylen(emt->pstate, var->name, var->length)));
-                    boa_emitter_emitabc(emt, s->line, BOA_OPCODE_CLASSPUTFIELDSTATIC, classregister, fieldnameconst, reg);
-                    boa_emitter_freeregister(emt, reg);
-                }
-                else
-                {
-                    boa_emitter_emitstmt(emt, s);
-                }
-            }
-            if(classexpr->parent != NULL)
-            {
-                boa_emitter_scopeend(emt);
-            }
+            boa_emitter_emitclassdef(emt, topexpr, classregister);
             boa_emitter_freeregister(emt, classregister);
-            emt->classname = NULL;
-            emt->classhassuper = false;
             break;
         }
         case BOA_ASTEXPRTYP_METHOD:
