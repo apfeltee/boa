@@ -233,7 +233,7 @@ class Response
     }
 }
 
-var filename = "src1.tpl";
+var filename = File.dirname(ARGV[0]) + "/src1.tpl";
 if(ARGV.length > 1)
 {
     filename = ARGV[1];

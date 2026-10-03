@@ -101,7 +101,7 @@ bool boa_util_strcaseequal(const char *s1, const char *s2);
 char *boa_util_readhandle(FILE *hnd, size_t *dlen);
 char *boa_util_readfile(const char *filename, size_t *dlen);
 char *boa_util_dupstring(const char *string);
-char *boa_util_dirname(const char *fname);
+char *boa_util_dirname(const char *fname, size_t *lendest);
 const char *boa_util_fsgetbasename(const char *opath);
 int boa_util_isatty(int fd);
 char *boa_util_getcwd(char *buf, size_t size);
@@ -657,6 +657,7 @@ BoaValue boa_objfnfile_writevalstring(BoaState *state, BoaValue instance, size_t
 BoaValue boa_objfnfile_readallinstance(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
 BoaValue boa_objfnfile_staticreadall(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
 BoaValue boa_objfnfile_staticunlink(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
+BoaValue boa_objfnfile_staticdirname(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
 BoaValue boa_objfnfile_readline(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
 BoaValue boa_objfndirectory_exists(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);
 BoaValue boa_objfndirectory_chdir(BoaState *state, BoaValue instance, size_t argc, BoaValue *args);

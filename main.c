@@ -3763,7 +3763,7 @@ char* boa_util_dupstring(const char* string)
     return newstring;
 }
 
-char* boa_util_dirname(const char *fname)
+char* boa_util_dirname(const char *fname, size_t* lendest)
 {
     size_t dirlen;
     char * dirpart;
@@ -3771,6 +3771,7 @@ char* boa_util_dirname(const char *fname)
     const char *slash;
     p = fname;
     slash = NULL;
+    *lendest = 0;
     if(fname)
     {
         if(*fname && fname[1] == ':')
@@ -3816,6 +3817,7 @@ char* boa_util_dirname(const char *fname)
             }
             dirpart[dirlen] = '\0';
         }
+        *lendest = dirlen;
         return dirpart;
     }
     return NULL;
@@ -17605,6 +17607,22 @@ BoaValue boa_objfnfile_staticunlink(BoaState* state, BoaValue instance, size_t a
     return boa_value_makenull();
 }
 
+BoaValue boa_objfnfile_staticdirname(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    size_t len;
+    char* dn;
+    BoaString* path;
+    (void)instance;
+    (void)argc;
+    path = boa_value_asstring(args[0]);
+    dn = boa_util_dirname(boa_string_getdata(path), &len);
+    if(dn == NULL)
+    {
+        return boa_value_makenull();
+    }
+    return boa_value_fromobject(boa_string_take(state, dn, len));
+}
+
 BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
     char ch;
@@ -17785,6 +17803,7 @@ void boa_corelib_installfile(BoaState* state)
         boa_class_bindstaticmethod(klass, "create", boa_objfnfile_staticcreate);
         boa_class_bindstaticmethod(klass, "read", boa_objfnfile_staticreadall);
         boa_class_bindstaticmethod(klass, "unlink", boa_objfnfile_staticunlink);
+        boa_class_bindstaticmethod(klass, "dirname", boa_objfnfile_staticdirname);
         boa_class_bindmethod(klass, "close", boa_objfnfile_close);
         boa_class_bindmethod(klass, "write", boa_objfnfile_writevalvalue);
         boa_class_bindmethod(klass, "writeString", boa_objfnfile_writevalstring);
