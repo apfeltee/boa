@@ -4,5 +4,5 @@ println(`${32 * 2}`) // Expected: 64
 var a = "egor"
 var who = "me"
 
-println(`test {a} world`) // Expected: test egor world
+println(`test ${a} world`) // Expected: test egor world
 println(`somebody ${`${"once"}`} told ${who}`) // Expected: somebody once told me

@@ -1,14 +1,13 @@
-
-println("ARGV=", ARGV);
-arg = ARGV[1]
-switch(arg)
-{
-    case "-h":
-        println("help goes here");
-        break;
-    case "p":
-        println("this should fallthrough ...");
-    default:
-        println("dunno what to do with '", arg, "'");
-        break;
-}
+a = ARGV.length
+if(a == 1)
+    println("yeah")
+else if(a > 1)
+    if(a == 2)
+        println("2 args")
+    else if(a > 2)
+        println("more than two")
+    else
+        if(a > 3)
+            println("more than three")
+        else
+            println("something else")

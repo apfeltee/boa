@@ -1,0 +1,14 @@
+
+println("ARGV=", ARGV);
+arg = ARGV[1]
+switch(arg)
+{
+    case "-h":
+        println("help goes here");
+        break;
+    case "p":
+        println("this should fallthrough ...");
+    default:
+        println("dunno what to do with '", arg, "'");
+        break;
+}

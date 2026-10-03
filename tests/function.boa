@@ -38,7 +38,7 @@ function z() {
 println(z() == b) // Expected: true
 
 function call(who = "dog") {
-	println(`Calling {who}`)
+	println(`Calling ${who}`)
 }
 
 call() // Expected: Calling dog

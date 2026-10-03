@@ -49,7 +49,7 @@ caller((arg) => {
 
 // Functions can also specify default values for arguments, in case user doesn't provide them:
 function rain(where, what = "chocolate") {
-	println(`It's raining {what} in the {where}!`)
+	println(`It's raining ${what} in the ${where}!`)
 }
 
 rain("town") // Expected: It's raining chocolate in the town!
@@ -94,7 +94,7 @@ shout("tea", "coffee", "sugar")
 // Warning: we are entering advaned territory here: upvalues!
 function makePrinter(text) {
 	return () => {
-		println(`Printer goes brr and prints {text}`)
+		println(`Printer goes brr and prints ${text}`)
 	}
 }
 

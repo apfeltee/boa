@@ -8650,6 +8650,17 @@ BoaAstExpression* boa_astparser_parseblock(BoaAstParser* prs)
     return (BoaAstExpression*)expr;
 }
 
+static BoaAstExpression* boa_astparser_parsestatementorblock(BoaAstParser* prs)
+{
+    boa_astparser_ignorelinefeeds(prs);
+    if (boa_astparser_check(prs, BOA_ASTTOKTYP_LEFTBRACE))
+    {
+        boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "'{'");
+        return boa_astparser_parseblock(prs);
+    }
+    return boa_astparser_parsestatement(prs);
+}
+
 BoaAstExpression* boa_astparser_parseprec(BoaAstParser* prs, BoaPrecedence precedence, bool err)
 {
     BoaAstToken previous;
@@ -9678,8 +9689,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
         condition = (BoaAstExpression*)boa_ast_makeunaryexpr(condition->line, condition, BOA_ASTTOKTYP_BANG);
     }
     boa_astparser_ignorelinefeeds(prs);
-    boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "expect <{> before if body");
-    ifbranch = boa_astparser_parseblock(prs);
+    ifbranch = boa_astparser_parsestatementorblock(prs);
     elseifconditions = NULL;
     elseifbranches = NULL;
     elsebranch = NULL;
@@ -9707,8 +9717,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
             }
             boa_dynlistexpr_push(elseifconditions, e);
             boa_astparser_ignorelinefeeds(prs);
-            boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "expect <{> before if body");
-            boa_dynlistexpr_push(elseifbranches, boa_astparser_parseblock(prs));
+            boa_dynlistexpr_push(elseifbranches, boa_astparser_parsestatementorblock(prs));
             boa_astparser_ignorelinefeeds(prs);
             continue;
         }
@@ -9718,8 +9727,7 @@ BoaAstExpression* boa_astparser_parseif(BoaAstParser* prs)
             boa_astparser_failfmt(prs, "if-statement can have only one else-branch");
         }
         boa_astparser_ignorelinefeeds(prs);
-        boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "expect <{> before else body");
-        elsebranch = boa_astparser_parseblock(prs);
+        elsebranch = boa_astparser_parsestatementorblock(prs);
         boa_astparser_ignorelinefeeds(prs);
     }
     return (BoaAstExpression*)boa_ast_makeifstatement(line, condition, ifbranch, elsebranch, elseifconditions, elseifbranches);
@@ -9824,8 +9832,7 @@ BoaAstExpression* boa_astparser_parsefor(BoaAstParser* prs)
         boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)>");
     }
     boa_astparser_ignorelinefeeds(prs);
-    boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "expect <{> before loop body");
-    return (BoaAstExpression*)boa_ast_makeforstmt(line, init, var, condition, increment, boa_astparser_parseblock(prs), cstyle);
+    return (BoaAstExpression*)boa_ast_makeforstmt(line, init, var, condition, increment, boa_astparser_parsestatementorblock(prs), cstyle);
 }
 
 BoaAstExpression* boa_astparser_parsewhile(BoaAstParser* prs)
@@ -9842,8 +9849,7 @@ BoaAstExpression* boa_astparser_parsewhile(BoaAstParser* prs)
         boa_astparser_consume(prs, BOA_ASTTOKTYP_RIGHTPAREN, "<)>");
     }
     boa_astparser_ignorelinefeeds(prs);
-    boa_astparser_consume(prs, BOA_ASTTOKTYP_LEFTBRACE, "expect <{> before loop body");
-    body = boa_astparser_parseblock(prs);
+    body = boa_astparser_parsestatementorblock(prs);
     return (BoaAstExpression*)boa_ast_makewhilestmt(line, condition, body);
 }
 
@@ -10472,6 +10478,38 @@ void boa_astprintdefault_printfuncparams(BoaAstPrinter* apr, BoaDynListParam* pa
     }
 }
 
+
+void boa_astprinter_printblockorexpr(BoaAstPrinter* apr, BoaAstExpression* expr)
+{
+    bool isblock;
+    BoaStream* pr;
+    BoaAstBlockExpr* blockex;
+    pr = apr->printer;
+    isblock = (expr->type == BOA_ASTEXPRTYP_BLOCK);
+    {
+        boa_astprint_indentprint(apr);
+        boa_stream_puts(pr, "{\n");
+        boa_astprint_indentpush(apr);
+        if(isblock)
+        {
+            blockex = (BoaAstBlockExpr*)expr;
+            boa_astprintdefault_printexprlist(apr, &blockex->statements);
+        }
+        else
+        {
+            boa_astprintdefault_printexpression(apr, expr);
+            #if 0
+                boa_stream_puts(pr, ";\n");
+            #endif
+        }
+        boa_astprint_indentpop(apr);
+        boa_astprint_indentprint(apr);
+        boa_stream_puts(pr, "}\n");
+    }
+}
+
+
+
 void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* expr)
 {
     BoaStream* pr;
@@ -10554,7 +10592,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                     for(i=0; i<count; i++)
                     {
                         apr->fromcall = true;
-                        boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->callargs.listitems[i]);
+                        boa_astprintdefault_printexpression(apr, oex->callargs.listitems[i]);
                         apr->fromcall = false;
                         if((i+1) != count)
                         {
@@ -10647,7 +10685,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                     boa_stream_puts(pr, "[");
                     for(i=0; i<count; i++)
                     {
-                        boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->exvalues.listitems[i]);
+                        boa_astprintdefault_printexpression(apr, oex->exvalues.listitems[i]);
                         if((i+1) < count)
                         {
                             boa_stream_puts(pr, ", ");
@@ -10669,7 +10707,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 {
                     boa_value_printvalue(pr, oex->objexkeys.listitems[i], true);
                     boa_stream_puts(pr, ": ");
-                    boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->objexvalues.listitems[i]);
+                    boa_astprintdefault_printexpression(apr, oex->objexvalues.listitems[i]);
                     if((i+1) != count)
                     {
                         boa_stream_puts(pr, ", ");
@@ -10735,7 +10773,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                 boa_stream_putc(pr, '+');
                 for(i=0; i<count; i++)
                 {
-                    boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->expressions.listitems[i]);
+                    boa_astprintdefault_printexpression(apr, oex->expressions.listitems[i]);
                     if((i+1) != count)
                     {
                         boa_stream_puts(pr, " + ");
@@ -10763,17 +10801,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
             break;
         case BOA_ASTEXPRTYP_BLOCK:
             {
-                BoaAstBlockExpr* oex;
-                oex = (BoaAstBlockExpr*)expr;
-                {
-                    boa_astprint_indentprint(apr);
-                    boa_stream_puts(pr, "{\n");
-                    boa_astprint_indentpush(apr);
-                    boa_astprintdefault_printexprlist(apr, &oex->statements);
-                    boa_astprint_indentpop(apr);
-                    boa_astprint_indentprint(apr);
-                    boa_stream_puts(pr, "}\n");
-                }
+                boa_astprinter_printblockorexpr(apr, expr);
             }
             break;
         case BOA_ASTEXPRTYP_IF:
@@ -10787,7 +10815,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                     boa_stream_puts(pr, "if(");
                     boa_astprintdefault_printexpression(apr, oex->condition);
                     boa_stream_puts(pr, ")\n");
-                    boa_astprintdefault_printexpression(apr, oex->branchif);
+                    boa_astprinter_printblockorexpr(apr, oex->branchif);
                     if(oex->elseifcondlist != NULL)
                     {
                         count = oex->elseifcondlist->listcount;
@@ -10795,16 +10823,16 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                         {
                             boa_astprint_indentprint(apr);
                             boa_stream_puts(pr, "else if(");
-                            boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->elseifcondlist->listitems[i]);
+                            boa_astprintdefault_printexpression(apr, oex->elseifcondlist->listitems[i]);
                             boa_stream_puts(pr, ")\n");
-                            boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->branchelseiflist->listitems[i]);
+                            boa_astprinter_printblockorexpr(apr, oex->branchelseiflist->listitems[i]);
                         }
                     }
                     if(oex->branchelse != NULL)
                     {
                         boa_astprint_indentprint(apr);
                         boa_stream_puts(pr, "else\n");
-                        boa_astprintdefault_printexpression(apr, oex->branchelse);
+                        boa_astprinter_printblockorexpr(apr, oex->branchelse);
                     }
                 }
             }
@@ -11027,7 +11055,7 @@ void boa_astprintdefault_printexpression(BoaAstPrinter* apr, BoaAstExpression* e
                     boa_astprint_indentpush(apr);
                     for(i=0; i<count; i++)
                     {
-                        boa_astprintdefault_printexpression(apr, (BoaAstExpression*)oex->staticfields.listitems[i]);
+                        boa_astprintdefault_printexpression(apr, oex->staticfields.listitems[i]);
                     }
                     boa_astprint_indentpop(apr);
                     boa_stream_puts(pr, "\n");
@@ -11054,7 +11082,7 @@ void boa_astprintdefault_printexprlist(BoaAstPrinter* apr, BoaDynListExpr* elist
     BoaAstExpression* expr;
     for(i=0; i<elist->listcount; i++)
     {
-        expr = (BoaAstExpression*)elist->listitems[i];
+        expr = elist->listitems[i];
         boa_astprintdefault_printexpression(apr, expr);
     }
 }

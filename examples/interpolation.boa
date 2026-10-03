@@ -10,7 +10,7 @@ var name = "Tim"
 var target = "icecream"
 var amount = 3
 
-println(`{name} went out for {target} and spent {amount} dollars`) // Expected: Tim went out for icecream and spent 3 dollars
+println(`${name} went out for ${target} and spent ${amount} dollars`) // Expected: Tim went out for icecream and spent 3 dollars
 
 // If you wonder, how it works under the hood, it's basically converted to something like this:
 println([ name, " went out for ", target, " and spent ", amount, " dollars"].join()) // Expected: Tim went out for icecream and spent 3 dollars
@@ -21,4 +21,4 @@ println([ name, " went out for ", target, " and spent ", amount, " dollars"].joi
  * If you want your { be just printed out, use \{
  */
 
-println(`\{} \{ {name}`) // Expected: {} { Tim
+println(`\${} \${ ${name}`) // Expected: ${} ${ Tim

@@ -5,7 +5,7 @@ class Person {
 	}
 
 	greet() {
-		println(`Hello, my name is {this.name}, I'm {this.age}!`)
+		println(`Hello, my name is ${this.name}, I'm ${this.age}!`)
 	}
 }
 
@@ -18,11 +18,11 @@ class Employee : Person {
 	}
 
 	greet() {
-		println(`Hello, my name is {this.name}, I'm a {this.profession}`)
+		println(`Hello, my name is ${this.name}, I'm a ${this.profession}`)
 	}
 
 	yeet(object) {
-		println(`{this.name} yeeted {object} out of the window!`)
+		println(`${this.name} yeeted ${object} out of the window!`)
 	}
 }
 

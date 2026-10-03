@@ -412,6 +412,7 @@ void boa_astprint_indentpush(BoaAstPrinter *apr);
 void boa_astprint_indentpop(BoaAstPrinter *apr);
 void boa_astprint_indentprint(BoaAstPrinter *apr);
 void boa_astprintdefault_printfuncparams(BoaAstPrinter *apr, BoaDynListParam *params);
+void boa_astprinter_printblockorexpr(BoaAstPrinter *apr, BoaAstExpression *expr);
 void boa_astprintdefault_printexpression(BoaAstPrinter *apr, BoaAstExpression *expr);
 void boa_astprintdefault_printexprlist(BoaAstPrinter *apr, BoaDynListExpr *elist);
 void boa_astprintdefault_start(BoaAstPrinter *apr, BoaDynListExpr *elist);
