@@ -1691,6 +1691,10 @@ void boa_sysmem_poolinit(BoaConfig* cfg)
 
 void boa_sysmem_pooldestroy()
 {
+    if(g_mspcontext.config == NULL)
+    {
+        return;
+    }
     if(BOA_LIKELY(!g_mspcontext.config->mempooldisable))
     {
         mempool_destroypool(g_mspcontext.mspctx);
@@ -19191,6 +19195,10 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
 int64_t boa_state_destroy(BoaState* state)
 {
     int64_t amount;
+    if(state == NULL)
+    {
+        return 0;
+    }
     if(state->rootvalues != NULL)
     {
         boa_sysmem_free(state->rootvalues);
@@ -19203,11 +19211,14 @@ int64_t boa_state_destroy(BoaState* state)
     {
         boa_stream_destroy(state->config.desttrace);
     }
-    boa_sysmem_free(state->activelexer);
-    boa_astparser_destroy(state->activeparser);
-    boa_sysmem_free(state->activeparser);
-    boa_emitter_destroy(state->activeemitter);
-    boa_sysmem_free(state->activeemitter);
+    if(state->activelexer != NULL)
+    {
+        boa_sysmem_free(state->activelexer);
+        boa_astparser_destroy(state->activeparser);
+        boa_sysmem_free(state->activeparser);
+        boa_emitter_destroy(state->activeemitter);
+        boa_sysmem_free(state->activeemitter);
+    }
     boa_free_vm(state);
     amount = state->bytesallocated;
     return amount;
@@ -19565,7 +19576,10 @@ void boa_init_vm(BoaState* state)
 void boa_free_vm(BoaState* state)
 {
     boa_strtable_free(&state->vmstate.storedstrings);
-    boa_gcmem_freeobjlist(state, state->vmstate.objects);
+    if(state->vmstate.objects != NULL)
+    {
+        boa_gcmem_freeobjlist(state, state->vmstate.objects);
+    }
     boa_vmexec_resetvm(state);
 }
 
@@ -22138,10 +22152,9 @@ int main(int argc, char* argv[], char** envp)
     }
     if(cli.wasusage)
     {
-        goto endmain;
+        goto endhelp;
     }
     boa_state_make(&statestack, &config);
-
     boa_cli_parseenv(state, envp);
     if(cli.bytecodefile != NULL)
     {
@@ -22218,6 +22231,7 @@ int main(int argc, char* argv[], char** envp)
     endmain:
     boa_state_destroy(state);
     boa_sysmem_pooldestroy();
+    endhelp:
     if(cli.result != BOA_STATUS_OK)
     {
         return 1;

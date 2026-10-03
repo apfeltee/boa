@@ -1733,16 +1733,19 @@ void mempool_destroypool(void* msp)
     char* base;
     MempoolState* ms;
     MempoolSegment* sp;
-    ms = (MempoolState*)msp;
-    sp = &ms->seg;
-    while(sp != 0)
+    if(msp != NULL)
     {
-        base = sp->base;
-        size = sp->size;
-        sp = sp->next;
-        mempool_util_callvirtfree(ms->forcegeneric, base, size);
+        ms = (MempoolState*)msp;
+        sp = &ms->seg;
+        while(sp != 0)
+        {
+            base = sp->base;
+            size = sp->size;
+            sp = sp->next;
+            mempool_util_callvirtfree(ms->forcegeneric, base, size);
+        }
+        mempool_util_releasetoos();
     }
-    mempool_util_releasetoos();
 }
 
 void* mempool_usermalloc(void* msp, size_t nsize)
