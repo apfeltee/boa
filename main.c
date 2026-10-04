@@ -1187,6 +1187,7 @@ struct BoaState
     int64_t gcnextgc;
     bool gcallowgc;
     bool gcwasallowed;
+    BoaStream* streamstdin;
     BoaStream* streamstdout;
     BoaStream* streamstderr;
     BoaErrorFn printerrmessagefn;
@@ -1214,6 +1215,7 @@ struct BoaState
     BoaClass* stdclassmap;
     BoaClass* stdclassrange;
     BoaClass* stdclassregex;
+    BoaClass* stdclassfile;
     struct {
         BoaException* stdexception;
         BoaException* stdioerror;
@@ -3460,6 +3462,10 @@ int boa_util_utfstrdecode(const uint8_t* bytes, uint32_t length)
 {
     int value;
     uint32_t remainingbytes;
+    if(bytes == NULL)
+    {
+        return 0;
+    }
     if(*bytes <= 0x7f)
     {
         return *bytes;
@@ -3509,6 +3515,10 @@ int boa_util_utfstrfindoffset(const char* str, int index)
 {
     int offset;
     offset = 0;
+    if(str == NULL)
+    {
+        return offset;
+    }
     while(index > 0 && str[offset])
     {
         if(!boa_util_utfcharisutfbyte(str[++offset]))
@@ -3767,7 +3777,7 @@ char* boa_util_dupstring(const char* string)
     return newstring;
 }
 
-char* boa_util_dirname(const char *fname, size_t* lendest)
+char* boa_util_fsgetdirname(const char *fname, size_t* lendest)
 {
     size_t dirlen;
     char * dirpart;
@@ -3827,7 +3837,7 @@ char* boa_util_dirname(const char *fname, size_t* lendest)
     return NULL;
 }
 
-const char* boa_util_fsgetbasename(const char* opath)
+const char* boa_util_fsgetbasename(const char* opath, size_t* destlen)
 {
     char* strbeg;
     char* strend;
@@ -3846,7 +3856,7 @@ const char* boa_util_fsgetbasename(const char* opath)
     {
         strbeg--;
     }
-    /* len = (strend - strbeg) */
+    *destlen = (strend - strbeg);
     cpath = strbeg;
     cpath[(strend - strbeg)] = 0;
     return strbeg;
@@ -8454,7 +8464,7 @@ BoaAstToken boa_astlex_scantoken(BoaAstLexer* lex)
             break;
         case '`':
             {
-                return boa_astlex_scanstring(lex, true, true, '`');
+                return boa_astlex_scanstring(lex, true, false, '`');
             }
         case 34:
             {
@@ -15121,6 +15131,18 @@ BoaValue boa_objfnstring_split(BoaState* state, BoaValue thisval, size_t argc, B
     return boa_value_fromobject(list);
 }
 
+BoaValue boa_objfnstring_match(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
+{
+    BoaValue fna[4];
+    BoaValue rxobj;
+    BoaValue res;
+    fna[0] = args[0];
+    rxobj = boa_objfnregex_constructor(state, boa_value_makenull(), 1, fna);
+    fna[0] = thisval;
+    res = boa_objfnregex_match(state, rxobj, 1, fna);
+    return res;
+}
+
 BoaValue boa_objfnstring_lengthget(BoaState* state, BoaValue thisval, size_t argc, BoaValue* args)
 {
     (void)state;
@@ -16241,71 +16263,6 @@ BoaValue boa_objfnrange_lengthget(BoaState* state, BoaValue instance, size_t arg
     return boa_value_makenumber(range->to - range->from);
 }
 
-BoaValue boa_objfnprocess_exit(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
-{
-    int ec;
-    (void)instance;
-    ec = 0;
-    if(argc > 0)
-    {
-        if(boa_value_isnumber(args[0]))
-        {
-            ec = boa_value_asnumber(args[0]);
-        }
-    }
-    boa_state_destroy(state);
-    exit(ec);
-    return boa_value_makenull();
-}
-
-BoaValue boa_objfnprocess_abort(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
-{
-    (void)state;
-    (void)instance;
-    (void)argc;
-    (void)args;
-    abort();
-    return boa_value_makenull();
-}
-
-BoaValue boa_objfnprocess_kill(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
-{
-    int rt;
-    int pid;
-    int code;
-    (void)state;
-    (void)instance;
-    (void)argc;
-    (void)args;
-    pid = boa_value_asnumber(args[0]);
-    code = boa_value_asnumber(args[1]);
-    rt = boa_util_kill(pid, code);
-    return boa_value_makenumber(rt);
-}
-
-BoaValue boa_objfnprocess_getpid(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
-{
-    (void)state;
-    (void)instance;
-    (void)argc;
-    (void)args;
-    return boa_value_makenumber(boa_util_getpid());
-}
-
-BoaValue boa_objfnprocess_setenv(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
-{
-    bool replace;
-    BoaString* key;
-    BoaString* value;
-    replace = true;
-    (void)state;
-    (void)instance;
-    (void)argc;
-    (void)args;
-    key = boa_value_tostring(state, args[0], 0);
-    value = boa_value_tostring(state, args[1], 0);
-    return boa_value_makebool(boa_util_setenv(boa_string_getdata(key), boa_string_getdata(value), replace));
-}
 
 BoaValue boa_objfnscriptvm_getglobal(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -16391,7 +16348,7 @@ BoaValue boa_objfnregex_match(BoaState* state, BoaValue instance, size_t argc, B
     textstr = boa_string_getdata(instr);
     textlen = boa_string_getlength(instr);
     matchcnt = mrx_regex_match(&data->rxctx, textstr, textlen, 0, kMaxCaps, cappos, capspan);
-    #if 1
+    #if 0
         fprintf(stderr, "Regexp::match: matchcnt=%ld\n", matchcnt);
     #endif
     if(matchcnt == -1)
@@ -16492,6 +16449,7 @@ void boa_state_openstdclasses(BoaState* state)
         boa_class_bindmethod(klass, "charCodeAt", boa_objfnstring_charcodeat);
         boa_class_bindmethod(klass, "size", boa_objfnstring_lengthget);
         boa_class_bindmethod(klass, "split", boa_objfnstring_split);
+        boa_class_bindmethod(klass, "match", boa_objfnstring_match);
         boa_class_bindgetsetter(klass, "length", boa_objfnstring_lengthget, NULL);
         state->stdclassstring = klass;
     }
@@ -16551,6 +16509,7 @@ void boa_state_openstdclasses(BoaState* state)
         boa_class_bindmethod(klass, "iteratorValue", boa_objfnarray_itervalue);
         boa_class_bindmethod(klass, "forEach", boa_objfnarray_foreach);
         boa_class_bindmethod(klass, "map", boa_objfnarray_map);
+        boa_class_bindmethod(klass, "each", boa_objfnarray_foreach);
         boa_class_bindmethod(klass, "join", boa_objfnarray_join);
         boa_class_bindmethod(klass, "sort", boa_objfnarray_sort);
         boa_class_bindmethod(klass, "clone", boa_objfnarray_clone);
@@ -16593,21 +16552,6 @@ void boa_state_openstdclasses(BoaState* state)
         boa_class_bindconstructor(klass, boa_objfnregex_constructor);
         boa_class_bindmethod(klass, "match", boa_objfnregex_match);
         state->stdclassregex = klass;
-    }
-    {
-        klass = boa_class_make(state, "Process", state->stdobjectclass);
-        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
-        boa_class_bindstaticmethod(klass, "exit", boa_objfnprocess_exit);
-        boa_class_bindstaticmethod(klass, "abort", boa_objfnprocess_abort);
-        boa_class_bindstaticmethod(klass, "kill", boa_objfnprocess_kill);
-        boa_class_bindstaticmethod(klass, "pid", boa_objfnprocess_getpid);
-        boa_class_bindstaticmethod(klass, "setenv", boa_objfnprocess_setenv);
-        boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
-        boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
-        boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
-        #if 0
-            boa_class_bindstaticgetter(klass, boa_string_copy(state, "STDOUT"), boa_value_fromobject(state->streamstdout));
-        #endif
     }
     {
         klass = boa_class_make(state, "ScriptVM", state->stdobjectclass);
@@ -17619,13 +17563,30 @@ BoaValue boa_objfnfile_staticdirname(BoaState* state, BoaValue instance, size_t 
     (void)instance;
     (void)argc;
     path = boa_value_asstring(args[0]);
-    dn = boa_util_dirname(boa_string_getdata(path), &len);
+    dn = boa_util_fsgetdirname(boa_string_getdata(path), &len);
     if(dn == NULL)
     {
         return boa_value_makenull();
     }
     return boa_value_fromobject(boa_string_take(state, dn, len));
 }
+
+BoaValue boa_objfnfile_staticbasename(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    size_t len;
+    const char* dn;
+    BoaString* path;
+    (void)instance;
+    (void)argc;
+    path = boa_value_asstring(args[0]);
+    dn = boa_util_fsgetbasename(boa_string_getdata(path), &len);
+    if(dn == NULL)
+    {
+        return boa_value_makenull();
+    }
+    return boa_value_fromobject(boa_string_copylen(state, dn, len));
+}
+
 
 BoaValue boa_objfnfile_readline(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -17801,6 +17762,7 @@ void boa_corelib_installfile(BoaState* state)
     BoaClass* klass;
     {
         klass = boa_class_make(state, "File", state->stdobjectclass);
+        state->stdclassfile = klass;
         boa_class_bindconstructor(klass, boa_objfnfile_constructor);
         boa_class_bindstaticmethod(klass, "open", boa_objfnfile_staticopen);
         boa_class_bindstaticmethod(klass, "exists", boa_objfnfile_staticexists);
@@ -17808,10 +17770,12 @@ void boa_corelib_installfile(BoaState* state)
         boa_class_bindstaticmethod(klass, "read", boa_objfnfile_staticreadall);
         boa_class_bindstaticmethod(klass, "unlink", boa_objfnfile_staticunlink);
         boa_class_bindstaticmethod(klass, "dirname", boa_objfnfile_staticdirname);
+        boa_class_bindstaticmethod(klass, "basename", boa_objfnfile_staticbasename);
         boa_class_bindmethod(klass, "close", boa_objfnfile_close);
         boa_class_bindmethod(klass, "write", boa_objfnfile_writevalvalue);
         boa_class_bindmethod(klass, "writeString", boa_objfnfile_writevalstring);
         boa_class_bindmethod(klass, "readAll", boa_objfnfile_readallinstance);
+        boa_class_bindmethod(klass, "read", boa_objfnfile_readallinstance);
         boa_class_bindmethod(klass, "readLine", boa_objfnfile_readline);
     }
     {
@@ -17822,6 +17786,108 @@ void boa_corelib_installfile(BoaState* state)
         boa_class_bindstaticmethod(klass, "mkdir", boa_objfndirectory_mkdir);
         boa_class_bindstaticmethod(klass, "rmdir", boa_objfndirectory_rmdir);
         boa_class_bindstaticmethod(klass, "cwd", boa_objfndirectory_getcwd);
+    }
+}
+
+
+BoaValue boa_objfnprocess_exit(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    int ec;
+    (void)instance;
+    ec = 0;
+    if(argc > 0)
+    {
+        if(boa_value_isnumber(args[0]))
+        {
+            ec = boa_value_asnumber(args[0]);
+        }
+    }
+    boa_state_destroy(state);
+    exit(ec);
+    return boa_value_makenull();
+}
+
+BoaValue boa_objfnprocess_abort(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    abort();
+    return boa_value_makenull();
+}
+
+BoaValue boa_objfnprocess_kill(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    int rt;
+    int pid;
+    int code;
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    pid = boa_value_asnumber(args[0]);
+    code = boa_value_asnumber(args[1]);
+    rt = boa_util_kill(pid, code);
+    return boa_value_makenumber(rt);
+}
+
+BoaValue boa_objfnprocess_getpid(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    return boa_value_makenumber(boa_util_getpid());
+}
+
+BoaValue boa_objfnprocess_setenv(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
+{
+    bool replace;
+    BoaString* key;
+    BoaString* value;
+    replace = true;
+    (void)state;
+    (void)instance;
+    (void)argc;
+    (void)args;
+    key = boa_value_tostring(state, args[0], 0);
+    value = boa_value_tostring(state, args[1], 0);
+    return boa_value_makebool(boa_util_setenv(boa_string_getdata(key), boa_string_getdata(value), replace));
+}
+
+void boa_procutil_installstdfile(BoaState* state, BoaClass* klass, const char* name, const char* strmname, BoaStream* strm)
+{
+    BoaValue instance;
+    BoaFileData* data;
+    BoaClass* fileclass;
+    BoaInstance* binst;
+    fileclass = state->stdclassfile;
+    binst = boa_object_makeinstance(state, fileclass);
+    instance = boa_value_fromobject(binst);
+    data = (BoaFileData*)boa_userdata_insertdata(state, instance, sizeof(BoaFileData), NULL);
+    data->path = strmname;
+    data->fdhandle = strm;
+    boa_class_setstaticfield(klass, name, instance);
+}
+
+void boa_corelib_installprocess(BoaState* state)
+{
+    BoaClass* klass;
+    {
+        klass = boa_class_make(state, "Process", state->stdobjectclass);
+        boa_class_bindconstructor(klass, boa_objfndefault_invalidconstructor);
+        boa_class_bindstaticmethod(klass, "exit", boa_objfnprocess_exit);
+        boa_class_bindstaticmethod(klass, "abort", boa_objfnprocess_abort);
+        boa_class_bindstaticmethod(klass, "kill", boa_objfnprocess_kill);
+        boa_class_bindstaticmethod(klass, "pid", boa_objfnprocess_getpid);
+        boa_class_bindstaticmethod(klass, "setenv", boa_objfnprocess_setenv);
+        boa_class_setstaticfield(klass, "platform", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_PLATFORMNAME)));
+        boa_class_setstaticfield(klass, "arch", boa_value_fromobject(boa_string_copy(state, BOA_CONFIG_ARCHNAME)));
+        boa_class_setstaticfield(klass, "bits", boa_value_makenumber(BOA_CONFIG_ARCHBITS));
+        boa_procutil_installstdfile(state, klass, "stdout", "<stdout>", state->streamstdout);
+        boa_procutil_installstdfile(state, klass, "stderr", "<stderr>", state->streamstderr);
+        boa_procutil_installstdfile(state, klass, "stdin", "<stdin>", state->streamstdin);
     }
 }
 
@@ -17862,12 +17928,6 @@ void boa_corelib_installgc(BoaState* state)
     boa_class_bindstaticmethod(klass, "trigger", boa_objfngc_trigger);
 }
 
-void boa_state_openstdlibs(BoaState* state)
-{
-    boa_corelib_installmath(state);
-    boa_corelib_installfile(state);
-    boa_corelib_installgc(state);
-}
 
 BoaValue boa_objfnmath_abs(BoaState* state, BoaValue instance, size_t argc, BoaValue* args)
 {
@@ -19130,6 +19190,7 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
     state->stdclassarray = NULL;
     state->stdclassmap = NULL;
     state->stdclassrange = NULL;
+    state->stdclassfile = NULL;
     state->bytesallocated = 0;
     state->gcnextgc = 256 * 1024;
     state->gcallowgc = false;
@@ -19145,6 +19206,7 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
         state->config = *cfg;
     }
     boa_sysmem_poolinit(&state->config);
+    state->streamstdin = boa_stream_makeio(stdin, false);
     state->streamstdout = boa_stream_makeio(stdout, false);
     state->streamstdout->shouldflush = true;
     state->streamstderr = boa_stream_makeio(stderr, false);
@@ -19188,7 +19250,11 @@ void boa_state_make(BoaState* state, BoaConfig* cfg)
     state->activeemitter = (BoaAstEmitter*)boa_sysmem_malloc(sizeof(BoaAstEmitter));
     boa_emitter_init(state, state->activeemitter);
     boa_state_openstdclasses(state);
-    boa_state_openstdlibs(state);
+    boa_corelib_installmath(state);
+    boa_corelib_installfile(state);
+    /* important: process must be initialized after file, other file class will be null */
+    boa_corelib_installprocess(state);
+    boa_corelib_installgc(state);
     boa_state_openglobalfuncs(state);
 }
 
@@ -19205,6 +19271,7 @@ int64_t boa_state_destroy(BoaState* state)
         state->rootvalues = NULL;
     }
     boa_api_destroy(state);
+    boa_stream_destroy(state->streamstdin);
     boa_stream_destroy(state->streamstdout);
     boa_stream_destroy(state->streamstderr);
     if(state->config.havedesttrace)
@@ -19258,6 +19325,14 @@ BoaClass* boa_state_getclassfor(BoaState* state, BoaValue value)
 {
     BoaUpvalue* upvalue;
     BoaValue* slot;
+    if(boa_value_isclass(value))
+    {
+        return boa_value_asclass(value);
+    }
+    if(boa_value_isinstance(value))
+    {
+        return boa_value_asinstance(value)->klass;
+    }
     if(boa_value_isnull(value))
     {
         return state->stdnullclass;
@@ -19477,10 +19552,12 @@ char* boa_util_readsource(BoaState* state, const char* filename)
 
 BoaResult boa_state_interpretfile(BoaState* state, const char* filepath)
 {
+    size_t blen;
     char* source;
     const char* modname;
     BoaResult result;
-    modname = boa_util_fsgetbasename(filepath);
+    (void)blen;
+    modname = boa_util_fsgetbasename(filepath, &blen);
     source = boa_util_readsource(state, filepath);
     if(source == NULL)
     {
@@ -20112,6 +20189,8 @@ BOA_FORCEINLINE BoaResult boa_vmmac_invokeoperatormethoddefault(BoaState* state,
     BoaClass* klass;
     boa_vmmac_writeframe(state);
     klass = boa_state_getclassfor(state, bv);
+
+
     if(klass == NULL)
     {
         if(boa_vm_raiseerror(state, "use of method '%s' on a null value", boa_string_getdata(mthname)))
@@ -20167,7 +20246,7 @@ BOA_FORCEINLINE BoaResult boa_vmmac_invokeoperatormethodandcontinue(BoaState* st
     klass = boa_state_getclassfor(state, bv);
     if(klass == NULL)
     {
-        if(boa_vm_raiseerror(state, "only instances and classes have methods"))
+        if(boa_vm_raiseerror(state, "only instances and classes have methods (invokeoperatormethodandcontinue)"))
         {
             if(!boa_vmmac_recoverstate(state, fiber, &tmpres))
             {
@@ -21503,10 +21582,26 @@ dispatch:
                 boa_vmmac_fail(state, "attempt to invoke '%s' on a null value", boa_string_getdata(mthname));
             }
             #endif
-            klass = boa_value_isclass(instance) ? boa_value_asclass(instance) : boa_state_getclassfor(state, instance);
+            klass = NULL;
+            if(boa_value_isclass(instance))
+            {
+                klass = boa_value_asclass(instance);
+            }
+            else
+            {
+                if(boa_value_isinstance(instance))
+                {
+                    klass = boa_value_asinstance(instance)->klass;
+                }
+                else
+                {
+                    klass = boa_state_getclassfor(state, instance);
+                }
+            }
             if(klass == NULL)
             {
-                boa_vmmac_fail(state, "only instances and classes have methods");
+                
+                boa_vmmac_fail(state, "only instances and classes have methods (OP:INVOKE)");
             }
             argc = boa_vmutil_getb(state->vmstate.instruction) - 1;
             if(boa_value_isinstance(instance) && (boa_table_getentry(&boa_value_asinstance(instance)->fields, mthname, &method)))
@@ -21557,7 +21652,7 @@ dispatch:
             klass = boa_value_asclass(instance);
             if(klass == NULL)
             {
-                boa_vmmac_fail(state, "only instances and classes have methods");
+                boa_vmmac_fail(state, "only instances and classes have methods (OP:INVOKESUPER)");
             }
             mthname = boa_value_asstring(state->vmstate.vmconstantvalues[boa_vmutil_getc(state->vmstate.instruction)]);
             argc = boa_vmutil_getb(state->vmstate.instruction) - 1;

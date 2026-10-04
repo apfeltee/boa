@@ -20,7 +20,7 @@ try
     println(i)
     try
     {
-        println(String[10]())
+        println({}[10]())
     }
     catch(e)
     {
