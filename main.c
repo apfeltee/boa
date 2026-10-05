@@ -1220,6 +1220,7 @@ struct BoaState
         BoaException* stdexception;
         BoaException* stdioerror;
         BoaException* stdargumenterror;
+        BoaException* stdsyntaxerror;
     } exceptions;
     BoaModule* lastmodule;
     BoaConstStrings strings;
@@ -6016,6 +6017,7 @@ void boa_gcmem_markroots(BoaState* state)
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdexception);
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdioerror);
     boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdargumenterror);
+    boa_gcmem_markobject(state, (BoaObject*)state->exceptions.stdsyntaxerror);
     boa_gcmem_markobject(state, (BoaObject*)state->apiname);
     boa_gcmem_markobject(state, (BoaObject*)state->apifunction);
     boa_table_markentries(&state->vmstate.modules->innertable);
@@ -7493,7 +7495,7 @@ void boa_ast_destroyexpression(BoaState* state, BoaAstExpression* topexpr)
         }
         default:
         {
-            boa_state_raiseerror(state, "unknown expression type %d", (int)topexpr->type);
+            boa_vm_raiseexception(state, state->exceptions.stdsyntaxerror, "unknown expression type %d", (int)topexpr->type);
             break;
         }
     }
@@ -8046,53 +8048,65 @@ BoaAstToken boa_astlex_scanstring(BoaAstLexer* lex, bool istplstring, bool usees
                         }
                         else
                         {
-                            switch(nextch)
+                            if(istplstring)
                             {
-                                case '\"':
-                                    boa_dynlistbyte_push(&tgtbuf, '\"');
-                                    break;
-                                case '\\':
-                                    boa_dynlistbyte_push(&tgtbuf, '\\');
-                                    break;
-                                case '0':
-                                    boa_dynlistbyte_push(&tgtbuf, '\0');
-                                    break;
-                                case '{':
-                                    boa_dynlistbyte_push(&tgtbuf, '{');
-                                    break;
-                                case '$':
-                                    boa_dynlistbyte_push(&tgtbuf, '$');
-                                    break;
-                                case 'a':
-                                    boa_dynlistbyte_push(&tgtbuf, '\a');
-                                    break;
-                                case 'b':
-                                    boa_dynlistbyte_push(&tgtbuf, '\b');
-                                    break;
-                                case 'f':
-                                    boa_dynlistbyte_push(&tgtbuf, '\f');
-                                    break;
-                                case 'n':
-                                    boa_dynlistbyte_push(&tgtbuf, '\n');
-                                    break;
-                                case 'r':
-                                    boa_dynlistbyte_push(&tgtbuf, '\r');
-                                    break;
-                                case 't':
-                                    boa_dynlistbyte_push(&tgtbuf, '\t');
-                                    break;
-                                case 'v':
-                                    boa_dynlistbyte_push(&tgtbuf, '\v');
-                                    break;
-                                case 'e':
-                                    boa_dynlistbyte_push(&tgtbuf, 27);
-                                    break;
-                                default:
-                                    {
-                                        boa_dynlistbyte_destroy(&tgtbuf);
-                                        return boa_astlex_makeerrortoken(lex, "invalid escape character <%c>", lex->sourcedatacurrent[-1]);
-                                    }
-                                    break;
+                                switch(nextch)
+                                {
+                                    case '\\':
+                                        boa_dynlistbyte_push(&tgtbuf, '\\');
+                                        break;
+                                }
+                            }
+                            else
+                            {
+                                switch(nextch)
+                                {
+                                    case '\"':
+                                        boa_dynlistbyte_push(&tgtbuf, '\"');
+                                        break;
+                                    case '\\':
+                                        boa_dynlistbyte_push(&tgtbuf, '\\');
+                                        break;
+                                    case '0':
+                                        boa_dynlistbyte_push(&tgtbuf, '\0');
+                                        break;
+                                    case '{':
+                                        boa_dynlistbyte_push(&tgtbuf, '{');
+                                        break;
+                                    case '$':
+                                        boa_dynlistbyte_push(&tgtbuf, '$');
+                                        break;
+                                    case 'a':
+                                        boa_dynlistbyte_push(&tgtbuf, '\a');
+                                        break;
+                                    case 'b':
+                                        boa_dynlistbyte_push(&tgtbuf, '\b');
+                                        break;
+                                    case 'f':
+                                        boa_dynlistbyte_push(&tgtbuf, '\f');
+                                        break;
+                                    case 'n':
+                                        boa_dynlistbyte_push(&tgtbuf, '\n');
+                                        break;
+                                    case 'r':
+                                        boa_dynlistbyte_push(&tgtbuf, '\r');
+                                        break;
+                                    case 't':
+                                        boa_dynlistbyte_push(&tgtbuf, '\t');
+                                        break;
+                                    case 'v':
+                                        boa_dynlistbyte_push(&tgtbuf, '\v');
+                                        break;
+                                    case 'e':
+                                        boa_dynlistbyte_push(&tgtbuf, 27);
+                                        break;
+                                    default:
+                                        {
+                                            boa_dynlistbyte_destroy(&tgtbuf);
+                                            return boa_astlex_makeerrortoken(lex, "invalid escape character <%c>", lex->sourcedatacurrent[-1]);
+                                        }
+                                        break;
+                                }
                             }
                         }
                     }
@@ -8464,7 +8478,7 @@ BoaAstToken boa_astlex_scantoken(BoaAstLexer* lex)
             break;
         case '`':
             {
-                return boa_astlex_scanstring(lex, true, false, '`');
+                return boa_astlex_scanstring(lex, true, true, '`');
             }
         case 34:
             {
@@ -8542,7 +8556,7 @@ void boa_astparser_failactual(BoaAstParser* prs, BoaAstToken* token, const char*
     {
         return;
     }
-    boa_state_raiseerror(prs->pstate, message);
+    boa_vm_raiseexception(prs->pstate, prs->pstate->exceptions.stdsyntaxerror, message);
     prs->haderror = true;
     boa_astparser_sync(prs);
 }
@@ -9667,7 +9681,7 @@ BoaAstExpression* boa_astparser_parsetry(BoaAstParser* prs)
     }
     if(catchblock == NULL && finallyblock == NULL)
     {
-        boa_state_raiseerror(prs->pstate, "expected <catch> or <finally> after <try>");
+        boa_vm_raiseexception(prs->pstate, prs->pstate->exceptions.stdsyntaxerror, "expected <catch> or <finally> after <try>");
     }
     return (BoaAstExpression*)boa_ast_maketrystmt(line, tryblock, catchblock, finallyblock, catchvarstr, catchvarlen);
 }
@@ -16573,6 +16587,10 @@ void boa_state_openstdclasses(BoaState* state)
             klass = boa_class_make(state, "ArgumentError", state->exceptions.stdexception->baseclass);
             state->exceptions.stdargumenterror = boa_object_makeexception(state, klass);            
         }
+        {
+            klass = boa_class_make(state, "SyntaxError", state->exceptions.stdexception->baseclass);
+            state->exceptions.stdsyntaxerror = boa_object_makeexception(state, klass);            
+        }
     }
 }
 
@@ -19673,7 +19691,7 @@ bool boa_vm_handleerror(BoaState* state, BoaValue errorvalue)
     BoaFuncScript* function;
     BoaChunk* chunk;
     const char* name;
-    size_t line;
+    size_t line; 
     BoaException* exception;
     pr = state->streamstderr;
     errstrval = errorvalue;
@@ -19716,6 +19734,10 @@ bool boa_vm_handleerror(BoaState* state, BoaValue errorvalue)
     }
     /* at this point, the exception has not been caught, so print info about it */
     fiber = state->vmstate.fiber;
+    if(fiber == NULL)
+    {
+        goto postfiber;
+    }
     fiber->muststop = true;
     fiber->error = errstrval;
     if(fiber->parent != NULL)
@@ -19723,6 +19745,7 @@ bool boa_vm_handleerror(BoaState* state, BoaValue errorvalue)
         fiber->parent->muststop = true;
     }
     count = (int)fiber->framecount - 1;
+    postfiber:
     boa_stream_setcolor(pr, 'r');
     if(boa_value_isexception(errstrval))
     {
@@ -19737,24 +19760,27 @@ bool boa_vm_handleerror(BoaState* state, BoaValue errorvalue)
         boa_value_printvalue(pr, errorvalue, true);
     }
     boa_stream_printf(pr, "\n");
-    for(i = count; i >= 0; i--)
+    if(fiber != NULL)
     {
-        frame = &fiber->framevals[i];
-        function = frame->function;
-        chunk = &function->chunk;
-        name = NULL;
-        if(function->name != NULL)
+        for(i = count; i >= 0; i--)
         {
-            name = boa_string_getdata(function->name);
-        }
-        if(chunk->haslineinfo)
-        {
-            line = boa_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1);
-            boa_stream_printf(pr, "  [line %ld] in %s()\n", line, name);
-        }
-        else
-        {
-            boa_stream_printf(pr, "\tin %s()\n", name);
+            frame = &fiber->framevals[i];
+            function = frame->function;
+            chunk = &function->chunk;
+            name = NULL;
+            if(function->name != NULL)
+            {
+                name = boa_string_getdata(function->name);
+            }
+            if(chunk->haslineinfo)
+            {
+                line = boa_chunk_getline(chunk, frame->ip - chunk->compiledcodechunk - 1);
+                boa_stream_printf(pr, "  [line %ld] in %s()\n", line, name);
+            }
+            else
+            {
+                boa_stream_printf(pr, "\tin %s()\n", name);
+            }
         }
     }
     boa_stream_resetcolor(pr);
